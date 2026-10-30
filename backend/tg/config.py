@@ -1,0 +1,75 @@
+"""TG-compatible config: re-exports Beacon settings under the names TG code expects.
+
+Usage (same as TG):
+    from backend.tg.config import settings
+    settings.GOOGLE_CLIENT_ID
+"""
+
+from __future__ import annotations
+
+from backend.main.config import (  # noqa: F401
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    BASE_URL,
+    CORS_ORIGINS,
+    DATAFORSEO_LOGIN,
+    DATAFORSEO_PASSWORD,
+    FACEBOOK_OAUTH_SCOPES,
+    FACEBOOK_REDIRECT_URI,
+    FRONTEND_URL,
+    GCS_BUCKET_NAME,
+    GCS_KEY_JSON,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI,
+    INSTAGRAM_GRAPH_VERSION,
+    INSTAGRAM_OAUTH_SCOPES,
+    INSTAGRAM_REDIRECT_URI,
+    JWT_ALGORITHM,
+    MONGODB_DB_NAME,
+    MONGODB_URI,
+    OPENAI_API_KEY,
+    OPENAI_CONTENT_PLAN_MAP_EFFORT,
+    OPENAI_CONTENT_PLAN_MODEL,
+    OPENAI_IMAGE_MODEL,
+    OPENAI_LOG_PATH,
+    OPENAI_MODEL,
+    OPENAI_REASONING_EFFORT,
+    OPENAI_TTS_INSTRUCTIONS,
+    OPENAI_TTS_MODEL,
+    OPENAI_TTS_VOICE,
+    PLUG_INSTA_REDIRECT_URI,
+    SCRAPE_LOG_PATH,
+    SECRET_KEY,
+    THUMBNAIL_MODEL,
+    TRENDS_GEO,
+    TRENDS_LOCATION_NAME,
+    TRENDS_TTL_DAYS,
+    YT_METADATA_EFFORT,
+    YT_METADATA_MODEL,
+    cors_origin_list,
+    require_google_oauth,
+    require_openai,
+    settings,
+)
+
+__all__ = [
+    "settings",
+    "SECRET_KEY",
+    "JWT_ALGORITHM",
+    "ACCESS_TOKEN_EXPIRE_MINUTES",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REDIRECT_URI",
+    "FRONTEND_URL",
+    "BASE_URL",
+    "CORS_ORIGINS",
+    "MONGODB_URI",
+    "MONGODB_DB_NAME",
+    "GCS_BUCKET_NAME",
+    "GCS_KEY_JSON",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "cors_origin_list",
+    "require_google_oauth",
+    "require_openai",
+]

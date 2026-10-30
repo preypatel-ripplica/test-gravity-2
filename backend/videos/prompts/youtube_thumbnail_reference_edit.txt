@@ -1,0 +1,23 @@
+Use the reference image ONLY as a style template.
+{layout_keep}
+
+BRANDING IS FROZEN. Reproduce these exactly as they appear in the reference — same glyphs, same Latin spelling, same position, same size, same colours:
+  • the clinic logo / emblem — copy it precisely, do not redraw, restyle or simplify it
+  • the clinic name — if it reads "Jain Pain Clinic" it must still read "Jain Pain Clinic"
+  • the doctor's name and credentials card
+  • any hospital name, website or handle
+These are proper nouns and brand assets. They are NEVER translated, NEVER transliterated into {language} script, and NEVER re-spelled — not even when every other word on the thumbnail is in {language}. They stay in the Latin alphabet exactly as given.
+
+REPLACE everything else. None of the reference's wording may survive — it belongs to a different video and would be wrong on this one.
+Specifically remove: {forbid}.
+
+The new video is about: {topic}.
+Replace the illustration with a clean, medically accurate diagram of that subject.
+
+ALL new text must be in {language}.
+Headline, exactly and only: "{headline}"
+Sub-banner, exactly: "{sub_banner}"
+Do not paraphrase, translate, shorten or fix any of the text supplied above.
+Do not include any bullet points, icon pills, symptom chips or feature callouts. If the reference has them, remove those elements entirely and leave clean background in their place. Do not invent replacement text for them.
+
+Composition: {composition}. {safe_zone}

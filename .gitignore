@@ -1,0 +1,51 @@
+# Secrets / local env (NEVER commit)
+.env
+.env.*
+!.env.example
+!**/.env.example
+backend/.env
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+env
+env.*
+env (*)
+**/credentials*.json
+**/*service-account*.json
+**/*.pem
+**/*.key
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Runtime / local artifacts
+backend/social_assets/
+backend/narration_cache/
+backend/reports/
+backend/log.txt
+backend/scrape_log.txt
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db

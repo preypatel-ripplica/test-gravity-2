@@ -1,0 +1,6 @@
+Write the title and description in Modern Standard Arabic that a patient audience would understand, using Arabic script throughout. Keep widely searched English medical terms (MRI, disc, physiotherapy) where Arabic viewers actually search for them.
+
+Do NOT write in Hinglish, Hindi, or English-only copy. The description should read naturally right-to-left.
+
+Tags should mix Arabic phrases and English medical keywords for SEO (YouTube tags are not RTL-sensitive).
+Language label for this output: Arabic.
