@@ -52,7 +52,7 @@ BASE_URL = _env("BASE_URL", "http://localhost:8000")
 FRONTEND_URL = _env("FRONTEND_URL", "http://localhost:5173")
 CORS_ORIGINS = _env(
     "CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,http://localhost:5175,https://app.xyz",
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175,https://plugai.ripplica.com",
 )
 
 

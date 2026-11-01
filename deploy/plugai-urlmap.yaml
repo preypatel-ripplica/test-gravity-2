@@ -1,0 +1,14 @@
+name: plugai-lb
+defaultService: https://www.googleapis.com/compute/v1/projects/ripplicav2/global/backendServices/plugai-frontend-bs
+hostRules:
+- hosts:
+  - plugai.ripplica.com
+  pathMatcher: plugai-web
+- hosts:
+  - plugai.api.ripplica.com
+  pathMatcher: plugai-api
+pathMatchers:
+- name: plugai-web
+  defaultService: https://www.googleapis.com/compute/v1/projects/ripplicav2/global/backendServices/plugai-frontend-bs
+- name: plugai-api
+  defaultService: https://www.googleapis.com/compute/v1/projects/ripplicav2/global/backendServices/plugai-backend-bs
