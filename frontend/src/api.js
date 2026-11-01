@@ -10,6 +10,18 @@ async function parseError(response) {
   return err.detail || `HTTP ${response.status}`
 }
 
+export function isAuthExpiredError(error) {
+  if (!error) return false
+  if (error.name === 'AuthExpiredError') return true
+  if (error.status === 401) return true
+  const message = String(error.message || '')
+  return (
+    message === 'Authentication token has expired' ||
+    message === 'Token is invalid or expired' ||
+    message === 'Token is missing'
+  )
+}
+
 export async function apiFetch(path, { token, body, form, formData } = {}) {
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
@@ -28,7 +40,10 @@ export async function apiFetch(path, { token, body, form, formData } = {}) {
 
   const response = await fetch(url(path), { method: 'POST', headers, body: payload })
   if (!response.ok) {
-    throw new Error(await parseError(response))
+    const error = new Error(await parseError(response))
+    error.status = response.status
+    if (response.status === 401) error.name = 'AuthExpiredError'
+    throw error
   }
   if (response.status === 204) return null
   return response.json()
@@ -861,6 +876,31 @@ export const api = {
     apiFetch('/client.credentials.save', {
       token,
       body: { client_id: clientId, credentials },
+    }),
+
+  listProjectMembers: (token, projectId) =>
+    apiFetch('/project.members.list', {
+      token,
+      body: { project_id: projectId },
+    }),
+  setProjectMember: (token, projectId, { user_id, email, domains }) =>
+    apiFetch('/project.members.set', {
+      token,
+      body: {
+        project_id: projectId,
+        ...(user_id ? { user_id } : {}),
+        ...(email ? { email } : {}),
+        domains,
+      },
+    }),
+  removeProjectMember: (token, projectId, { user_id, email } = {}) =>
+    apiFetch('/project.members.remove', {
+      token,
+      body: {
+        project_id: projectId,
+        ...(user_id ? { user_id } : {}),
+        ...(email ? { email } : {}),
+      },
     }),
 
   listWebsiteSchemaPresets: (token) =>

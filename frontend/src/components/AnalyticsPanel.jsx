@@ -30,18 +30,24 @@ ChartJS.register(
   Legend,
 )
 
+function formatDate(d) {
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
 function getDateRange(rangeType) {
   const today = new Date()
-  let start = new Date()
-  let end = new Date()
-  
-  // Set end date to yesterday (since YouTube analytics data has a 1-2 day delay)
-  end.setDate(today.getDate() - 1)
+  // End = yesterday (YouTube analytics often lags 1–2 days)
+  let end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  let start
 
   if (rangeType === '7days') {
-    start.setDate(end.getDate() - 7)
+    // Construct from end's Y/M/D — do NOT mutate a "today" Date with setDate(end.getDate()-N);
+    // that keeps today's month and can yield start > end (e.g. Nov 24 → Oct 31).
+    start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 7)
   } else if (rangeType === '30days') {
-    start.setDate(end.getDate() - 30)
+    start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 30)
   } else if (rangeType === 'current_month') {
     start = new Date(end.getFullYear(), end.getMonth(), 1)
   } else if (rangeType === 'last_month') {
@@ -49,12 +55,8 @@ function getDateRange(rangeType) {
     end = new Date(today.getFullYear(), today.getMonth(), 0)
   } else if (rangeType === 'this_year') {
     start = new Date(end.getFullYear(), 0, 1)
-  }
-
-  const formatDate = (d) => {
-    const month = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${d.getFullYear()}-${month}-${day}`
+  } else {
+    start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 7)
   }
 
   return { startDate: formatDate(start), endDate: formatDate(end) }

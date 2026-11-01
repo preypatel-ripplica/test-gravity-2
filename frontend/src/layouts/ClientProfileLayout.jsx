@@ -97,6 +97,11 @@ export default function ClientProfileLayout() {
             <NavItem to={`${base}/credentials`} icon={<i className="fa-solid fa-key" />}>
               Credentials
             </NavItem>
+            {client?.is_owner ? (
+              <NavItem to={`${base}/access`} icon={<i className="fa-solid fa-user-shield" />}>
+                Access
+              </NavItem>
+            ) : null}
           </NavSection>
         </nav>
 

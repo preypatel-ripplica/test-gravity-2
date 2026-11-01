@@ -39,14 +39,19 @@ def channel_list(
     body: schemas.ChannelListRequest = Body(default_factory=schemas.ChannelListRequest),
     current_user: dict = Depends(get_current_user),
 ):
+    from backend.main.models import Domain
+    from backend.tg.database import require_domain_for_user
+
     username = current_user["username"]
     user = fetch_user(username) or {}
     client_id = body.client_id or user.get("active_client_id")
-    if client_id and not fetch_client_doc(client_id, username=username):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Client '{client_id}' not found.",
-        )
+    if client_id:
+        require_domain_for_user(username, client_id, Domain.VIDEOS)
+        if not fetch_client_doc(client_id, username=username):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Client '{client_id}' not found.",
+            )
     channels = [_channel_to_info(c) for c in (list_channels_meta(client_id) if client_id else [])]
     return schemas.YouTubeChannelListResponse(
         channels=channels,
@@ -60,12 +65,16 @@ def channel_get(
     body: schemas.ChannelGetRequest = Body(default_factory=schemas.ChannelGetRequest),
     current_user: dict = Depends(get_current_user),
 ):
+    from backend.main.models import Domain
+    from backend.tg.database import require_domain_for_user
+
     username = current_user["username"]
     user = fetch_user(username) or {}
     client_id = body.client_id or user.get("active_client_id")
     channel_id = body.channel_id or user.get("active_channel_id")
     if not client_id or not channel_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found.")
+    require_domain_for_user(username, client_id, Domain.VIDEOS)
     if not fetch_client_doc(client_id, username=username):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

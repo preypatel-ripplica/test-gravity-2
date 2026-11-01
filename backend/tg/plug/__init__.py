@@ -1,2 +1,5 @@
-from __future__ import annotations
-"""Stub Plug package — Plug domain is out of scope; keep IG callback import-safe."""
+"""Isolated Plug product for general content creators.
+
+One login = one creator. Separate Mongo collections and JWT audience
+from the doctor / YouTube client app.
+"""

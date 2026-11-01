@@ -20,6 +20,10 @@ STAGE_LABELS = {
     "shared_with_doctor": "Shared with doctor",
     "posted": "Posted",
     "published": "Published",
+    "creatives_checked": "Creatives checked",
+    "balance_checked": "Balance checked",
+    "next_2_weeks_planned": "Next 2 weeks planned",
+    "results_discussed": "Results discussed",
 }
 
 
@@ -51,26 +55,53 @@ def card_links(card: dict) -> list[str]:
     return urls
 
 
-def flatten_weekly_rows(docs_by_week: dict[int, dict], year: int, month: int) -> list[dict]:
+def flatten_weekly_rows(
+    docs_by_week: dict[int, dict],
+    year: int,
+    month: int,
+    allowed_types: list[str] | None = None,
+    skip_weeks: set[int] | None = None,
+) -> list[dict]:
     rows = []
+    allowed = set(allowed_types) if allowed_types is not None else None
+    skip = skip_weeks or set()
+    type_order = ("long_video", "short", "static_post", "blog", "paid_ads")
     for week in weeks_in_month(year, month):
+        if week in skip:
+            continue
         doc = docs_by_week.get(week) or {}
         cards = sorted(
             [card for card in (doc.get("cards") or []) if isinstance(card, dict)],
-            key=lambda row: int(row.get("sort_order") or 0),
+            key=lambda row: (
+                type_order.index(row.get("type"))
+                if row.get("type") in type_order
+                else len(type_order),
+                int(row.get("sort_order") or 0),
+            ),
         )
         for card in cards:
             card_type = str(card.get("type") or "").strip()
+            if allowed is not None and card_type not in allowed:
+                continue
             stage = str(card.get("stage") or "planned").strip()
+            # Lazy import avoids circular import with tracker_settings.
+            from backend.trackers.tracker_settings import normalize_marking
+
+            marking = normalize_marking(card.get("marking"))
             rows.append(
                 {
                     "week": week,
                     "card_id": card.get("id") or "",
                     "row_key": f"card:{card.get('id') or ''}",
                     "content_type": card_type,
-                    "content_type_label": TYPE_LABELS.get(card_type, card_type or "Unknown"),
+                    "content_type_label": TYPE_LABELS.get(
+                        card_type, card_type or "Unknown"
+                    ),
                     "stage": stage,
-                    "stage_label": STAGE_LABELS.get(stage, stage.replace("_", " ").title()),
+                    "stage_label": STAGE_LABELS.get(
+                        stage, stage.replace("_", " ").title()
+                    ),
+                    "marking": marking,
                     "links": card_links(card),
                 }
             )

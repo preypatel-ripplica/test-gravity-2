@@ -97,11 +97,13 @@ class User(BaseModel):
 
 
 class Project(BaseModel):
-    """Client account: profile + topics list. No member list."""
+    """Client account: profile + topics list. Members live in `access`; owner here."""
 
     id: str = Field(default_factory=lambda: new_id("project"))
     name: str
     status: ProjectStatus = ProjectStatus.ACTIVE
+    # User who owns this project and can grant/revoke domain access.
+    owner_user_id: Optional[str] = None
     website_url: Optional[str] = None
     specialty: Optional[str] = None
     designation: Optional[str] = None

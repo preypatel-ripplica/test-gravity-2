@@ -1,6 +1,14 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useOutletContext, useParams } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 
-export default function ProfileTabs({ clientId }) {
+export default function ProfileTabs({ clientId: clientIdProp, isOwner: isOwnerProp }) {
+  const { clientId: routeClientId } = useParams()
+  const outlet = useOutletContext() || {}
+  const { user } = useAuth()
+  const clientId = clientIdProp || outlet.clientId || routeClientId
+  const client =
+    outlet.client || (user?.clients || []).find((c) => c.id === clientId) || null
+  const isOwner = isOwnerProp ?? Boolean(client?.is_owner)
   const base = `/clients/${clientId}/profile`
   return (
     <nav className="profile-tabs" aria-label="Client profile sections">
@@ -40,6 +48,14 @@ export default function ProfileTabs({ clientId }) {
       >
         Credentials
       </NavLink>
+      {isOwner ? (
+        <NavLink
+          to={`${base}/access`}
+          className={({ isActive }) => `profile-tab ${isActive ? 'active' : ''}`}
+        >
+          Access
+        </NavLink>
+      ) : null}
     </nav>
   )
 }

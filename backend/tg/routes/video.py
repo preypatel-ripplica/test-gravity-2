@@ -40,6 +40,9 @@ def _resolve_ids(
     client_id: str | None,
     channel_id: str | None,
 ) -> tuple[str, str]:
+    from backend.main.models import Domain
+    from backend.tg.database import require_domain_for_user
+
     user = fetch_user(username)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -47,6 +50,7 @@ def _resolve_ids(
     chid = channel_id or user.get("active_channel_id")
     if not cid or not chid:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found.")
+    require_domain_for_user(username, cid, Domain.VIDEOS)
     if not fetch_client_doc(cid, username=username):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -180,15 +180,61 @@ def _user_id_for(username: str | None) -> str | None:
 
 
 def _has_project_access(username: str | None, project_id: str) -> bool:
-    """True if username is None (no owner filter) or has any grant on the project."""
+    """True if username is None (no filter), is owner, or has any access grant."""
     if username is None:
         return True
     user_id = _user_id_for(username)
     if not user_id:
         return False
+    project = projects_col().find_one(
+        {"id": project_id}, {"_id": 0, "owner_user_id": 1}
+    )
+    if project and project.get("owner_user_id") == user_id:
+        return True
     return (
         access_col().find_one({"user_id": user_id, "project_id": project_id}, {"_id": 1})
         is not None
+    )
+
+
+def _has_domain_access(
+    username: str | None, project_id: str, domain: Domain | str
+) -> bool:
+    """True if username is None, is owner, or has a grant for this domain."""
+    if username is None:
+        return True
+    user_id = _user_id_for(username)
+    if not user_id:
+        return False
+    domain_value = domain.value if isinstance(domain, Domain) else str(domain)
+    project = projects_col().find_one(
+        {"id": project_id}, {"_id": 0, "owner_user_id": 1}
+    )
+    if not project:
+        return False
+    if project.get("owner_user_id") == user_id:
+        return True
+    return (
+        access_col().find_one(
+            {"user_id": user_id, "project_id": project_id, "domain": domain_value},
+            {"_id": 1},
+        )
+        is not None
+    )
+
+
+def require_domain_for_user(
+    username: str, project_id: str, domain: Domain | str
+) -> None:
+    """Raise 403 unless username may use this domain on the project."""
+    from fastapi import HTTPException
+
+    if _has_domain_access(username, project_id, domain):
+        return
+    domain_value = domain.value if isinstance(domain, Domain) else str(domain)
+    raise HTTPException(
+        status_code=403,
+        detail=f"No access to domain '{domain_value}' on this project",
     )
 
 
@@ -348,15 +394,22 @@ def insert_client(username: str, client: dict) -> None:
     user = _find_user_doc(username)
     if not user:
         return
+    from backend.trackers.tracker_settings import current_week_tuple
+
+    start_year, start_month, start_week = current_week_tuple()
     project = Project(
         id=client.get("id") or new_id("project"),
         name=(client.get("name") or "Untitled").strip() or "Untitled",
+        owner_user_id=user["id"],
         website_url=client.get("website_url"),
         specialty=client.get("specialty"),
         designation=client.get("designation"),
         description=client.get("description"),
         reference_youtube_channel=client.get("reference_youtube_channel"),
         ai_videos_started_from=client.get("ai_videos_started_from"),
+        tracker_start_year=client.get("tracker_start_year", start_year),
+        tracker_start_month=client.get("tracker_start_month", start_month),
+        tracker_start_week=client.get("tracker_start_week", start_week),
     ).model_dump(mode="json")
     project["topics"] = [dict(t) for t in (client.get("topics") or []) if isinstance(t, dict)]
     projects_col().insert_one(project)
@@ -2030,6 +2083,33 @@ def fetch_weekly_tracker(client_id: str, year: int, month: int, week: int) -> di
         {"project_id": client_id, "year": int(year), "month": int(month), "week": int(week)}
     )
     return _tracker_out(doc)
+
+
+def fetch_weekly_trackers_by_ids(doc_ids: list[str]) -> dict[str, dict]:
+    """Batch-load weekly tracker docs keyed by id (weekly:client:y:m:w)."""
+    ids = [doc_id for doc_id in doc_ids if doc_id]
+    if not ids:
+        return {}
+    out: dict[str, dict] = {}
+    for doc in weekly_trackers_col().find({"id": {"$in": ids}}):
+        row = _tracker_out(doc)
+        if row and row.get("id"):
+            out[str(row["id"])] = row
+    return out
+
+
+def fetch_custom_trackers_by_client_ids(client_ids: list[str]) -> dict[str, dict]:
+    """Batch-load custom tracker docs keyed by client/project id."""
+    ids = [client_id for client_id in client_ids if client_id]
+    if not ids:
+        return {}
+    out: dict[str, dict] = {}
+    for doc in custom_trackers_col().find({"project_id": {"$in": ids}}):
+        row = _tracker_out(doc)
+        client_id = str(row.get("client_id") or row.get("project_id") or "")
+        if client_id:
+            out[client_id] = row
+    return out
 
 
 def save_weekly_tracker(doc: dict) -> dict:

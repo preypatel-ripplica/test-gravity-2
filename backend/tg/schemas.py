@@ -1137,6 +1137,13 @@ class TrackerSheetAllRow(BaseModel):
     due_date: str = ""
     comment: str = ""
     href: str = ""
+    week: int = 0
+    year: int = 0
+    month: int = 0
+    completed: bool = False
+    tone: str = "pending"
+    content_type: str = ""
+    task_id: str = ""
 
 
 class TrackerSheetAllResponse(BaseModel):
