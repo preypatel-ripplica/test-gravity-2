@@ -1,0 +1,17 @@
+.git
+.gcloudignore
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/__pycache__
+**/*.pyc
+frontend/dist
+backend/social_assets
+backend/narration_cache
+backend/reports
+**/*.log
+.DS_Store
+.cursor
+.venv
+venv

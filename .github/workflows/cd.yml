@@ -1,0 +1,91 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+
+jobs:
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ripplicav2
+      REGION: asia-south1
+      REPO: asia-south1-docker.pkg.dev/ripplicav2/plugai
+      RUNTIME_SA: plugai-runtime@ripplicav2.iam.gserviceaccount.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/952983432230/locations/global/workloadIdentityPools/plugai-github/providers/github
+          service_account: plugai-deployer@ripplicav2.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build and push backend
+        run: |
+          docker build \
+            -f deploy/backend.Dockerfile \
+            -t "$REPO/plugai-backend:${GITHUB_SHA}" \
+            -t "$REPO/plugai-backend:latest" \
+            .
+          docker push "$REPO/plugai-backend:${GITHUB_SHA}"
+          docker push "$REPO/plugai-backend:latest"
+
+      - name: Build and push frontend
+        run: |
+          docker build \
+            -f deploy/frontend.Dockerfile \
+            -t "$REPO/plugai-frontend:${GITHUB_SHA}" \
+            -t "$REPO/plugai-frontend:latest" \
+            .
+          docker push "$REPO/plugai-frontend:${GITHUB_SHA}"
+          docker push "$REPO/plugai-frontend:latest"
+
+      - name: Deploy plugai-backend and plugai-frontend
+        run: |
+          gcloud run deploy plugai-backend \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --image="$REPO/plugai-backend:${GITHUB_SHA}" \
+            --service-account="$RUNTIME_SA" \
+            --ingress=all \
+            --no-invoker-iam-check \
+            --min-instances=1 \
+            --max-instances=10 \
+            --cpu=1 \
+            --memory=1Gi \
+            --timeout=3600 \
+            --execution-environment=gen2 \
+            --port=8080
+          gcloud run deploy plugai-frontend \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --image="$REPO/plugai-frontend:${GITHUB_SHA}" \
+            --service-account="$RUNTIME_SA" \
+            --ingress=all \
+            --no-invoker-iam-check \
+            --min-instances=1 \
+            --max-instances=10 \
+            --cpu=1 \
+            --memory=512Mi \
+            --timeout=300 \
+            --port=8080
