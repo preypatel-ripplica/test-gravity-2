@@ -2,13 +2,18 @@ import { Link, useParams } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
 import { hasStaticDeliverable, hasVideoDeliverable } from '../components/tracker/trackerUtils'
 import { useAuth } from '../context/AuthContext'
+import { DOMAINS, hasDomainAccess } from '../utils/access'
 
 export default function ClientHub() {
   const { clientId } = useParams()
   const { user } = useAuth()
   const client = (user?.clients || []).find((c) => c.id === clientId)
-  const showVideos = hasVideoDeliverable(client?.tracker_deliverables)
-  const showStatics = hasStaticDeliverable(client?.tracker_deliverables)
+  const showVideos =
+    hasDomainAccess(client, DOMAINS.VIDEOS) && hasVideoDeliverable(client?.tracker_deliverables)
+  const showStatics =
+    hasDomainAccess(client, DOMAINS.SOCIALMEDIA) &&
+    hasStaticDeliverable(client?.tracker_deliverables)
+  const showWebsite = hasDomainAccess(client, DOMAINS.WEBSITE)
 
   return (
     <>
@@ -69,6 +74,7 @@ export default function ClientHub() {
           <span className="btn btn-primary btn-sm">Open Tracker</span>
         </Link>
 
+        {showWebsite ? (
         <Link to={`/clients/${clientId}/website`} className="workspace-card card">
           <div className="workspace-card-icon website">
             <i className="fa-solid fa-globe" />
@@ -79,6 +85,7 @@ export default function ClientHub() {
           </div>
           <span className="btn btn-primary btn-sm">Open Website</span>
         </Link>
+        ) : null}
       </div>
     </>
   )

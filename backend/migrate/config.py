@@ -21,7 +21,7 @@ BEACON_URI = MONGODB_URI
 BEACON_DB_NAME = MONGODB_DB_NAME
 
 BEACON_SUPERUSER_EMAIL = (
-    os.getenv("BEACON_SUPERUSER_EMAIL") or "admin@beacon.example.com"
+    os.getenv("BEACON_SUPERUSER_EMAIL") or "admin@plugai.com"
 ).strip().lower()
 BEACON_SUPERUSER_PASSWORD = (os.getenv("BEACON_SUPERUSER_PASSWORD") or "").strip()
 BEACON_SUPERUSER_NAME = (os.getenv("BEACON_SUPERUSER_NAME") or "Beacon Admin").strip()

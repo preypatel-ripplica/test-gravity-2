@@ -590,7 +590,15 @@ def _require_client_bundle(
     client_id: str,
     *,
     with_videos: bool = True,
+    domain=None,
 ) -> dict:
+    from backend.main.models import Domain
+    from backend.tg.database import require_domain_for_user
+
+    # Content-plan / video client ops require the videos domain.
+    require_domain_for_user(
+        username, client_id, domain if domain is not None else Domain.VIDEOS
+    )
     heal_user_pointers(username)
     client = fetch_client_bundle(
         client_id,

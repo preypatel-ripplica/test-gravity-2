@@ -14,10 +14,12 @@ def require_internal(auth: dict) -> None:
 
 
 def require_project_access(user_id: str, project_id: str) -> dict:
-    """Any domain grant on this project. Returns the project doc."""
+    """Any domain grant on this project (owner counts). Returns the project doc."""
     project = projects_col().find_one({"id": project_id}, {"_id": 0})
     if not project:
         raise HTTPException(404, "Project not found")
+    if project.get("owner_user_id") == user_id:
+        return project
     grant = access_col().find_one({"user_id": user_id, "project_id": project_id})
     if not grant:
         raise HTTPException(403, "No access to this project")
@@ -30,12 +32,30 @@ def require_domain_access(user_id: str, project_id: str, domain: Domain | str) -
     project = projects_col().find_one({"id": project_id}, {"_id": 0})
     if not project:
         raise HTTPException(404, "Project not found")
+    # Owner always has every domain
+    if project.get("owner_user_id") == user_id:
+        return project
     grant = access_col().find_one(
         {"user_id": user_id, "project_id": project_id, "domain": domain_value}
     )
     if not grant:
         raise HTTPException(403, f"No access to domain '{domain_value}' on this project")
     return project
+
+
+def require_project_owner(auth: dict, project_id: str) -> dict:
+    """Only the project owner may manage members / access UI."""
+    project = projects_col().find_one({"id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(404, "Project not found")
+    owner_id = project.get("owner_user_id")
+    if not owner_id or owner_id != auth.get("user_id"):
+        raise HTTPException(403, "Only the project owner can manage access")
+    return project
+
+
+def is_project_owner(user_id: str, project: dict) -> bool:
+    return bool(project.get("owner_user_id") and project.get("owner_user_id") == user_id)
 
 
 def is_client(auth: dict) -> bool:

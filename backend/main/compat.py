@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from backend.socialmedia import crudl as social
 
 from .auth import current_user
-from .db import access_col
 from .main_crudl import (
     ProjectCreateBody,
     ProjectIdBody,
@@ -21,7 +20,7 @@ from .main_crudl import (
     project_list,
     project_update,
 )
-from .models import Access, Domain
+from .models import Domain
 
 router = APIRouter(tags=["tg-compat"])
 
@@ -66,6 +65,8 @@ def _client_row(p: dict, channel_count: int) -> dict:
         "ai_videos_started_from": p.get("ai_videos_started_from"),
         "topics": p.get("topics") or [],
         "domains": p.get("domains") or [],
+        "owner_user_id": p.get("owner_user_id"),
+        "is_owner": bool(p.get("is_owner")),
         "is_active": is_active,
         "status": status,
         "onboarding_date": p.get("onboarding_date"),
@@ -93,25 +94,6 @@ def _clients_payload(auth: dict) -> dict:
     }
 
 
-def _grant_domains(user_id: str, project_id: str) -> None:
-    for domain in (Domain.VIDEOS, Domain.SOCIALMEDIA, Domain.WEBSITE):
-        access_col().update_one(
-            {
-                "user_id": user_id,
-                "project_id": project_id,
-                "domain": domain.value,
-            },
-            {
-                "$setOnInsert": Access(
-                    user_id=user_id,
-                    project_id=project_id,
-                    domain=domain,
-                ).model_dump(mode="json")
-            },
-            upsert=True,
-        )
-
-
 @router.post("/client.list")
 def client_list(auth: dict = Depends(current_user)):
     return _clients_payload(auth)
@@ -120,8 +102,8 @@ def client_list(auth: dict = Depends(current_user)):
 @router.post("/client.create")
 def client_create(body: dict, auth: dict = Depends(current_user)):
     name = ((body or {}).get("name") or "Untitled").strip()
-    project = project_create(ProjectCreateBody(name=name), auth)
-    _grant_domains(auth["user_id"], project["id"])
+    # project_create sets owner_user_id + default domain grants
+    project_create(ProjectCreateBody(name=name), auth)
     return _clients_payload(auth)
 
 

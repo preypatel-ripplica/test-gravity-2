@@ -39,7 +39,7 @@ MONGODB_DB_NAME = _env("MONGODB_DB_NAME", "beacon")
 SECRET_KEY = _env("SECRET_KEY") or _env("JWT_SECRET") or "dev-change-me"
 JWT_SECRET = SECRET_KEY  # alias used by existing Beacon auth
 JWT_ALGORITHM = _env("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = _env_int("ACCESS_TOKEN_EXPIRE_MINUTES", 180)
+ACCESS_TOKEN_EXPIRE_MINUTES = _env_int("ACCESS_TOKEN_EXPIRE_MINUTES", 259200)
 # Legacy Beacon seconds; if only TOKEN_EXPIRY_SECONDS set, honour it
 _legacy_secs = os.getenv("TOKEN_EXPIRY_SECONDS")
 if _legacy_secs and not os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"):

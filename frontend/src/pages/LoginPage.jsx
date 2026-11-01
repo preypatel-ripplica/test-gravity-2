@@ -34,7 +34,7 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="card login-box">
         <div className="logo">
-          <h2>Beacon</h2>
+          <h2>Plug AI</h2>
         </div>
         <p className="subtitle">Sign in to view your channel insights</p>
 

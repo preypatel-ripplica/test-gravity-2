@@ -114,6 +114,10 @@ def _read_prompt(name: str) -> str:
 
 
 def _require_client(username: str, client_id: str) -> dict:
+    from backend.main.models import Domain
+    from backend.tg.database import require_domain_for_user
+
+    require_domain_for_user(username, client_id, Domain.SOCIALMEDIA)
     client = fetch_client_bundle(client_id, username, with_videos=False)
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")

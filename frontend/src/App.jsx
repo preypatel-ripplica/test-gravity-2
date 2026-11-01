@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { useUI } from './context/UIContext'
+import { DOMAINS, hasDomainAccess } from './utils/access'
 import AppShell from './layouts/AppShell'
 import ChannelLayout from './layouts/ChannelLayout'
 import ClientHomeLayout from './layouts/ClientHomeLayout'
@@ -28,6 +29,7 @@ import ClientDoctorReference from './pages/ClientDoctorReference'
 import ClientPracticeDetails from './pages/ClientPracticeDetails'
 import ClientDeliverables from './pages/ClientDeliverables'
 import ClientCredentials from './pages/ClientCredentials'
+import ClientAccess from './pages/ClientAccess'
 import ClientContentPlan from './pages/ClientContentPlan'
 import ClientReportDetail from './pages/ClientReportDetail'
 import ClientReports from './pages/ClientReports'
@@ -113,6 +115,16 @@ function ClientIdGuard({ children }) {
   return children
 }
 
+function DomainGuard({ domain, children }) {
+  const { clientId } = useParams()
+  const { user } = useAuth()
+  const client = (user?.clients || []).find((c) => c.id === clientId)
+  if (user?.clients && client && !hasDomainAccess(client, domain)) {
+    return <Navigate to={`/clients/${clientId}`} replace />
+  }
+  return children
+}
+
 function RedirectToKeywords() {
   const { clientId } = useParams()
   return <Navigate to={`/clients/${clientId}/profile/keywords`} replace />
@@ -192,7 +204,9 @@ export default function App() {
           element={
             <RequireAuth>
               <ClientIdGuard>
-                <ClientLayout />
+                <DomainGuard domain={DOMAINS.VIDEOS}>
+                  <ClientLayout />
+                </DomainGuard>
               </ClientIdGuard>
             </RequireAuth>
           }
@@ -250,6 +264,7 @@ export default function App() {
           <Route path="keywords" element={<ClientSettings />} />
           <Route path="youtube-settings" element={<RedirectToKeywords />} />
           <Route path="credentials" element={<ClientCredentials />} />
+          <Route path="access" element={<ClientAccess />} />
         </Route>
 
         <Route
@@ -257,7 +272,9 @@ export default function App() {
           element={
             <RequireAuth>
               <ClientIdGuard>
-                <SocialMediaLayout />
+                <DomainGuard domain={DOMAINS.SOCIALMEDIA}>
+                  <SocialMediaLayout />
+                </DomainGuard>
               </ClientIdGuard>
             </RequireAuth>
           }
@@ -275,7 +292,9 @@ export default function App() {
           element={
             <RequireAuth>
               <ClientIdGuard>
-                <WebsiteLayout />
+                <DomainGuard domain={DOMAINS.WEBSITE}>
+                  <WebsiteLayout />
+                </DomainGuard>
               </ClientIdGuard>
             </RequireAuth>
           }

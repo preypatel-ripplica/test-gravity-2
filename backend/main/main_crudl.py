@@ -9,7 +9,11 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, EmailStr, Field
 from pymongo.errors import DuplicateKeyError
 
-from .access_guards import require_internal, require_project_access
+from .access_guards import (
+    require_internal,
+    require_project_access,
+    require_project_owner,
+)
 from .auth import current_user, create_token, decode_token, hash_password, verify_password
 from .db import access_col, channels_col, projects_col, users_col
 from .models import (
@@ -22,6 +26,12 @@ from .models import (
     User,
     UserType,
     utc_now,
+)
+
+OWNER_DEFAULT_DOMAINS = (
+    Domain.VIDEOS,
+    Domain.SOCIALMEDIA,
+    Domain.WEBSITE,
 )
 
 router = APIRouter()
@@ -87,13 +97,18 @@ class ProjectUpdateBody(BaseModel):
 
 class MembersSetBody(BaseModel):
     project_id: str
-    user_id: str
+    user_id: Optional[str] = None
+    email: Optional[EmailStr] = None
     domains: list[Domain] = Field(min_length=1)  # videos | socialmedia | …
 
 
 class MembersRemoveBody(BaseModel):
     project_id: str
-    user_id: str
+    user_id: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
+ALL_DOMAIN_VALUES = [d.value for d in Domain]
 
 
 def public_user(doc: dict) -> dict:
@@ -109,6 +124,17 @@ def public_project(doc: dict, domains: list[str] | None = None) -> dict:
     if domains is not None:
         doc["domains"] = domains
     return jsonable_encoder(doc)
+
+
+def _resolve_member_user(*, user_id: Optional[str], email: Optional[EmailStr]) -> dict:
+    if user_id:
+        return find_user(user_id)
+    if email:
+        user = users_col().find_one({"email": str(email).lower()}, {"_id": 0})
+        if not user:
+            raise HTTPException(404, "No user with that email")
+        return user
+    raise HTTPException(400, "user_id or email is required")
 
 
 def find_user(user_id: str) -> dict:
@@ -166,6 +192,8 @@ def auth_me(auth: dict = Depends(current_user)):
                 "ai_videos_started_from": p.get("ai_videos_started_from"),
                 "topics": p.get("topics") or [],
                 "domains": p.get("domains") or [],
+                "owner_user_id": p.get("owner_user_id"),
+                "is_owner": bool(p.get("is_owner")),
                 "is_active": status != ProjectStatus.ARCHIVED.value,
                 "status": status,
                 "onboarding_date": p.get("onboarding_date"),
@@ -266,40 +294,93 @@ def user_delete(body: UserGetBody, auth: dict = Depends(current_user)):
 @router.post("/project.create")
 def project_create(body: ProjectCreateBody, auth: dict = Depends(current_user)):
     require_internal(auth)
-    doc = Project(name=body.name.strip()).model_dump(mode="json")
+    from backend.trackers.tracker_settings import current_week_tuple
+
+    start_year, start_month, start_week = current_week_tuple()
+    doc = Project(
+        name=body.name.strip(),
+        owner_user_id=auth["user_id"],
+        tracker_start_year=start_year,
+        tracker_start_month=start_month,
+        tracker_start_week=start_week,
+    ).model_dump(mode="json")
     projects_col().insert_one(doc)
-    return public_project(doc)
+    for domain in OWNER_DEFAULT_DOMAINS:
+        access_col().update_one(
+            {
+                "user_id": auth["user_id"],
+                "project_id": doc["id"],
+                "domain": domain.value,
+            },
+            {
+                "$setOnInsert": Access(
+                    user_id=auth["user_id"],
+                    project_id=doc["id"],
+                    domain=domain,
+                ).model_dump(mode="json")
+            },
+            upsert=True,
+        )
+    out = public_project(doc, [d.value for d in OWNER_DEFAULT_DOMAINS])
+    out["is_owner"] = True
+    return out
 
 
 @router.post("/project.get")
 def project_get(body: ProjectIdBody, auth: dict = Depends(current_user)):
     project = require_project_access(auth["user_id"], body.project_id)
-    return public_project(project)
+    domains = [
+        row["domain"]
+        for row in access_col().find(
+            {"user_id": auth["user_id"], "project_id": body.project_id},
+            {"_id": 0, "domain": 1},
+        )
+    ]
+    is_owner = project.get("owner_user_id") == auth["user_id"]
+    out = public_project(
+        project,
+        ALL_DOMAIN_VALUES if is_owner else sorted(domains),
+    )
+    out["is_owner"] = is_owner
+    return out
 
 
 @router.post("/project.list")
 def project_list(auth: dict = Depends(current_user)):
+    uid = auth["user_id"]
     by_project: dict[str, set[str]] = {}
-    for row in access_col().find({"user_id": auth["user_id"]}, {"_id": 0}):
+    for row in access_col().find({"user_id": uid}, {"_id": 0}):
         by_project.setdefault(row["project_id"], set()).add(row["domain"])
+
+    not_deleted = {"$or": [{"deleted_at": None}, {"deleted_at": {"$exists": False}}]}
+    for p in projects_col().find(
+        {"owner_user_id": uid, **not_deleted},
+        {"_id": 0, "id": 1},
+    ):
+        by_project.setdefault(p["id"], set())
+
     if not by_project:
         return {"projects": []}
 
     projects = {
         p["id"]: p
         for p in projects_col().find(
-            {
-                "id": {"$in": list(by_project)},
-                "$or": [{"deleted_at": None}, {"deleted_at": {"$exists": False}}],
-            },
+            {"id": {"$in": list(by_project)}, **not_deleted},
             {"_id": 0},
         )
     }
-    result = [
-        public_project(projects[pid], sorted(domains))
-        for pid, domains in by_project.items()
-        if pid in projects
-    ]
+    result = []
+    for pid, domains in by_project.items():
+        if pid not in projects:
+            continue
+        project = projects[pid]
+        is_owner = project.get("owner_user_id") == uid
+        out = public_project(
+            project,
+            ALL_DOMAIN_VALUES if is_owner else sorted(domains),
+        )
+        out["is_owner"] = is_owner
+        result.append(out)
     result.sort(key=lambda p: p["name"].lower())
     return {"projects": result}
 
@@ -421,11 +502,13 @@ def project_delete(body: ProjectIdBody, auth: dict = Depends(current_user)):
 
 @router.post("/project.members.list")
 def project_members_list(body: ProjectIdBody, auth: dict = Depends(current_user)):
-    require_internal(auth)
-    require_project_access(auth["user_id"], body.project_id)
+    project = require_project_owner(auth, body.project_id)
+    owner_id = project.get("owner_user_id")
     by_user: dict[str, set[str]] = {}
     for row in access_col().find({"project_id": body.project_id}, {"_id": 0}):
         by_user.setdefault(row["user_id"], set()).add(row["domain"])
+    if owner_id:
+        by_user.setdefault(owner_id, set(ALL_DOMAIN_VALUES))
 
     members = []
     for user_id, domains in by_user.items():
@@ -433,31 +516,42 @@ def project_members_list(body: ProjectIdBody, auth: dict = Depends(current_user)
             {"id": user_id},
             {"_id": 0, "email": 1, "name": 1, "type": 1},
         )
+        is_owner = user_id == owner_id
         members.append(
             {
                 "user_id": user_id,
                 "email": user.get("email") if user else None,
                 "name": user.get("name") if user else None,
                 "type": user.get("type") if user else None,
-                "domains": sorted(domains),
+                "domains": ALL_DOMAIN_VALUES if is_owner else sorted(domains),
+                "is_owner": is_owner,
             }
         )
-    members.sort(key=lambda m: (m["name"] or m["user_id"]).lower())
-    return {"project_id": body.project_id, "members": members}
+    members.sort(
+        key=lambda m: (not m["is_owner"], (m["name"] or m["user_id"] or "").lower())
+    )
+    return {
+        "project_id": body.project_id,
+        "owner_user_id": owner_id,
+        "members": members,
+    }
 
 
 @router.post("/project.members.set")
 def project_members_set(body: MembersSetBody, auth: dict = Depends(current_user)):
-    require_internal(auth)
-    require_project_access(auth["user_id"], body.project_id)
-    find_user(body.user_id)
+    project = require_project_owner(auth, body.project_id)
+    target = _resolve_member_user(user_id=body.user_id, email=body.email)
+    if target["id"] == project.get("owner_user_id"):
+        raise HTTPException(
+            400, "Cannot change the owner's domain grants — they always have full access"
+        )
     domains = list(dict.fromkeys(body.domains))
 
-    access_col().delete_many({"project_id": body.project_id, "user_id": body.user_id})
+    access_col().delete_many({"project_id": body.project_id, "user_id": target["id"]})
     access_col().insert_many(
         [
             Access(
-                user_id=body.user_id,
+                user_id=target["id"],
                 project_id=body.project_id,
                 domain=domain,
             ).model_dump(mode="json")
@@ -466,7 +560,8 @@ def project_members_set(body: MembersSetBody, auth: dict = Depends(current_user)
     )
     return {
         "project_id": body.project_id,
-        "user_id": body.user_id,
+        "user_id": target["id"],
+        "email": target.get("email"),
         "domains": [d.value for d in domains],
     }
 
@@ -476,13 +571,15 @@ def project_members_remove(
     body: MembersRemoveBody,
     auth: dict = Depends(current_user),
 ):
-    require_internal(auth)
-    require_project_access(auth["user_id"], body.project_id)
+    project = require_project_owner(auth, body.project_id)
+    target = _resolve_member_user(user_id=body.user_id, email=body.email)
+    if target["id"] == project.get("owner_user_id"):
+        raise HTTPException(400, "Cannot remove the project owner")
     result = access_col().delete_many(
-        {"project_id": body.project_id, "user_id": body.user_id}
+        {"project_id": body.project_id, "user_id": target["id"]}
     )
     return {
         "project_id": body.project_id,
-        "user_id": body.user_id,
+        "user_id": target["id"],
         "removed": result.deleted_count,
     }

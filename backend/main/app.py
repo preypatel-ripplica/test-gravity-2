@@ -18,7 +18,9 @@ from backend.tg.routes.client import router as tg_client_router
 from backend.tg.routes.client_profile import router as tg_client_profile_router
 from backend.tg.routes.report import router as tg_report_router
 from backend.tg.routes.social import router as tg_social_router
+from backend.tg.routes.tracker_sheet import router as tg_tracker_sheet_router
 from backend.tg.routes.video import router as tg_video_router
+from backend.tg.plug.routes import router as plug_router
 
 from .compat import router as compat_router
 from .config import cors_origin_list
@@ -59,6 +61,8 @@ app.include_router(tg_client_router)
 app.include_router(tg_client_profile_router)
 app.include_router(tg_report_router)
 app.include_router(tg_social_router)
+app.include_router(tg_tracker_sheet_router)
+app.include_router(plug_router)
 
 # Beacon-native domains
 app.include_router(website_router)
