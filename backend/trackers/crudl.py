@@ -35,7 +35,6 @@ from backend.trackers.tracker_settings import (
     slots_for_week,
     slots_from_card_types,
     tracker_start_tuple,
-    week_has_ended,
     week_is_before_current,
     week_is_before_start,
 )
@@ -66,6 +65,7 @@ STAGES = {
         "video_edited",
         "shared_with_doctor",
         "posted",
+        "link_shared_with_doctor",
     ],
     "short": [
         "planned",
@@ -75,10 +75,11 @@ STAGES = {
         "video_edited",
         "shared_with_doctor",
         "posted",
+        "link_shared_with_doctor",
     ],
-    "static_post": ["planned", "posted"],
-    "blog": ["planned", "published"],
-    "paid_ads": ["planned", "posted"],
+    "static_post": ["planned", "posted", "link_shared_with_doctor"],
+    "blog": ["planned", "published", "link_shared_with_doctor"],
+    "paid_ads": ["planned", "posted", "link_shared_with_doctor"],
 }
 
 
@@ -735,7 +736,6 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
     languages = _assigned_languages(project_id)
     actor = auth.get("email") or auth["user_id"]
     existing = _ensure_week(project_id, body.year, body.month, body.week, actor)
-    incoming_ids = set()
     cards = []
     existing_by_id = {
         str(row.get("id")): row
@@ -744,7 +744,6 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
     }
     for index, incoming in enumerate(body.cards or []):
         card = dict(incoming)
-        incoming_ids.add(card.get("id"))
         card["sort_order"] = index if card.get("sort_order") is None else card["sort_order"]
         card["marking"] = normalize_marking(card.get("marking"))
         if card.get("started") and not card.get("destinations"):
@@ -769,11 +768,6 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             card["delay_recorded_by"] = actor
     for card in cards:
         apply_card_history(existing_by_id.get(str(card.get("id"))), card, by=actor)
-    if week_has_ended(body.year, body.month, body.week):
-        for card in existing.get("cards") or []:
-            if not isinstance(card, dict) or card.get("id") in incoming_ids:
-                continue
-            cards.append(card)
     cards.sort(key=lambda row: int(row.get("sort_order") or 0))
     doc = {
         **existing,

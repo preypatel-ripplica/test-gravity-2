@@ -15,14 +15,14 @@ const SOURCE_OPTIONS = [
 ]
 
 const WEEK_OPTIONS = [
-  { id: 'past', label: 'Past week' },
+  { id: 'past', label: 'Late' },
   { id: 'current', label: 'Current week' },
   { id: 'next', label: 'Next week' },
 ]
 
 const STATUS_OPTIONS = [
   { id: 'pending', label: 'Pending' },
-  { id: 'urgent', label: 'Urgent' },
+  { id: 'urgent', label: 'Late' },
   { id: 'completed', label: 'Completed' },
 ]
 
@@ -69,7 +69,6 @@ function toneClass(tone) {
 function periodLabel(row, today) {
   if (row.source === 'custom') return 'Custom'
   const period = periodOf(row, today)
-  if (period === 'past') return 'Past week'
   if (period === 'next') return 'Next week'
   return ''
 }
@@ -111,7 +110,7 @@ function summaryLabel(options, selected, allLabel) {
 
 function statusText(row) {
   if (row.tone === 'upcoming') return 'Script pending'
-  if (row.tone === 'urgent') return 'Urgent'
+  if (row.tone === 'urgent') return 'Late'
   return row.status || (row.tone === 'completed' ? 'Done' : '')
 }
 
@@ -559,7 +558,7 @@ export default function PocWeeklyTracker() {
           <Breadcrumbs items={[{ label: 'All trackers' }]} />
           <h1>All trackers</h1>
           <p>
-            Current work plus last week’s incomplete tasks. Items marked did not track are not listed.
+            Current work plus incomplete past weeks, shown as late. Items marked did not track are not listed.
           </p>
         </div>
         <div className="header-actions">
@@ -724,7 +723,7 @@ export default function PocWeeklyTracker() {
                 <div className="all-tracker-card-actions">
                   <div className="all-tracker-counts">
                     {client.urgentCount > 0 ? (
-                      <span className="all-tracker-count is-urgent">{client.urgentCount} urgent</span>
+                      <span className="all-tracker-count is-urgent">{client.urgentCount} late</span>
                     ) : null}
                     {client.pendingCount > 0 ? (
                       <span className="all-tracker-count is-pending">{client.pendingCount} pending</span>
@@ -757,7 +756,7 @@ export default function PocWeeklyTracker() {
                           <span className="all-tracker-pending-task-row">
                             <span className="all-tracker-pending-task">{row.task}</span>
                             {row.tone === 'urgent' ? (
-                              <span className="all-tracker-urgent-badge">Urgent</span>
+                              <span className="all-tracker-urgent-badge">Late</span>
                             ) : null}
                             {row.tone === 'completed' && (periodOf(row, today) !== 'next' || row.status_id === 'posted') ? (
                               <span className="all-tracker-done-badge">Done</span>

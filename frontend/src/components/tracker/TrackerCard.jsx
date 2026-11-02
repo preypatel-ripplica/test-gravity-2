@@ -17,6 +17,7 @@ import {
   TYPE_PILL,
   isVideoCard,
   maybeAdvanceStage,
+  nextStageId,
   nextStageLabel,
   nextStageSection,
   sectionForStage,
@@ -335,14 +336,28 @@ export default function TrackerCard({
       <DelayProofNote card={card} />
 
       <div className="tracker-stage-block">
-        <Timeline card={card} onSelectStage={(stageId) => scrollToSection(sectionForStage(card, stageId))} />
+        <Timeline
+          card={card}
+          onSelectStage={(stageId) => {
+            onChange({ ...card, started: true, stage: stageId })
+            scrollToSection(sectionForStage({ ...card, stage: stageId }, stageId))
+          }}
+        />
         <div className="tracker-next-row">
           <div>
             <strong>Next: {nextLabel || 'Done'}</strong>
             <p className="tracker-hint">Current stage: {card.stage.replace(/_/g, ' ')}</p>
           </div>
           {nextLabel && (
-            <button type="button" className="btn btn-primary" onClick={() => scrollToSection(nextSection)}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                const nextId = nextStageId(card)
+                if (nextId) onChange({ ...card, started: true, stage: nextId })
+                scrollToSection(nextSection)
+              }}
+            >
               {nextLabel} →
             </button>
           )}

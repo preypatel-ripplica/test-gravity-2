@@ -100,12 +100,12 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     loadChannels(clientId)
   }, [clientId, loadScripts, loadChannels])
 
-  const persist = useCallback((nextCards) => {
+  const persist = useCallback((nextCards, { immediate } = {}) => {
     if (!token || !clientId) return
     const key = `${clientId}-${year}-${month}-${week}`
     if (loadedKey.current !== key) return
     clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(async () => {
+    const run = async () => {
       if (loadedKey.current !== key) return
       try {
         await api.saveWeeklyTracker(
@@ -119,7 +119,12 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
       } catch (err) {
         toast(err.message, 'error')
       }
-    }, 400)
+    }
+    if (immediate) {
+      run()
+      return
+    }
+    saveTimer.current = setTimeout(run, 400)
   }, [token, clientId, year, month, week, toast])
 
   useEffect(() => {
@@ -192,7 +197,12 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   }
 
   function deleteCard(cardId) {
-    setCards((prev) => prev.filter((card) => card.id !== cardId))
+    setCards((prev) => {
+      const next = prev.filter((card) => card.id !== cardId)
+      skipNextSave.current = true
+      persist(next, { immediate: true })
+      return next
+    })
   }
 
   const deliverables = allowedCardTypes(weekSlots || client?.tracker_deliverables)
