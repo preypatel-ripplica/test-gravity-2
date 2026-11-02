@@ -5,9 +5,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
 
 from backend.trackers.crudl import router as trackers_router
 from backend.website.crudl import router as website_router
@@ -24,7 +26,7 @@ from backend.tg.plug.routes import router as plug_router
 
 from .compat import router as compat_router
 from .config import cors_origin_list
-from .db import close, ensure_indexes, ping
+from .db import close, ensure_indexes, ping, reset_client
 from .main_crudl import router as main_router
 
 
@@ -49,6 +51,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(AutoReconnect)
+@app.exception_handler(NetworkTimeout)
+@app.exception_handler(ServerSelectionTimeoutError)
+async def mongo_transient_handler(_request: Request, exc: Exception):
+    """Atlas TLS blips used to surface as opaque 500s — reset pool and ask client to retry."""
+    reset_client()
+    return JSONResponse(
+        status_code=503,
+        content={"detail": f"Database temporarily unavailable ({exc.__class__.__name__}). Retry."},
+    )
 
 # Core auth / project CRUDL
 app.include_router(main_router)

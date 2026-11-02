@@ -153,6 +153,12 @@ class EntryGenerateBody(WithProjectId):
     prompt: str = ""
 
 
+class MediaUploadUrlBody(WithProjectId):
+    filename: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+
+
 class MediaCreateBody(WithProjectId):
     url: str
     filename: str = ""
@@ -218,7 +224,21 @@ def collection_list(body: ProjectBody, auth: dict = Depends(current_user)):
         .find({"project_id": body.project_id}, {"_id": 0})
         .sort("name", 1)
     )
-    return {"collections": [_public_collection(r) for r in rows]}
+    counts = {
+        row["_id"]: int(row.get("count") or 0)
+        for row in cms_entries_col().aggregate(
+            [
+                {"$match": {"project_id": body.project_id}},
+                {"$group": {"_id": "$collection_id", "count": {"$sum": 1}}},
+            ]
+        )
+    }
+    collections = []
+    for row in rows:
+        out = _public_collection(row)
+        out["entry_count"] = counts.get(row.get("id"), 0)
+        collections.append(out)
+    return {"collections": collections}
 
 
 @router.post("/website.collection.get")
@@ -462,6 +482,34 @@ def media_get(body: MediaGetBody, auth: dict = Depends(current_user)):
     if not doc:
         raise HTTPException(404, "Media not found")
     return _media_response(doc)
+
+
+@router.post("/website.media.upload_url")
+def media_upload_url(body: MediaUploadUrlBody, auth: dict = Depends(current_user)):
+    """Presigned R2 PUT URL — same flow as CMS_NEW /api/media.upload_url."""
+    require_internal(auth)
+    require_domain_access(auth["user_id"], body.project_id, DOMAIN)
+    from backend.website.storage import (
+        build_r2_object_key,
+        build_r2_public_url,
+        generate_r2_upload_url,
+        r2_is_configured,
+    )
+
+    if not r2_is_configured():
+        raise HTTPException(503, "R2 storage is not configured")
+    filename = (body.filename or "upload").strip() or "upload"
+    content_type = (body.content_type or "application/octet-stream").strip()
+    object_key = build_r2_object_key(body.project_id, filename)
+    upload_url = generate_r2_upload_url(object_key, content_type)
+    return {
+        "object_key": object_key,
+        "upload_url": upload_url,
+        "public_url": build_r2_public_url(object_key),
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": body.size_bytes,
+    }
 
 
 @router.post("/website.media.create")

@@ -51,8 +51,25 @@ def get_client() -> MongoClient:
             MONGODB_URI,
             tlsCAFile=certifi.where(),
             serverSelectionTimeoutMS=15000,
+            connectTimeoutMS=20000,
+            socketTimeoutMS=45000,
+            retryWrites=True,
+            retryReads=True,
+            maxPoolSize=25,
+            minPoolSize=0,
         )
     return _client
+
+
+def reset_client() -> None:
+    """Drop the cached client so the next call opens a fresh TLS pool.
+
+    Do not close() the old client here — concurrent requests may still hold it,
+    and closing mid-flight raises ``Cannot use MongoClient after close``.
+    """
+    global _client, _indexes_ready
+    _client = None
+    _indexes_ready = False
 
 
 def get_db() -> Database:
