@@ -986,6 +986,16 @@ export const api = {
       token,
       body: { client_id: clientId, media_id: mediaId },
     }),
+  getWebsiteMediaUploadUrl: (token, clientId, { filename, content_type, size_bytes } = {}) =>
+    apiFetch('/website.media.upload_url', {
+      token,
+      body: {
+        client_id: clientId,
+        filename: filename || 'upload',
+        content_type: content_type || 'application/octet-stream',
+        size_bytes: size_bytes || undefined,
+      },
+    }),
   createWebsiteMedia: (token, clientId, { url, filename, alt_text, content_type, size_bytes, metadata } = {}) =>
     apiFetch('/website.media.create', {
       token,
@@ -999,6 +1009,30 @@ export const api = {
         metadata: metadata || {},
       },
     }),
+  async uploadWebsiteMediaFile(token, clientId, file, { alt_text } = {}) {
+    const upload = await this.getWebsiteMediaUploadUrl(token, clientId, {
+      filename: file.name,
+      content_type: file.type || 'application/octet-stream',
+      size_bytes: file.size,
+    })
+    const putRes = await fetch(upload.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+    if (!putRes.ok) {
+      const errText = await putRes.text().catch(() => '')
+      throw new Error(errText || 'Upload to storage failed')
+    }
+    return this.createWebsiteMedia(token, clientId, {
+      url: upload.public_url,
+      filename: file.name,
+      alt_text: alt_text || file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' '),
+      content_type: file.type || 'application/octet-stream',
+      size_bytes: file.size,
+      metadata: { object_key: upload.object_key },
+    })
+  },
   updateWebsiteMedia: (token, clientId, mediaId, patch) =>
     apiFetch('/website.media.update', {
       token,

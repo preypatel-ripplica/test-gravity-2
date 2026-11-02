@@ -45,6 +45,8 @@ import WebsiteOverview from './pages/WebsiteOverview'
 import WebsiteCollections from './pages/WebsiteCollections'
 import WebsiteEntries from './pages/WebsiteEntries'
 import WebsiteMedia from './pages/WebsiteMedia'
+import WebsiteReports from './pages/WebsiteReports'
+import WebsiteDeployment from './pages/WebsiteDeployment'
 import ClientWeeklyTracker from './pages/ClientWeeklyTracker'
 import ClientCustomTracker from './pages/ClientCustomTracker'
 import PocWeeklyTracker from './pages/PocWeeklyTracker'
@@ -153,6 +155,12 @@ function RedirectToFacebookConnection() {
 function RedirectToClientCustomTracker() {
   const { clientId } = useParams()
   return <Navigate to={`/clients/${clientId}/tracker/custom`} replace />
+}
+
+function WebsiteCollectionEntriesRedirect() {
+  const { clientId, collectionId } = useParams()
+  const qs = collectionId ? `?collection=${encodeURIComponent(collectionId)}` : ''
+  return <Navigate to={`/clients/${clientId}/website/entries${qs}`} replace />
 }
 
 export default function App() {
@@ -301,8 +309,14 @@ export default function App() {
         >
           <Route index element={<WebsiteOverview />} />
           <Route path="collections" element={<WebsiteCollections />} />
-          <Route path="collections/:collectionId" element={<WebsiteEntries />} />
+          <Route
+            path="collections/:collectionId"
+            element={<WebsiteCollectionEntriesRedirect />}
+          />
+          <Route path="entries" element={<WebsiteEntries />} />
           <Route path="media" element={<WebsiteMedia />} />
+          <Route path="reports" element={<WebsiteReports />} />
+          <Route path="deployment" element={<WebsiteDeployment />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

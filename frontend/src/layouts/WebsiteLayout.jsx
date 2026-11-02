@@ -49,6 +49,8 @@ export default function WebsiteLayout() {
     navigate('/login', { replace: true })
   }
 
+  const base = `/clients/${clientId}/website`
+
   return (
     <div className="dashboard">
       <aside className="sidebar card">
@@ -77,27 +79,44 @@ export default function WebsiteLayout() {
           </NavSection>
 
           <NavSection title="Website">
-            <NavLink
-              to={`/clients/${clientId}/website`}
-              end
-              className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
-            >
+            <NavLink to={base} end className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}>
               <i className="fa-solid fa-house" />
               <span>Overview</span>
             </NavLink>
             <NavLink
-              to={`/clients/${clientId}/website/collections`}
+              to={`${base}/collections`}
               className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
             >
               <i className="fa-solid fa-layer-group" />
               <span>Collections</span>
             </NavLink>
             <NavLink
-              to={`/clients/${clientId}/website/media`}
+              to={`${base}/entries`}
+              className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+            >
+              <i className="fa-solid fa-book-open" />
+              <span>Entries</span>
+            </NavLink>
+            <NavLink
+              to={`${base}/media`}
               className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
             >
               <i className="fa-solid fa-images" />
               <span>Media</span>
+            </NavLink>
+            <NavLink
+              to={`${base}/reports`}
+              className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+            >
+              <i className="fa-solid fa-chart-line" />
+              <span>Reports</span>
+            </NavLink>
+            <NavLink
+              to={`${base}/deployment`}
+              className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+            >
+              <i className="fa-solid fa-rocket" />
+              <span>Deployment</span>
             </NavLink>
           </NavSection>
         </nav>
