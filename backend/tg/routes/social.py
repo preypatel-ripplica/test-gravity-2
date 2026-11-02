@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import mimetypes
@@ -1260,6 +1261,65 @@ async def social_post_draft_generate(
     post = save_social_post(post_id, payload)
     post = mark_social_post_selected(post_id) or post
     return schemas.SocialPostDraftResponse(post=schemas.SocialPostDraft(**post))
+
+
+async def _wait_instagram_container_ready(
+    http_client: httpx.AsyncClient,
+    creation_id: str,
+    access_token: str,
+    *,
+    timeout_sec: float = 180,
+) -> None:
+    """Poll the media container until Instagram finishes processing (same as reels)."""
+    import time
+
+    deadline = time.time() + timeout_sec
+    last_body = ""
+    while time.time() < deadline:
+        resp = await http_client.get(
+            f"https://graph.instagram.com/{creation_id}",
+            params={"fields": "status_code,status", "access_token": access_token},
+            timeout=30.0,
+        )
+        last_body = (resp.text or "")[:400] or f"HTTP {resp.status_code}"
+        if resp.is_success:
+            code = str((resp.json() or {}).get("status_code") or "")
+            if code == "FINISHED":
+                return
+            if code == "ERROR":
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Instagram media processing failed: {last_body}",
+                )
+        await asyncio.sleep(3)
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Instagram media was not ready in time: {last_body}",
+    )
+
+
+async def _instagram_permalink(http_client, ig_post_id: str, access_token: str) -> str:
+    """Instagram often needs a moment after media_publish before permalink is readable."""
+    if not ig_post_id:
+        return ""
+    last_body = ""
+    for attempt in range(12):
+        resp = await http_client.get(
+            f"https://graph.instagram.com/{ig_post_id}",
+            params={"fields": "permalink", "access_token": access_token},
+            timeout=30.0,
+        )
+        last_body = (resp.text or "")[:400] or f"HTTP {resp.status_code}"
+        if resp.is_success:
+            permalink = str((resp.json() or {}).get("permalink") or "").strip()
+            if permalink:
+                return permalink
+        if attempt < 11:
+            await asyncio.sleep(2.5)
+    print(f"[instagram] permalink missing for {ig_post_id}: {last_body}", flush=True)
+    return ""
+
+
 @router.post("/social.post.publish")
 async def social_post_publish(
     request: Request,
@@ -1313,7 +1373,7 @@ async def social_post_publish(
                         if up_resp.is_success and up_resp.text.startswith("http"):
                             full_image_url = up_resp.text.strip()
         
-    async with httpx.AsyncClient(timeout=60.0) as http_client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as http_client:
         ig_post_id = None
         fb_post_id = None
         ig_permalink = ""
@@ -1338,8 +1398,9 @@ async def social_post_publish(
             creation_id = media_resp.json().get("id")
             if not creation_id:
                 raise HTTPException(status_code=502, detail="Instagram media upload failed: No creation ID returned.")
-                
-            import asyncio
+
+            await _wait_instagram_container_ready(http_client, creation_id, access_token)
+
             max_retries = 3
             for attempt in range(max_retries):
                 publish_resp = await http_client.post(
@@ -1365,12 +1426,7 @@ async def social_post_publish(
                 raise HTTPException(status_code=502, detail=f"Instagram publish failed: {publish_resp.text[:500]}")
             ig_post_id = publish_resp.json().get("id")
             if ig_post_id:
-                permalink_resp = await http_client.get(
-                    f"https://graph.instagram.com/{ig_post_id}",
-                    params={"fields": "permalink", "access_token": access_token},
-                )
-                if permalink_resp.is_success:
-                    ig_permalink = (permalink_resp.json() or {}).get("permalink") or ""
+                ig_permalink = await _instagram_permalink(http_client, ig_post_id, access_token)
 
         if "facebook" in body.targets:
             fb_conn = get_facebook_connection(body.client_id)
@@ -1787,7 +1843,7 @@ async def _publish_post_internal(request: Request, cid: str, target_post: dict) 
                         if up_resp.is_success and up_resp.text.startswith("http"):
                             full_image_url = up_resp.text.strip()
 
-        async with httpx.AsyncClient(timeout=60.0) as http_client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as http_client:
             success_count = 0
             
             ig_post_id = None
@@ -1812,7 +1868,7 @@ async def _publish_post_internal(request: Request, cid: str, target_post: dict) 
                     if media_resp.is_success:
                         creation_id = media_resp.json().get("id")
                         if creation_id:
-                            import asyncio
+                            await _wait_instagram_container_ready(http_client, creation_id, access_token)
                             max_retries = 3
                             for attempt in range(max_retries):
                                 publish_resp = await http_client.post(
@@ -1826,12 +1882,9 @@ async def _publish_post_internal(request: Request, cid: str, target_post: dict) 
                                     success_count += 1
                                     ig_post_id = publish_resp.json().get("id")
                                     if ig_post_id:
-                                        permalink_resp = await http_client.get(
-                                            f"https://graph.instagram.com/{ig_post_id}",
-                                            params={"fields": "permalink", "access_token": access_token},
+                                        ig_permalink = await _instagram_permalink(
+                                            http_client, ig_post_id, access_token
                                         )
-                                        if permalink_resp.is_success:
-                                            ig_permalink = (permalink_resp.json() or {}).get("permalink") or ""
                                     break
                                 try:
                                     err = publish_resp.json().get("error", {})
