@@ -33,6 +33,7 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
   const [loadingMedia, setLoadingMedia] = useState(false)
   const [selectedRefIds, setSelectedRefIds] = useState([])
   const [publishFor, setPublishFor] = useState(null)
+  const [publishingId, setPublishingId] = useState(null)
   const [scheduleFor, setScheduleFor] = useState(null)
   const [targets, setTargets] = useState(['instagram', 'facebook'])
   const fileRef = useRef(null)
@@ -211,7 +212,7 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
     }
   }
 
-  function handlePublish(post) {
+  async function handlePublish(post) {
     if (!targets.length) {
       toast('Select Instagram or Facebook.', 'error')
       return
@@ -222,26 +223,45 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
     }
     const previous = post
     const nextTargets = [...targets]
-    setPosts((prev) => prev.map((p) => (p.id === post.id ? { ...p, publish_status: 'published' } : p)))
+    setPublishingId(post.id)
     setPublishFor(null)
-    toast('Published.', 'success')
-    api.publishSocialPost(
-      token,
-      clientId,
-      post.id,
-      post.brief?.caption || '',
-      nextTargets,
-      { year, month, week },
-    ).then(async (published) => {
+    try {
+      const published = await api.publishSocialPost(
+        token,
+        clientId,
+        post.id,
+        post.brief?.caption || '',
+        nextTargets,
+        { year, month, week },
+      )
+      setPosts((prev) => prev.map((p) => (
+        p.id === post.id
+          ? {
+              ...p,
+              publish_status: 'published',
+              instagram_permalink: published.instagram_permalink || p.instagram_permalink,
+              facebook_permalink: published.facebook_permalink || p.facebook_permalink,
+            }
+          : p
+      )))
+      rememberIds([post.id], applyPermalinks(post, published, nextTargets))
       if (weekContext.reloadWeek) {
         await weekContext.reloadWeek()
-      } else {
         rememberIds([post.id], applyPermalinks(post, published, nextTargets))
       }
-    }).catch((err) => {
+      const missingIg = nextTargets.includes('instagram') && !published.instagram_permalink
+      const missingFb = nextTargets.includes('facebook') && !published.facebook_permalink
+      if (missingIg || missingFb) {
+        toast('Posted live, but a permalink is still missing. Refresh or paste the link under Where it went out.', 'error')
+      } else {
+        toast('Published.', 'success')
+      }
+    } catch (err) {
       revertPost(previous)
       toast(err.message, 'error')
-    })
+    } finally {
+      setPublishingId(null)
+    }
   }
 
   function handleSchedule(post) {
@@ -515,7 +535,14 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
                       </div>
                       <div className="tracker-note-actions">
                         {publishFor === post.id ? (
-                          <button type="button" className="btn btn-primary btn-sm" onClick={() => handlePublish(post)}>Publish now</button>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            disabled={publishingId === post.id}
+                            onClick={() => handlePublish(post)}
+                          >
+                            {publishingId === post.id ? 'Publishing…' : 'Publish now'}
+                          </button>
                         ) : (
                           <button type="button" className="btn btn-primary btn-sm" onClick={() => handleSchedule(post)}>Schedule</button>
                         )}
@@ -561,7 +588,14 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
                     ) : post.publish_status !== 'published' ? (
                       <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setScheduleFor(post.id); setPublishFor(null); setTargets(['instagram', 'facebook']) }}>Schedule</button>
                     ) : null}
-                    <button type="button" className="btn btn-primary btn-sm" onClick={() => { setPublishFor(post.id); setScheduleFor(null); setTargets(['instagram', 'facebook']) }}>Post now</button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={publishingId === post.id}
+                      onClick={() => { setPublishFor(post.id); setScheduleFor(null); setTargets(['instagram', 'facebook']) }}
+                    >
+                      {publishingId === post.id ? 'Publishing…' : 'Post now'}
+                    </button>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDeleteId(post.id)}>Delete</button>
                   </div>
                 </article>
