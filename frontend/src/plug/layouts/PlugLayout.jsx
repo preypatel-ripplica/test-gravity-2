@@ -21,7 +21,7 @@ export default function PlugLayout({ children }) {
         <div className="plug-rail" aria-hidden="true" />
         <aside className="plug-sidebar">
           <div className="plug-brand">
-            <PlugMark size={28} />
+            <PlugMark size={36} />
             <div className="plug-brand-copy">
               <h3>Plug</h3>
               <p>Grow content with consistency and discipline</p>

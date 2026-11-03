@@ -35,7 +35,7 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-body">
         <div className="logo">
-          <PlugMark size={32} />
+          <PlugMark size={56} />
         </div>
         <h1 className="login-wordmark">Plug</h1>
         <p className="login-tagline">Grow content with consistency and discipline</p>

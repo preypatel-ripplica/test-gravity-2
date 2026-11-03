@@ -145,7 +145,7 @@ export default function AdminDashboard() {
       <div className="login-page admin-page">
         <div className="login-body">
           <div className="logo">
-            <PlugMark size={32} />
+            <PlugMark size={36} />
           </div>
           <h1 className="login-wordmark">Plug</h1>
           <p className="login-tagline">Internal admin</p>

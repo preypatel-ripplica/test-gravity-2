@@ -34,7 +34,7 @@ export default function PlugLogin() {
       <div className="plug-rail" aria-hidden="true" />
       <div className="plug-auth-body">
         <div className="plug-auth-brand">
-          <PlugMark size={32} />
+          <PlugMark size={56} />
         </div>
         <h1 className="plug-wordmark">Plug</h1>
         <p className="plug-tagline">Grow content with consistency and discipline</p>

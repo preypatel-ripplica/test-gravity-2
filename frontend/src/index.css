@@ -442,6 +442,13 @@ h1, h2, h3, .greeting h1, .connect-prompt-container h2 {
     gap: 8px;
 }
 
+.plug-mark {
+    display: block;
+    flex-shrink: 0;
+    object-fit: contain;
+    background: transparent;
+}
+
 .brand-logo,
 .brand-lockup {
     display: flex;
