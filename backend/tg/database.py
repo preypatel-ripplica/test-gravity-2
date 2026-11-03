@@ -1239,7 +1239,8 @@ def _persist_content_video(row: dict) -> dict:
                 posted.append({**entry, "platform": platform})
     for entry in row.get("source_urls") or []:
         if isinstance(entry, dict):
-            posted.append({**entry, "platform": entry.get("kind") or "source"})
+            # Keep Drive/file sources off live destination platforms (youtube/instagram/facebook).
+            posted.append({**entry, "platform": "source"})
     youtube_ids = [
         str(e.get("video_id") or e.get("youtube_video_id"))
         for e in (row.get("youtube_urls") or [])

@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Beacon dotted CRUDL routes (and /health)
-      '^/(auth|user|project|client|channel|video|production|report|social|website|weekly|custom|tracker)\\..*': {
+      '^/(auth|user|project|client|channel|video|production|report|social|website|weekly|custom|tracker|google)\\..*': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
@@ -18,6 +18,10 @@ export default defineConfig({
       },
       // WhatsApp bot API (backend/bot mounted at /bot/api)
       '/bot/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/social_assets': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },

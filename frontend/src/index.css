@@ -2483,14 +2483,14 @@ body {
     align-items: center;
     gap: 12px;
     min-width: 320px;
-    max-width: 440px;
+    max-width: 520px;
     background: var(--surface);
     border-radius: var(--radius);
     padding: 14px 16px;
     box-shadow: var(--shadow-lg);
     border: 1px solid var(--border);
     animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    cursor: pointer;
+    cursor: default;
     transition: transform 0.2s;
 }
 
@@ -2510,6 +2510,8 @@ body {
     font-weight: 500;
     color: var(--text);
     flex-grow: 1;
+    line-height: 1.4;
+    white-space: pre-wrap;
 }
 
 .toast-close {

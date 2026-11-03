@@ -114,10 +114,16 @@ export default function TrackerPublishVideo({ card, weekContext, onChange }) {
         },
       })
       const errors = data?.errors || []
+      const warnings = data?.warnings || []
       if (errors.length) {
         toast(errors.join(' '), 'error')
-      } else {
+      }
+      if (warnings.length) {
+        toast(warnings.join(' '), 'success')
+      } else if (!errors.length) {
         toast('Video posted.', 'success')
+      }
+      if (!errors.length) {
         setVideoUrlsByChannel({})
         setSocialVideoLink('')
       }

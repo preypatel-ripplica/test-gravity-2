@@ -7,7 +7,9 @@ from calendar import monthrange
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from backend.main.access_guards import require_domain_access, require_internal
@@ -240,6 +242,21 @@ def _at_least_stage(card: dict, stage: str) -> None:
         card["stage"] = stage
 
 
+_LIVE_DEST_PLATFORMS = {"youtube", "instagram", "facebook"}
+
+
+def _is_source_file_url(url: str) -> bool:
+    """Drive / attached-file URLs are sources, not live YT/IG/FB posts."""
+    value = str(url or "").strip().lower()
+    if not value:
+        return False
+    return (
+        "drive.google.com" in value
+        or "docs.google.com" in value
+        or "/uploaded_videos/" in value
+    )
+
+
 def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
     packages = {
         str(p.get("topic_id")): p
@@ -250,7 +267,9 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
     for card in cards:
         row = dict(card)
         row["destinations"] = [
-            dict(d) for d in (card.get("destinations") or []) if isinstance(d, dict)
+            dict(d)
+            for d in (card.get("destinations") or [])
+            if isinstance(d, dict) and not _is_source_file_url(d.get("url") or "")
         ]
         topic_id = str(row.get("topic_id") or "").strip()
         pkg = packages.get(topic_id) if topic_id else None
@@ -267,18 +286,16 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
                 ("instagram", "instagram_urls"),
                 ("facebook", "facebook_urls"),
             ):
-                # productions store posted_urls; also accept legacy keys if present
                 for entry in pkg.get(key) or []:
                     if isinstance(entry, dict) and entry.get("url"):
                         _ensure_dest_url(row, platform, entry["url"], entry.get("language"))
             for entry in pkg.get("posted_urls") or []:
-                if isinstance(entry, dict) and entry.get("url"):
-                    _ensure_dest_url(
-                        row,
-                        str(entry.get("platform") or "youtube"),
-                        entry["url"],
-                        entry.get("language"),
-                    )
+                if not isinstance(entry, dict) or not entry.get("url"):
+                    continue
+                platform = str(entry.get("platform") or "").strip().lower()
+                if platform not in _LIVE_DEST_PLATFORMS:
+                    continue
+                _ensure_dest_url(row, platform, entry["url"], entry.get("language"))
             if pkg.get("posted_urls") or pkg.get("youtube_urls"):
                 _at_least_stage(row, "posted")
         out.append(row)
@@ -287,7 +304,9 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
 
 def _ensure_dest_url(card: dict, platform: str, url: str, language: str | None = None) -> None:
     url = str(url or "").strip()
-    if not url:
+    if not url or _is_source_file_url(url):
+        return
+    if str(platform or "").strip().lower() not in _LIVE_DEST_PLATFORMS:
         return
     dests = list(card.get("destinations") or [])
     if any(d.get("platform") == platform and str(d.get("url") or "").strip() == url for d in dests):
@@ -935,6 +954,97 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
     doc["updated_at"] = _now_iso()
     weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
     return _weekly_response(doc, languages)
+
+
+_TRACKER_FILES_DIR = Path(__file__).resolve().parents[1] / "social_assets" / "tracker_files"
+_MAX_TRACKER_FILE_BYTES = 50 * 1024 * 1024
+
+
+def _store_tracker_upload(filename: str, content: bytes, content_type: str) -> str:
+    from backend.tg.config import settings
+    from backend.tg.services.gcs_storage import upload_bytes
+
+    try:
+        return upload_bytes("tracker_files", filename, content, content_type=content_type)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tracker] GCS upload failed, using local disk: {exc}", flush=True)
+        _TRACKER_FILES_DIR.mkdir(parents=True, exist_ok=True)
+        (_TRACKER_FILES_DIR / filename).write_bytes(content)
+        base = str(getattr(settings, "BASE_URL", "") or "").rstrip("/")
+        if base:
+            return f"{base}/social_assets/tracker_files/{filename}"
+        return f"/social_assets/tracker_files/{filename}"
+
+
+@router.post("/weekly.tracker.file.upload")
+async def weekly_tracker_file_upload(
+    client_id: str = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    week: int = Form(...),
+    card_id: str = Form(...),
+    file: UploadFile = File(...),
+    target: str = Form("pending"),
+    language: str = Form("all"),
+    text: str = Form(""),
+    auth: dict = Depends(current_user),
+):
+    require_internal(auth)
+    _validate_week(year, month, week)
+    _require_project(auth, client_id)
+    actor = auth.get("email") or auth["user_id"]
+    languages = _assigned_languages(client_id)
+    doc = _ensure_week(client_id, year, month, week, actor)
+    cards = list(doc.get("cards") or [])
+    card = next((row for row in cards if str(row.get("id")) == str(card_id)), None)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    previous = dict(card)
+
+    original_name = Path(file.filename or "proof").name or "proof"
+    suffix = Path(original_name).suffix.lower() or ""
+    stored_name = f"{uuid.uuid4().hex}{suffix}"
+    content_type = (file.content_type or "application/octet-stream").split(";")[0].strip()
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "Empty file")
+    if len(content) > _MAX_TRACKER_FILE_BYTES:
+        raise HTTPException(400, "File is larger than 50 MB.")
+
+    public_url = _store_tracker_upload(stored_name, content, content_type or "application/octet-stream")
+    record = {
+        "id": _new_id("file"),
+        "url": public_url,
+        "name": original_name,
+        "content_type": content_type,
+        "target": target,
+        "language": language or "all",
+        "text": text or "",
+        "created_by": actor,
+        "created_at": _now_iso(),
+    }
+
+    changed = False
+    if target == "doctor_files":
+        files = list(card.get("doctor_files") or [])
+        files.append(record)
+        card["doctor_files"] = files
+        changed = True
+    elif target == "video_url":
+        assets = dict(card.get("assets") or {})
+        assets["video_url"] = public_url
+        card["assets"] = assets
+        changed = True
+    if changed:
+        apply_card_history(previous, card, by=actor)
+        doc["cards"] = cards
+        doc["updated_at"] = _now_iso()
+        doc["updated_by"] = actor
+        weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
+
+    response = _weekly_response(doc, languages)
+    response["file"] = record
+    return response
 
 
 # --- custom tracker ---

@@ -1177,6 +1177,7 @@ def _execute_video_upload(
     thumbnail_paths: dict[str, str | None] = {}
     temp_paths: list[str] = []
     errors: list[str] = []
+    warnings: list[str] = []
     posted_video_ids: list[dict] = []
     ig_post_id = None
     fb_post_id = None
@@ -1238,7 +1239,7 @@ def _execute_video_upload(
                 }
             try:
                 creds = get_user_google_creds(username, client_id, job["channel_id"])
-                video_id = upload_video_to_youtube(
+                video_id, thumbnail_skip = upload_video_to_youtube(
                     creds=creds,
                     channel_id=job["channel_id"],
                     video_path=video_path,
@@ -1271,14 +1272,19 @@ def _execute_video_upload(
                     "video_id": video_id,
                     "language": language,
                     "channel_id": job.get("channel_id"),
+                    "thumbnail_skip": thumbnail_skip,
                 }
             except HTTPException as exc:
-                return {"error": f"{label}: {exc.detail}", "video_id": None, "language": language, "channel_id": job.get("channel_id")}
+                err = f"{label}: {exc.detail}"
+                print(f"[publish] {err}", flush=True)
+                return {"error": err, "video_id": None, "language": language, "channel_id": job.get("channel_id")}
             except Exception as exc:  # noqa: BLE001
                 text = str(exc)
                 if "timeout" in text.lower() or "timed out" in text.lower():
                     text = f"YouTube upload timed out. {text}"
-                return {"error": f"{label}: {text}", "video_id": None, "language": language, "channel_id": job.get("channel_id")}
+                err = f"{label}: {text}"
+                print(f"[publish] {err}", flush=True)
+                return {"error": err, "video_id": None, "language": language, "channel_id": job.get("channel_id")}
 
         def _copy_to_storage() -> tuple[str | None, str | None]:
             from backend.tg.services.gcs_storage import upload_file
@@ -1353,6 +1359,13 @@ def _execute_video_upload(
                     posted_video_ids.append(result)
                 if result.get("error"):
                     errors.append(result["error"])
+                skip = str(result.get("thumbnail_skip") or "").strip()
+                if result.get("video_id") and skip:
+                    label = str(result.get("language") or job.get("language") or "YouTube").strip()
+                    if skip == "no permission":
+                        warnings.append(label)
+                    else:
+                        warnings.append(f"{label} ({skip})")
 
             if caption_future:
                 social_caption, caption_error = caption_future.result()
@@ -1431,7 +1444,7 @@ def _execute_video_upload(
                         social_thumb_path,
                     )
                     if thumb_error:
-                        errors.append(thumb_error)
+                        print(f"[facebook] posted without custom thumbnail: {thumb_error}", flush=True)
                     _emit_stage("Facebook video posted.")
                 except HTTPException as exc:
                     print(f"[facebook] failed: {exc.detail}", flush=True)
@@ -1462,7 +1475,7 @@ def _execute_video_upload(
                             f"Instagram is processing the reel ({code})…"
                         ),
                         cover_url=social_cover_url,
-                        on_cover_error=errors.append,
+                        on_cover_error=lambda msg: print(f"[instagram] {msg}", flush=True),
                     ))
                     ig_post_id = post_id
                     _save_social(ig_id=post_id, ig_link=permalink)
@@ -1479,9 +1492,18 @@ def _execute_video_upload(
             if path and path.startswith("/tmp/") and os.path.exists(path):
                 os.remove(path)
 
+    thumbnail_warnings: list[str] = []
+    if warnings:
+        names = ", ".join(warnings)
+        thumbnail_warnings.append(
+            "Video posted without the chosen thumbnail on "
+            f"{names} because YouTube did not allow a custom thumbnail for those channels."
+        )
+
     return {
         "status": "partial" if errors else "success",
         "errors": errors,
+        "warnings": thumbnail_warnings,
         "video_id": posted_video_ids[0]["video_id"] if posted_video_ids else None,
         "video_ids": [
             {"channel_id": row.get("channel_id"), "language": row.get("language"), "video_id": row.get("video_id")}
