@@ -15,14 +15,14 @@ const SOURCE_OPTIONS = [
 ]
 
 const WEEK_OPTIONS = [
-  { id: 'past', label: 'Past week' },
+  { id: 'past', label: 'Late' },
   { id: 'current', label: 'Current week' },
   { id: 'next', label: 'Next week' },
 ]
 
 const STATUS_OPTIONS = [
   { id: 'pending', label: 'Pending' },
-  { id: 'urgent', label: 'Urgent' },
+  { id: 'urgent', label: 'Late' },
   { id: 'completed', label: 'Completed' },
 ]
 
@@ -69,7 +69,6 @@ function toneClass(tone) {
 function periodLabel(row, today) {
   if (row.source === 'custom') return 'Custom'
   const period = periodOf(row, today)
-  if (period === 'past') return 'Past week'
   if (period === 'next') return 'Next week'
   return ''
 }
@@ -111,7 +110,7 @@ function summaryLabel(options, selected, allLabel) {
 
 function statusText(row) {
   if (row.tone === 'upcoming') return 'Script pending'
-  if (row.tone === 'urgent') return 'Urgent'
+  if (row.tone === 'urgent') return 'Late'
   return row.status || (row.tone === 'completed' ? 'Done' : '')
 }
 
@@ -309,6 +308,36 @@ function CustomTaskEditor({ row, onPatch, autoFocus }) {
   )
 }
 
+function CustomClientSelect({ row, options, onMove }) {
+  const hasCurrent = options.some((item) => item.id === row.client_id)
+  const choices = hasCurrent
+    ? options
+    : [{ id: row.client_id, label: row.client_name || 'Untitled client' }, ...options]
+  return (
+    <div className="all-trackers-list-client">
+      <select
+        className="sheet-cell-select all-trackers-list-client-select"
+        aria-label="Client"
+        value={row.client_id}
+        onChange={(event) => onMove(row, event.target.value)}
+      >
+        {choices.map((item) => (
+          <option key={item.id} value={item.id}>{item.label}</option>
+        ))}
+      </select>
+      <a
+        className="all-trackers-list-open"
+        href={`/clients/${row.client_id}`}
+        target="_blank"
+        rel="noreferrer"
+        title="Open client"
+      >
+        <i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true" />
+      </a>
+    </div>
+  )
+}
+
 export default function PocWeeklyTracker() {
   const { token, user } = useAuth()
   const { toast } = useUI()
@@ -417,6 +446,44 @@ export default function PocWeeklyTracker() {
     return next
   }, [loadRows, toast, token])
 
+  const persistCustomMove = useCallback(async (fromClientId, toClientId, taskId, extraPatch = {}) => {
+    if (!fromClientId || !toClientId || fromClientId === toClientId) return
+    const previous = Promise.all([
+      clientSaves.current[fromClientId] || Promise.resolve(),
+      clientSaves.current[toClientId] || Promise.resolve(),
+    ])
+    const next = previous.then(async () => {
+      const sourceResult = await api.getCustomTracker(token, fromClientId)
+      const sourceTasks = sourceResult.tracker?.tasks || []
+      const idx = sourceTasks.findIndex((task) => String(task.id) === String(taskId))
+      if (idx === -1) throw new Error('That custom to-do was not found.')
+      const moved = { ...sourceTasks[idx], ...extraPatch }
+      if (moved.title != null) moved.title = String(moved.title).trim()
+      const remaining = sourceTasks.filter((_, index) => index !== idx)
+      const destResult = await api.getCustomTracker(token, toClientId)
+      const destTasks = destResult.tracker?.tasks || []
+      const nextDest = destTasks.some((task) => String(task.id) === String(moved.id))
+        ? destTasks.map((task) => (String(task.id) === String(moved.id) ? { ...task, ...moved } : task))
+        : [...destTasks, moved]
+      await api.saveCustomTracker(token, fromClientId, remaining)
+      await api.saveCustomTracker(token, toClientId, nextDest)
+      const oldKey = `${fromClientId}:${taskId}`
+      const newKey = `${toClientId}:${moved.id}`
+      delete lastSaved.current[oldKey]
+      lastSaved.current[newKey] = {
+        title: moved.title || '',
+        due_date: moved.due_date || '',
+        done: Boolean(moved.done),
+      }
+    }).catch(async (err) => {
+      toast(err.message, 'error')
+      await loadRows({ quiet: true })
+    })
+    clientSaves.current[fromClientId] = next.catch(() => {})
+    clientSaves.current[toClientId] = next.catch(() => {})
+    return next
+  }, [loadRows, toast, token])
+
   const addCustomForRow = useCallback((row) => {
     if (!row.client_id) return
     const task = emptyTask()
@@ -492,6 +559,42 @@ export default function PocWeeklyTracker() {
     flush()
   }, [persistCustomPatch, today])
 
+  const moveCustom = useCallback((row, nextClientId) => {
+    if (!row.client_id || !row.task_id || nextClientId === row.client_id) return
+    const client = activeClients.find((item) => item.id === nextClientId)
+    if (!client) return
+    const key = `${row.client_id}:${row.task_id}`
+    clearTimeout(saveTimers.current[key])
+    const pending = { ...(pendingPatches.current[key] || {}) }
+    delete pendingPatches.current[key]
+    if (pending.title != null) {
+      pending.title = String(pending.title).trim()
+      if (!pending.title) delete pending.title
+    }
+    const patched = applyCustomPatch(row, pending, today)
+    setRows((current) => current.map((item) => (
+      item.client_id === row.client_id && item.task_id === row.task_id
+        ? {
+            ...patched,
+            client_id: client.id,
+            client_name: client.name || 'Untitled client',
+            href: `/clients/${client.id}/tracker/custom`,
+          }
+        : item
+    )))
+    const oldKey = `${row.client_id}:${row.task_id}`
+    const newKey = `${client.id}:${row.task_id}`
+    lastSaved.current[newKey] = {
+      ...(lastSaved.current[oldKey] || {}),
+      ...pending,
+      title: pending.title != null ? pending.title : lastSaved.current[oldKey]?.title,
+      due_date: pending.due_date != null ? pending.due_date : lastSaved.current[oldKey]?.due_date,
+      done: pending.done != null ? pending.done : lastSaved.current[oldKey]?.done,
+    }
+    delete lastSaved.current[oldKey]
+    persistCustomMove(row.client_id, client.id, row.task_id, pending)
+  }, [activeClients, persistCustomMove, today])
+
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return sortRows(rows.filter((row) => {
@@ -559,7 +662,7 @@ export default function PocWeeklyTracker() {
           <Breadcrumbs items={[{ label: 'All trackers' }]} />
           <h1>All trackers</h1>
           <p>
-            Current work plus last week’s incomplete tasks. Items marked did not track are not listed.
+            Current work plus incomplete past weeks, shown as late. Items marked did not track are not listed.
           </p>
         </div>
         <div className="header-actions">
@@ -692,10 +795,18 @@ export default function PocWeeklyTracker() {
                         ) : (row.due_date ? formatDueDate(row.due_date) : '—')}
                       </td>
                       <td>
-                        <Link className="sheet-client-link" to={`/clients/${row.client_id}`} target="_blank" rel="noreferrer">
-                          {row.client_name}
-                          <i className="fa-solid fa-arrow-up-right-from-square all-tracker-open-tab" aria-hidden="true" />
-                        </Link>
+                        {custom ? (
+                          <CustomClientSelect
+                            row={row}
+                            options={clientOptions}
+                            onMove={moveCustom}
+                          />
+                        ) : (
+                          <Link className="sheet-client-link" to={`/clients/${row.client_id}`} target="_blank" rel="noreferrer">
+                            {row.client_name}
+                            <i className="fa-solid fa-arrow-up-right-from-square all-tracker-open-tab" aria-hidden="true" />
+                          </Link>
+                        )}
                       </td>
                     </tr>
                   )
@@ -724,7 +835,7 @@ export default function PocWeeklyTracker() {
                 <div className="all-tracker-card-actions">
                   <div className="all-tracker-counts">
                     {client.urgentCount > 0 ? (
-                      <span className="all-tracker-count is-urgent">{client.urgentCount} urgent</span>
+                      <span className="all-tracker-count is-urgent">{client.urgentCount} late</span>
                     ) : null}
                     {client.pendingCount > 0 ? (
                       <span className="all-tracker-count is-pending">{client.pendingCount} pending</span>
@@ -757,7 +868,7 @@ export default function PocWeeklyTracker() {
                           <span className="all-tracker-pending-task-row">
                             <span className="all-tracker-pending-task">{row.task}</span>
                             {row.tone === 'urgent' ? (
-                              <span className="all-tracker-urgent-badge">Urgent</span>
+                              <span className="all-tracker-urgent-badge">Late</span>
                             ) : null}
                             {row.tone === 'completed' && (periodOf(row, today) !== 'next' || row.status_id === 'posted') ? (
                               <span className="all-tracker-done-badge">Done</span>

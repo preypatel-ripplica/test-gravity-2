@@ -8177,12 +8177,25 @@ a.plan-item-link {
     min-width: 138px;
 }
 
+.all-trackers-list-client {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 160px;
+}
+
+.all-trackers-list-client-select {
+    min-width: 148px;
+    max-width: 220px;
+}
+
 .all-trackers-list-wrap {
     max-height: calc(100vh - 320px);
 }
 
 .sheet-table-all td:nth-child(2),
 .sheet-table-all td:nth-child(3),
+.sheet-table-all td:nth-child(4),
 .sheet-table-all td:nth-child(5) {
     white-space: nowrap;
 }

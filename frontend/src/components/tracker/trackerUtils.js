@@ -200,6 +200,7 @@ export const STAGES = {
     { id: 'video_edited', label: 'Video edited' },
     { id: 'shared_with_doctor', label: 'Shared with doctor' },
     { id: 'posted', label: 'Posted' },
+    { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
   short: [
     { id: 'planned', label: 'Planned' },
@@ -209,14 +210,17 @@ export const STAGES = {
     { id: 'video_edited', label: 'Video edited' },
     { id: 'shared_with_doctor', label: 'Shared with doctor' },
     { id: 'posted', label: 'Posted' },
+    { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
   static_post: [
     { id: 'planned', label: 'Planned' },
     { id: 'posted', label: 'Posted' },
+    { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
   blog: [
     { id: 'planned', label: 'Planned' },
     { id: 'published', label: 'Published' },
+    { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
   paid_ads: [
     { id: 'planned', label: 'Planned' },
@@ -224,6 +228,7 @@ export const STAGES = {
     { id: 'balance_checked', label: 'Balance checked' },
     { id: 'next_2_weeks_planned', label: 'Next 2 weeks planned' },
     { id: 'results_discussed', label: 'Results discussed' },
+    { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
 }
 
@@ -555,6 +560,7 @@ export function sectionForStage(card, stageId) {
   if (stageId === 'video_edited') return 'video'
   if (stageId === 'shared_with_doctor') return 'doctor'
   if (stageId === 'posted') return 'publish'
+  if (stageId === 'link_shared_with_doctor') return 'destinations'
   return 'destinations'
 }
 

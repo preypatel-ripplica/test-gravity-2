@@ -21,7 +21,7 @@ export function typePillClass(cardType) {
 }
 
 export function stagePillClass(stageId) {
-  if (stageId === 'posted' || stageId === 'published') return 'sheet-pill-done'
+  if (stageId === 'posted' || stageId === 'published' || stageId === 'link_shared_with_doctor') return 'sheet-pill-done'
   if (stageId === 'planned') return 'sheet-pill-planned'
   return 'sheet-pill-progress'
 }

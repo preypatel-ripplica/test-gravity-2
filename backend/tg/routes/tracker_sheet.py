@@ -39,12 +39,13 @@ from backend.trackers.tracker_settings import (
 
 router = APIRouter(tags=["tracker-sheet"])
 
-DONE_STAGES = {"posted", "published", "results_discussed"}
+DONE_STAGES = {"posted", "published", "results_discussed", "link_shared_with_doctor"}
 NEXT_WEEK_GREEN_STAGES = {
     "audio_generated",
     "video_edited",
     "shared_with_doctor",
     "posted",
+    "link_shared_with_doctor",
 }
 VIDEO_TYPES = {"long_video", "short"}
 CUSTOM_STATUS_LABELS = {
@@ -114,12 +115,15 @@ def _past_week_keys(
     last: tuple[int, int, int] | None,
     clients: list[dict],
 ) -> list[tuple[int, int, int]]:
+    """All ended weeks from the earliest client start through last week."""
     end = last
     if not end:
         year, month, week = current
         if week <= 1:
             return []
         end = (year, month, week - 1)
+    if end >= current:
+        return []
     starts = [tracker_start_tuple(client) or LEGACY_TRACKER_START for client in clients]
     earliest = min(starts) if starts else end
     if earliest > end:
