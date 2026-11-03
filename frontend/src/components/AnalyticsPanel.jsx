@@ -324,10 +324,10 @@ export default function AnalyticsPanel({ token, clientId, channelId, channelMeta
         {
           label: 'Views',
           data: chronological.map((r) => Number(r[viewsIdx] || 0)),
-          borderColor: '#4f46e5',
-          backgroundColor: 'rgba(79, 70, 229, 0.05)',
+          borderColor: '#ff4d00',
+          backgroundColor: 'rgba(255, 77, 0, 0.05)',
           borderWidth: 3,
-          pointBackgroundColor: '#4f46e5',
+          pointBackgroundColor: '#ff4d00',
           pointBorderColor: '#ffffff',
           pointBorderWidth: 2,
           pointRadius: 4,
@@ -356,13 +356,13 @@ export default function AnalyticsPanel({ token, clientId, channelId, channelMeta
             usePointStyle: true,
             pointStyle: 'rectRounded',
             color: '#64748b',
-            font: { family: 'Inter', size: 12, weight: '600' },
+            font: { family: 'Helvetica Neue', size: 12, weight: '600' },
           },
         },
         tooltip: {
           backgroundColor: '#1e293b',
-          titleFont: { family: 'Inter', size: 12, weight: '600' },
-          bodyFont: { family: 'Inter', size: 13 },
+          titleFont: { family: 'Helvetica Neue', size: 12, weight: '600' },
+          bodyFont: { family: 'Helvetica Neue', size: 13 },
           padding: 12,
           borderRadius: 8,
           displayColors: isSubs,
@@ -384,18 +384,18 @@ export default function AnalyticsPanel({ token, clientId, channelId, channelMeta
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
+          ticks: { color: '#64748b', font: { family: 'Helvetica Neue', size: 11 } },
         },
         y: {
           position: 'left',
           grid: { color: 'rgba(226, 232, 240, 0.6)', drawBorder: false },
-          ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
+          ticks: { color: '#64748b', font: { family: 'Helvetica Neue', size: 11 } },
           title: isSubs
             ? {
                 display: true,
                 text: 'Total subscribers',
                 color: '#94a3b8',
-                font: { family: 'Inter', size: 11, weight: '600' },
+                font: { family: 'Helvetica Neue', size: 11, weight: '600' },
               }
             : undefined,
         },
@@ -404,12 +404,12 @@ export default function AnalyticsPanel({ token, clientId, channelId, channelMeta
               y1: {
                 position: 'right',
                 grid: { drawOnChartArea: false },
-                ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
+                ticks: { color: '#64748b', font: { family: 'Helvetica Neue', size: 11 } },
                 title: {
                   display: true,
                   text: 'Daily net change',
                   color: '#94a3b8',
-                  font: { family: 'Inter', size: 11, weight: '600' },
+                  font: { family: 'Helvetica Neue', size: 11, weight: '600' },
                 },
               },
             }
@@ -535,7 +535,7 @@ export default function AnalyticsPanel({ token, clientId, channelId, channelMeta
                     fontSize: '13px',
                     cursor: 'pointer',
                     background: activeChartTab === 'views' ? '#ffffff' : 'transparent',
-                    color: activeChartTab === 'views' ? '#4f46e5' : '#64748b',
+                    color: activeChartTab === 'views' ? '#ff4d00' : '#64748b',
                     boxShadow: activeChartTab === 'views' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                     transition: 'all 0.2s',
                   }}

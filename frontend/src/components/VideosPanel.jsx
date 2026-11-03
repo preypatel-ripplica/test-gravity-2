@@ -22,7 +22,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
     return (
       <i
         className={`fa-solid ${sortOrder === 'asc' ? 'fa-arrow-up-short-wide' : 'fa-arrow-down-wide-short'}`}
-        style={{ marginLeft: '6px', color: '#4f46e5' }}
+        style={{ marginLeft: '6px', color: '#ff4d00' }}
       />
     )
   }
@@ -436,15 +436,15 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                                 onClick={() => toggleExpand(v)}
                                 className="action-edit-btn"
                                 style={{
-                                  color: '#4f46e5',
+                                  color: '#ff4d00',
                                   width: '32px',
                                   height: '32px',
                                   borderRadius: '50%',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  background: expandedVideoId === v.id ? '#4f46e5' : '#f5f3ff',
-                                  color: expandedVideoId === v.id ? 'white' : '#4f46e5',
+                                  background: expandedVideoId === v.id ? '#ff4d00' : '#ffe8de',
+                                  color: expandedVideoId === v.id ? 'white' : '#ff4d00',
                                   border: 'none',
                                   cursor: 'pointer',
                                   transition: 'all 0.2s',
@@ -464,7 +464,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                           <td colSpan={isClientLevel ? 9 : 8} style={{ padding: '24px 32px', borderTop: 'none' }}>
                             <div style={{ background: 'white', border: '1px solid #e0e0f0', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                               <h4 style={{ margin: '0 0 16px 0', color: '#1e1b4b', fontSize: '15px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-pen-to-square" style={{ color: '#4f46e5' }} />
+                                <i className="fa-solid fa-pen-to-square" style={{ color: '#ff4d00' }} />
                                 Edit Video Notes & Custom Metadata
                               </h4>
                               
@@ -616,7 +616,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                                     padding: '8px 20px',
                                     borderRadius: '8px',
                                     border: 'none',
-                                    background: '#4f46e5',
+                                    background: '#ff4d00',
                                     color: 'white',
                                     fontSize: '13.5px',
                                     fontWeight: '600',

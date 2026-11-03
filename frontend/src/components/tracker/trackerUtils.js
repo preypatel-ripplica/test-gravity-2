@@ -290,7 +290,40 @@ export function emptyCard(type, sortOrder, isDefault = false) {
     delay_proofs: [],
     delay_recorded_at: '',
     history: [],
+    editor_id: '',
+    editor_overridden: false,
+    edit_hours: 0,
+    planned_edit_date: '',
   }
+}
+
+export function calendarWeekDates(from = new Date()) {
+  const day = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  const monday = new Date(day)
+  monday.setDate(day.getDate() - ((day.getDay() + 6) % 7))
+  return Array.from({ length: 7 }, (_, index) => {
+    const next = new Date(monday)
+    next.setDate(monday.getDate() + index)
+    return next
+  })
+}
+
+export function isoDate(value) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function defaultEditHours(client, type = '') {
+  const stored = type === 'short' ? client?.short_video_hours : client?.long_video_hours
+  const parsed = Number(stored)
+  if (parsed > 0) return parsed
+  const name = String(client?.name || '').trim()
+  if (/^dr\.?\b/i.test(name)) return 1
+  if (String(client?.specialty || '').trim()) return 1
+  if (String(client?.designation || '').trim()) return 1
+  return 2
 }
 
 const HISTORY_CAP = 200

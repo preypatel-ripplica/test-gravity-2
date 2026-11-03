@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
 
 from backend.trackers.crudl import router as trackers_router
+from backend.trackers.edit_tracker import router as edit_tracker_router
 from backend.website.crudl import router as website_router
 
 from backend.tg.google_oauth import router as google_oauth_router
@@ -81,6 +82,7 @@ app.include_router(plug_router)
 # Beacon-native domains
 app.include_router(website_router)
 app.include_router(trackers_router)
+app.include_router(edit_tracker_router)
 
 # Compat leftovers (doctor-ref / credentials / select aliases) — after TG so
 # TG handlers win on overlapping client.* / social.* paths.

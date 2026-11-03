@@ -1,10 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
+import HoursStepper from '../HoursStepper'
+import {
+  EDITOR_FIELD_ID,
+  EDITOR_FIELD_LABEL,
+  LONG_HOURS_FIELD_ID,
+  LONG_HOURS_FIELD_LABEL,
+  SHORT_HOURS_FIELD_ID,
+  SHORT_HOURS_FIELD_LABEL,
+} from './profileUtils'
+
+const HOUR_FIELDS = {
+  [LONG_HOURS_FIELD_ID]: LONG_HOURS_FIELD_LABEL,
+  [SHORT_HOURS_FIELD_ID]: SHORT_HOURS_FIELD_LABEL,
+  [LONG_HOURS_FIELD_LABEL]: LONG_HOURS_FIELD_LABEL,
+  [SHORT_HOURS_FIELD_LABEL]: SHORT_HOURS_FIELD_LABEL,
+}
 
 export default function DoctorReferenceFields({
   section,
   onSaveField,
   onDeleteField,
   onAddField,
+  editors = [],
 }) {
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState(null)
@@ -59,6 +76,48 @@ export default function DoctorReferenceFields({
       </div>
 
       {fields.map((field) => {
+        const hourLabel = HOUR_FIELDS[field.id] || HOUR_FIELDS[field.label]
+        if (hourLabel) {
+          return (
+            <div key={field.id} className="doctor-ref-field-row is-hours">
+              <div className="doctor-ref-field-label">{hourLabel}</div>
+              <div className="doctor-ref-hours">
+                <HoursStepper
+                  value={field.value || 1}
+                  label={hourLabel}
+                  onChange={(hours) => onSaveField({
+                    id: field.id,
+                    label: hourLabel,
+                    value: String(hours),
+                  })}
+                />
+                <span>hours to edit</span>
+              </div>
+            </div>
+          )
+        }
+        const isEditor = field.id === EDITOR_FIELD_ID || field.label === EDITOR_FIELD_LABEL
+        if (isEditor) {
+          return (
+            <div key={field.id} className="doctor-ref-field-row is-editor">
+              <div className="doctor-ref-field-label">{EDITOR_FIELD_LABEL}</div>
+              <select
+                className="form-control doctor-ref-editor-select"
+                value={field.value || ''}
+                onChange={(event) => onSaveField({
+                  id: field.id,
+                  label: EDITOR_FIELD_LABEL,
+                  value: event.target.value,
+                })}
+              >
+                <option value="">Select editor</option>
+                {editors.map((editor) => (
+                  <option key={editor.id} value={editor.id}>{editor.name}</option>
+                ))}
+              </select>
+            </div>
+          )
+        }
         const empty = !(field.value || '').trim()
         if (editingId === field.id) {
           return (

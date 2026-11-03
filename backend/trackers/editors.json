@@ -1,0 +1,13 @@
+{
+  "editors": [
+    { "id": "yash", "name": "Yash", "max_hours_per_day": 6 },
+    { "id": "roshan", "name": "Roshan", "max_hours_per_day": 4 },
+    { "id": "test-editor", "name": "test-editor", "max_hours_per_day": 6 }
+  ],
+  "edit_hours": {
+    "doctor": 1,
+    "non_doctor": 2
+  },
+  "late_editor_id": "test-editor",
+  "default_working_days": 6
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import PlugMark from '../plug/components/PlugMark'
 import { useUI } from '../context/UIContext'
 
 const ADMIN_SESSION_KEY = 'admin_password'
@@ -142,29 +143,35 @@ export default function AdminDashboard() {
   if (!unlocked) {
     return (
       <div className="login-page admin-page">
-        <div className="card login-box">
+        <div className="login-body">
           <div className="logo">
-            <h2>Admin Dashboard</h2>
+            <PlugMark size={32} />
           </div>
+          <h1 className="login-wordmark">Plug</h1>
+          <p className="login-tagline">Internal admin</p>
+          <span className="brand-bar" />
           <p className="subtitle">Enter the internal admin password to continue</p>
-          <form onSubmit={handleUnlock}>
-            <div className="input-group">
-              <label htmlFor="admin-password">Admin password</label>
-              <input
-                id="admin-password"
-                type="password"
-                placeholder="Admin password"
-                required
-                value={unlockInput}
-                onChange={(e) => setUnlockInput(e.target.value)}
-                autoFocus
-              />
-            </div>
-            {unlockError && <div className="error-msg">{unlockError}</div>}
-            <button type="submit" className="btn btn-primary btn-block" disabled={unlocking}>
-              {unlocking ? 'Unlocking…' : 'Unlock'}
-            </button>
-          </form>
+          <div className="card login-box">
+            <form onSubmit={handleUnlock}>
+              <div className="input-group">
+                <label htmlFor="admin-password">Admin password</label>
+                <input
+                  id="admin-password"
+                  type="password"
+                  placeholder="Admin password"
+                  required
+                  value={unlockInput}
+                  onChange={(e) => setUnlockInput(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {unlockError && <div className="error-msg">{unlockError}</div>}
+              <button type="submit" className="btn btn-primary btn-block" disabled={unlocking}>
+                {unlocking ? 'Unlocking...' : 'Unlock'}
+              </button>
+            </form>
+          </div>
+          <p className="login-footer">PLUG &nbsp;·&nbsp; BY RIPPLICA</p>
         </div>
       </div>
     )
@@ -174,6 +181,7 @@ export default function AdminDashboard() {
     <div className="admin-dashboard">
       <header className="content-header">
         <div className="greeting">
+          <p className="page-kicker">Admin</p>
           <h1>Admin Dashboard</h1>
           <p>Create, disable, and remove application users.</p>
         </div>

@@ -1,13 +1,14 @@
 /* Plug product UI - cream desk, orange accent, black ink.
-   Scoped to .plug-app so Gravity Internal keeps its own tokens. */
+   Extra chrome for the creator workspace. Internal app now shares the same tokens. */
 
 .plug-app {
-    --plug-bg: #fcfbf8;
+    --plug-bg: #ffffff;
     --plug-ink: #111111;
     --plug-muted: #5c5a56;
     --plug-accent: #ff4d00;
     --plug-accent-hover: #e04400;
     --plug-soft: #ffe8de;
+    --plug-widget: #fff7f3;
     --plug-sticky: #fff8a0;
     --plug-line: #e0ded8;
     --plug-white: #ffffff;
@@ -16,6 +17,7 @@
 
     --bg: var(--plug-bg);
     --surface: var(--plug-white);
+    --widget: var(--plug-widget);
     --border: var(--plug-ink);
     --border-light: var(--plug-line);
     --text: var(--plug-ink);
@@ -45,11 +47,18 @@
     background: var(--plug-bg);
 }
 
-.plug-rail {
+.plug-rail,
+.plug-shell::after,
+.plug-auth::after {
     width: 0.12in;
     min-width: 8px;
     flex-shrink: 0;
     background: var(--plug-accent);
+}
+
+.plug-shell::after,
+.plug-auth::after {
+    content: '';
 }
 
 .plug-sidebar {
@@ -161,7 +170,7 @@
 
 .plug-app .sidebar-menu .menu-item:hover,
 .plug-app .sidebar-menu a.menu-item:hover {
-    background: var(--plug-bg);
+    background: var(--plug-widget);
     color: var(--plug-ink);
 }
 
@@ -375,16 +384,20 @@
 
 .plug-auth-body {
     flex: 1;
+    min-width: 0;
+    position: relative;
     display: flex;
     flex-direction: column;
+    align-items: center;
     justify-content: center;
-    padding: 48px 56px 32px;
-    max-width: 560px;
+    text-align: center;
+    padding: 48px 56px 72px;
 }
 
 .plug-auth-brand {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 12px;
     margin-bottom: 28px;
 }
@@ -409,7 +422,7 @@
 .plug-auth .plug-brand-bar {
     width: 72px;
     height: 4px;
-    margin: 16px 0 18px;
+    margin: 16px auto 18px;
 }
 
 .plug-auth-meta {
@@ -425,9 +438,12 @@
 }
 
 .plug-auth-card {
+    width: 100%;
+    max-width: 420px;
     background: var(--plug-white);
     border: 1px solid var(--plug-ink);
     padding: 28px 28px 24px;
+    text-align: left;
 }
 
 .plug-auth-card .btn-block {
@@ -448,8 +464,12 @@
 }
 
 .plug-auth-footer {
-    margin-top: auto;
-    padding-top: 32px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 20px;
+    margin: 0;
+    padding: 0;
     font-family: var(--plug-ui);
     font-size: 9pt;
     font-weight: 700;
@@ -718,7 +738,7 @@
     font-family: inherit;
     font-size: 14.5px;
     line-height: 1.65;
-    background: var(--plug-bg);
+    background: var(--plug-widget);
     border: 1px solid var(--plug-line);
     border-radius: 0;
     padding: 16px 18px;
@@ -1078,7 +1098,9 @@
         flex-direction: column;
     }
 
-    .plug-rail {
+    .plug-rail,
+    .plug-shell::after,
+    .plug-auth::after {
         width: 100%;
         min-width: 0;
         height: 8px;

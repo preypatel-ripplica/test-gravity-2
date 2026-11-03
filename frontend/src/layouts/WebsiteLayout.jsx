@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import api from '../api'
+import BrandLockup from '../components/BrandLockup'
 import { NavItem, NavSection } from '../components/NavSection'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -55,10 +56,7 @@ export default function WebsiteLayout() {
     <div className="dashboard">
       <aside className="sidebar card">
         <div className="sidebar-header">
-          <div className="brand-logo">
-            <i className="fa-solid fa-globe brand-icon" />
-            <h3>Website CMS</h3>
-          </div>
+          <BrandLockup subtitle="Website" />
         </div>
 
         <div className="user-profile">
@@ -66,7 +64,7 @@ export default function WebsiteLayout() {
             <i className="fa-solid fa-user" />
           </div>
           <div className="user-info">
-            <h4>{user?.username || user?.email || '—'}</h4>
+            <h4>{user?.username || user?.email || 'User'}</h4>
             <p className="role">{client?.name || 'Client'}</p>
           </div>
         </div>

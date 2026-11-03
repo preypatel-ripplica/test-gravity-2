@@ -572,20 +572,20 @@ export default function ClientSettings() {
           </div>
         </section>
 
-        <div className="tabs-container" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', marginBottom: '24px', width: 'fit-content', flexWrap: 'wrap' }}>
+        <div className="tabs-container" style={{ display: 'flex', background: 'var(--bg)', padding: '0', border: '1px solid var(--border)', borderRadius: '0', marginBottom: '24px', width: 'fit-content', flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => setActiveTab('topics')}
             style={{
               padding: '8px 20px',
-              borderRadius: '6px',
+              borderRadius: '0',
               border: 'none',
-              fontWeight: '600',
+              fontWeight: '700',
               fontSize: '14px',
               cursor: 'pointer',
-              background: activeTab === 'topics' ? '#ffffff' : 'transparent',
-              color: activeTab === 'topics' ? '#4f46e5' : '#64748b',
-              boxShadow: activeTab === 'topics' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'topics' ? '#ffe8de' : 'transparent',
+              color: activeTab === 'topics' ? '#111111' : '#5c5a56',
+              boxShadow: 'none',
               transition: 'all 0.2s',
               display: 'flex',
               alignItems: 'center',
@@ -599,14 +599,14 @@ export default function ClientSettings() {
             onClick={() => setActiveTab('trends')}
             style={{
               padding: '8px 20px',
-              borderRadius: '6px',
+              borderRadius: '0',
               border: 'none',
-              fontWeight: '600',
+              fontWeight: '700',
               fontSize: '14px',
               cursor: 'pointer',
-              background: activeTab === 'trends' ? '#ffffff' : 'transparent',
-              color: activeTab === 'trends' ? '#4f46e5' : '#64748b',
-              boxShadow: activeTab === 'trends' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'trends' ? '#ffe8de' : 'transparent',
+              color: activeTab === 'trends' ? '#111111' : '#5c5a56',
+              boxShadow: 'none',
               transition: 'all 0.2s',
               display: 'flex',
               alignItems: 'center',
@@ -620,14 +620,14 @@ export default function ClientSettings() {
             onClick={() => setActiveTab('recommendations')}
             style={{
               padding: '8px 20px',
-              borderRadius: '6px',
+              borderRadius: '0',
               border: 'none',
-              fontWeight: '600',
+              fontWeight: '700',
               fontSize: '14px',
               cursor: 'pointer',
-              background: activeTab === 'recommendations' ? '#ffffff' : 'transparent',
-              color: activeTab === 'recommendations' ? '#4f46e5' : '#64748b',
-              boxShadow: activeTab === 'recommendations' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'recommendations' ? '#ffe8de' : 'transparent',
+              color: activeTab === 'recommendations' ? '#111111' : '#5c5a56',
+              boxShadow: 'none',
               transition: 'all 0.2s',
               display: 'flex',
               alignItems: 'center',
@@ -998,7 +998,7 @@ export default function ClientSettings() {
                   fontSize: '13px',
                   cursor: 'pointer',
                   background: recoPage === 'primary' ? '#ffffff' : 'transparent',
-                  color: recoPage === 'primary' ? '#4f46e5' : '#64748b',
+                  color: recoPage === 'primary' ? '#ff4d00' : '#64748b',
                   boxShadow: recoPage === 'primary' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                   transition: 'all 0.2s',
                 }}
@@ -1016,7 +1016,7 @@ export default function ClientSettings() {
                   fontSize: '13px',
                   cursor: 'pointer',
                   background: recoPage === 'secondary' ? '#ffffff' : 'transparent',
-                  color: recoPage === 'secondary' ? '#4f46e5' : '#64748b',
+                  color: recoPage === 'secondary' ? '#ff4d00' : '#64748b',
                   boxShadow: recoPage === 'secondary' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                   transition: 'all 0.2s',
                 }}

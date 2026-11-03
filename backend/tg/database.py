@@ -2266,21 +2266,47 @@ def save_sheet_comment(doc: dict) -> dict:
 
 
 def fetch_doctor_reference(client_id: str) -> dict | None:
-    doc = projects_col().find_one({"id": client_id}, {"_id": 0, "profile_sections": 1})
+    doc = projects_col().find_one(
+        {"id": client_id},
+        {"_id": 0, "profile_sections": 1, "video_editor_id": 1, "long_video_hours": 1, "short_video_hours": 1, "name": 1, "specialty": 1, "designation": 1},
+    )
     if not doc or not doc.get("profile_sections"):
+        return None
+    from backend.trackers.editors import ensure_editor_sections
+
+    sections = ensure_editor_sections(
+        doc.get("profile_sections") or [],
+        doc.get("video_editor_id") or "",
+        project=doc,
+    )
+    if not sections:
         return None
     return {
         "id": client_id,
         "client_id": client_id,
-        "sections": list(doc.get("profile_sections") or []),
+        "sections": sections,
     }
 
 
 def save_doctor_reference(doc: dict) -> dict:
+    from backend.trackers.editors import editor_value_from_sections, ensure_editor_sections, hours_values_from_sections
+
     client_id = doc["client_id"]
-    sections = list(doc.get("sections") or [])
+    existing = projects_col().find_one({"id": client_id}, {"_id": 0}) or {}
+    sections = ensure_editor_sections(list(doc.get("sections") or []), project=existing)
+    editor_id = editor_value_from_sections(sections)
+    hours = hours_values_from_sections(sections, existing)
     projects_col().update_one(
-        {"id": client_id}, {"$set": {"profile_sections": sections, "updated_at": _iso()}}
+        {"id": client_id},
+        {
+            "$set": {
+                "profile_sections": sections,
+                "video_editor_id": editor_id or None,
+                "long_video_hours": hours["long_video_hours"],
+                "short_video_hours": hours["short_video_hours"],
+                "updated_at": _iso(),
+            }
+        },
     )
     return {**doc, "id": client_id, "client_id": client_id, "sections": sections}
 

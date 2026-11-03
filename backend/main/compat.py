@@ -314,9 +314,15 @@ def doctor_reference_get(body: DoctorRefBody, auth: dict = Depends(current_user)
     project_id = body.project_id or body.client_id
     require_project_access(auth["user_id"], project_id)
     project = find_project(project_id)
+    from backend.trackers.editors import ensure_editor_sections
+
     return {
         "client_id": project_id,
-        "sections": project.get("profile_sections") or [],
+        "sections": ensure_editor_sections(
+            project.get("profile_sections") or [],
+            project.get("video_editor_id") or "",
+            project=project,
+        ),
     }
 
 
@@ -326,13 +332,25 @@ def doctor_reference_save(body: DoctorRefBody, auth: dict = Depends(current_user
     from .db import projects_col
     from .main_crudl import find_project
     from .models import utc_now
+    from backend.trackers.editors import editor_value_from_sections, ensure_editor_sections, hours_values_from_sections
 
     require_internal(auth)
     project_id = body.project_id or body.client_id
     require_project_access(auth["user_id"], project_id)
+    project = find_project(project_id)
+    sections = ensure_editor_sections(body.sections or [], project=project)
+    hours = hours_values_from_sections(sections, project)
     projects_col().update_one(
         {"id": project_id},
-        {"$set": {"profile_sections": body.sections or [], "updated_at": utc_now()}},
+        {
+            "$set": {
+                "profile_sections": sections,
+                "video_editor_id": editor_value_from_sections(sections) or None,
+                "long_video_hours": hours["long_video_hours"],
+                "short_video_hours": hours["short_video_hours"],
+                "updated_at": utc_now(),
+            }
+        },
     )
     project = find_project(project_id)
     return {

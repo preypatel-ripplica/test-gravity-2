@@ -50,6 +50,8 @@ import WebsiteDeployment from './pages/WebsiteDeployment'
 import ClientWeeklyTracker from './pages/ClientWeeklyTracker'
 import ClientCustomTracker from './pages/ClientCustomTracker'
 import PocWeeklyTracker from './pages/PocWeeklyTracker'
+import EditTracker from './pages/EditTracker'
+import EditTrackerSettings from './pages/EditTrackerSettings'
 import ClientVideos from './pages/ClientVideos'
 import ClientsIndex from './pages/ClientsIndex'
 import LoginPage from './pages/LoginPage'
@@ -61,7 +63,9 @@ function RequireAuth({ children }) {
   if (loading) {
     return (
       <div className="login-page">
-        <p className="text-muted">Loading…</p>
+        <div className="login-body">
+          <p className="text-muted">Loading...</p>
+        </div>
       </div>
     )
   }
@@ -190,6 +194,8 @@ export default function App() {
         >
           <Route path="/clients" element={<ClientsIndex />} />
           <Route path="/tracker" element={<PocWeeklyTracker />} />
+          <Route path="/edit-tracker" element={<EditTracker />} />
+          <Route path="/edit-tracker/settings" element={<EditTrackerSettings />} />
           <Route path="/tracker/:clientId" element={<Navigate to="/tracker" replace />} />
           <Route path="/tracker/:clientId/custom" element={<Navigate to="/tracker" replace />} />
         </Route>

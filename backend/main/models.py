@@ -121,6 +121,9 @@ class Project(BaseModel):
     tracker_start_month: Optional[int] = None
     tracker_start_week: Optional[int] = None
     onboarding_date: Optional[str] = None
+    video_editor_id: Optional[str] = None
+    long_video_hours: Optional[float] = None
+    short_video_hours: Optional[float] = None
     profile_sections: list[ProfileSection] = Field(default_factory=list)
     topics: list[Topic] = Field(default_factory=list)
     # TG content_suggestions blob (items + keyword_analysis + coverage summary).

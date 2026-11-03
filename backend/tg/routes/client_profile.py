@@ -7,6 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.tg import schemas
 from backend.tg.auth import get_current_user
+from backend.trackers.editors import (
+    EDITOR_FIELD_ID,
+    EDITOR_FIELD_LABEL,
+    LONG_HOURS_FIELD_ID,
+    LONG_HOURS_FIELD_LABEL,
+    SHORT_HOURS_FIELD_ID,
+    SHORT_HOURS_FIELD_LABEL,
+)
 from backend.tg.database import (
     fetch_client_bundle,
     fetch_client_credentials,
@@ -21,6 +29,9 @@ DEFAULT_SECTIONS = (
     (
         "Video Editing / Generation",
         (
+            "Editor",
+            "Long video hours",
+            "Short video hours",
             "HeyGen look used",
             "HeyGen tips",
             "Hand movement preference",
@@ -55,6 +66,16 @@ DEFAULT_SECTIONS = (
 )
 
 
+def _preference_field_id(label: str) -> str:
+    if label == EDITOR_FIELD_LABEL:
+        return EDITOR_FIELD_ID
+    if label == LONG_HOURS_FIELD_LABEL:
+        return LONG_HOURS_FIELD_ID
+    if label == SHORT_HOURS_FIELD_LABEL:
+        return SHORT_HOURS_FIELD_ID
+    return _new_id("fld")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -77,12 +98,25 @@ def seed_doctor_sections() -> list[dict]:
             "title": title,
             "is_default": True,
             "fields": [
-                {"id": _new_id("fld"), "label": label, "value": ""}
+                {
+                    "id": _preference_field_id(label),
+                    "label": label,
+                    "value": "",
+                }
                 for label in labels
             ],
         }
         for title, labels in DEFAULT_SECTIONS
     ]
+
+
+_DEFAULT_SECTION_TITLES = {title for title, _ in DEFAULT_SECTIONS}
+
+
+def _is_default_section(title: str, is_default: bool = False) -> bool:
+    if is_default:
+        return True
+    return (title or "").strip() in _DEFAULT_SECTION_TITLES
 
 
 def _sanitize_sections(sections: list[schemas.DoctorReferenceSection]) -> list[dict]:
@@ -97,14 +131,14 @@ def _sanitize_sections(sections: list[schemas.DoctorReferenceSection]) -> list[d
             if not label:
                 continue
             fields.append({
-                "id": field.id or _new_id("fld"),
+                "id": _preference_field_id(label) if label in {EDITOR_FIELD_LABEL, LONG_HOURS_FIELD_LABEL, SHORT_HOURS_FIELD_LABEL} else (field.id or _new_id("fld")),
                 "label": label,
                 "value": field.value or "",
             })
         cleaned.append({
             "id": section.id or _new_id("sec"),
             "title": title,
-            "is_default": bool(section.is_default),
+            "is_default": _is_default_section(title, bool(section.is_default)),
             "fields": fields,
         })
     return cleaned
@@ -155,6 +189,16 @@ def get_doctor_reference(
     _require_client(username, body.client_id)
     existing = fetch_doctor_reference(body.client_id)
     if existing:
+        existing["sections"] = [
+            {
+                **section,
+                "is_default": _is_default_section(
+                    section.get("title") or "",
+                    bool(section.get("is_default")),
+                ),
+            }
+            for section in existing.get("sections") or []
+        ]
         return schemas.DoctorReferenceResponse(reference=_reference_payload(existing))
 
     now = _now_iso()

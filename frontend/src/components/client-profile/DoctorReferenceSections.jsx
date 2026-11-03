@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { isDefaultPreferenceSection } from './profileUtils'
 
 export default function DoctorReferenceSections({
   sections,
@@ -50,7 +51,7 @@ export default function DoctorReferenceSections({
                 <button type="button" onClick={() => onSelect(section.id)}>
                   {section.title}
                 </button>
-                {!section.is_default && (
+                {!isDefaultPreferenceSection(section) && (
                   <button
                     type="button"
                     className="doctor-ref-section-delete"

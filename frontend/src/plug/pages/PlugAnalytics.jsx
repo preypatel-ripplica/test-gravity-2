@@ -106,7 +106,7 @@ function ContentMixBars({ data, total }) {
                 style={{
                   width: `${Math.min(100, pct || 0)}%`,
                   height: '100%',
-                  background: t.id === 'reels' ? '#6366f1' : t.id === 'posts' ? '#f59e0b' : '#10b981',
+                  background: t.id === 'reels' ? '#ff4d00' : t.id === 'posts' ? '#f59e0b' : '#10b981',
                 }}
               />
             </div>
@@ -331,16 +331,16 @@ export default function PlugAnalytics() {
   })
 
   let currentData = []
-  let activeColor = '#6366f1'
+  let activeColor = '#ff4d00'
   let fillColor = 'rgba(99, 102, 241, 0.15)'
 
   if (activeChart === 'reach') {
     currentData = reachTs.map((v) => v.value)
-    activeColor = '#6366f1'
+    activeColor = '#ff4d00'
     fillColor = 'rgba(99, 102, 241, 0.15)'
   } else {
     currentData = followerTs.map((v) => v.value)
-    activeColor = '#8b5cf6'
+    activeColor = '#e04400'
     fillColor = 'rgba(139, 92, 246, 0.15)'
   }
 
@@ -375,8 +375,8 @@ export default function PlugAnalytics() {
       tooltip: {
         backgroundColor: '#1e293b',
         padding: 12,
-        titleFont: { size: 13, family: 'Inter' },
-        bodyFont: { size: 14, weight: 'bold', family: 'Inter' },
+        titleFont: { size: 13, family: 'Helvetica Neue' },
+        bodyFont: { size: 14, weight: 'bold', family: 'Helvetica Neue' },
         displayColors: false,
         cornerRadius: 8,
       },
@@ -386,13 +386,13 @@ export default function PlugAnalytics() {
         grid: { display: false },
         ticks: {
           color: '#64748b',
-          font: { family: 'Inter', size: 12 },
+          font: { family: 'Helvetica Neue', size: 12 },
           maxTicksLimit: chartLabels.length > 40 ? 10 : 14,
           maxRotation: chartLabels.length > 60 ? 40 : 0,
         },
         border: { display: false },
       },
-      y: { grid: { color: '#f1f5f9' }, ticks: { color: '#94a3b8', font: { family: 'Inter', size: 12 }, maxTicksLimit: 6 }, border: { display: false } },
+      y: { grid: { color: '#f1f5f9' }, ticks: { color: '#94a3b8', font: { family: 'Helvetica Neue', size: 12 }, maxTicksLimit: 6 }, border: { display: false } },
     },
     interaction: { intersect: false, mode: 'index' },
   }
@@ -443,7 +443,7 @@ export default function PlugAnalytics() {
       },
     },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#64748b', font: { family: 'Inter', size: 11 }, maxRotation: 40 } },
+      x: { grid: { display: false }, ticks: { color: '#64748b', font: { family: 'Helvetica Neue', size: 11 }, maxRotation: 40 } },
       y: { grid: { color: '#f1f5f9' }, ticks: { color: '#94a3b8' }, border: { display: false } },
     },
   }
@@ -556,11 +556,12 @@ export default function PlugAnalytics() {
   const followDenom = followerViews + nonFollowerViews + unknownViews || viewsTotal
 
   return (
-    <div className="plug-page animate-fade-in" style={{ padding: '0 24px 48px', maxWidth: 1200, margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
+    <div className="plug-page animate-fade-in" style={{ padding: '0 24px 48px', maxWidth: 1200, margin: '0 auto', fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, paddingTop: 24 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>Analytics Portal</h1>
-          <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>Overview of your Instagram performance</p>
+          <p className="plug-kicker">Analytics</p>
+          <h1 className="plug-title">Instagram</h1>
+          <p className="plug-subtitle">Overview of your Instagram performance</p>
         </div>
         <button type="button" className="btn btn-secondary" onClick={handleDisconnect} disabled={connecting} style={{ background: '#fff', border: '1px solid #e2e8f0', color: '#64748b', borderRadius: 8, padding: '8px 16px', fontWeight: 500 }}>
           <i className="fa-brands fa-instagram" style={{ marginRight: 8, color: '#e1306c' }} />
@@ -582,7 +583,7 @@ export default function PlugAnalytics() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <i className="fa-regular fa-calendar" style={{ color: '#6366f1' }} />
+                <i className="fa-regular fa-calendar" style={{ color: '#ff4d00' }} />
                 {periodLabel}
               </div>
               <i className={`fa-solid fa-chevron-${showDatePicker ? 'up' : 'down'}`} style={{ fontSize: 10, color: '#94a3b8' }} />
@@ -599,7 +600,7 @@ export default function PlugAnalytics() {
                     onClick={() => { setPreset(p.id); setShowDatePicker(false) }}
                     style={{
                       padding: '10px 16px', background: activePreset === p.id ? '#f8fafc' : 'transparent', border: 'none',
-                      borderRadius: 8, textAlign: 'left', cursor: 'pointer', fontSize: 13, color: activePreset === p.id ? '#6366f1' : '#475569',
+                      borderRadius: 8, textAlign: 'left', cursor: 'pointer', fontSize: 13, color: activePreset === p.id ? '#ff4d00' : '#475569',
                       fontWeight: activePreset === p.id ? 600 : 500, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     }}
                   >
@@ -618,7 +619,7 @@ export default function PlugAnalytics() {
       </div>
 
       {loadingAnalytics && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: '#eff6ff', color: '#3b82f6', borderRadius: 8, marginBottom: 24, fontSize: 14, fontWeight: 500 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: '#ffe8de', color: '#9a3412', borderRadius: 0, marginBottom: 24, fontSize: 14, fontWeight: 500, border: '1px solid #ff4d00' }}>
           <i className="fa-solid fa-circle-notch fa-spin" style={{ marginRight: 8 }} /> Refreshing data...
         </div>
       )}
@@ -629,7 +630,7 @@ export default function PlugAnalytics() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Views</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <h2 style={{ fontSize: 32, fontWeight: 800, color: '#0f172a', margin: 0 }}>{fmtNum(metrics?.views)}</h2>
-              <IconChip bg="#e0e7ff" color="#4f46e5" icon="fa-solid fa-play" />
+              <IconChip bg="#ffe8de" color="#ff4d00" icon="fa-solid fa-play" />
             </div>
             <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.45 }}>Times content was played or shown</div>
             {viewsByFollowType && (
@@ -659,8 +660,8 @@ export default function PlugAnalytics() {
               value={fmtNum(metrics?.reach)}
               caption="Unique accounts in range"
               icon="fa-solid fa-users"
-              iconBg="#e0e7ff"
-              iconColor="#4f46e5"
+              iconBg="#ffe8de"
+              iconColor="#ff4d00"
             />
             <div style={{ height: 1, background: '#f1f5f9' }} />
             <StackedStat
@@ -904,7 +905,7 @@ export default function PlugAnalytics() {
                           <RateRow label="Comment rate" value={reel.comment_rate} />
                         </div>
                         {reel.permalink && (
-                          <a href={reel.permalink} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 12, fontSize: 13, color: '#6366f1', fontWeight: 600 }}>
+                          <a href={reel.permalink} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 12, fontSize: 13, color: '#ff4d00', fontWeight: 600 }}>
                             Open on Instagram
                           </a>
                         )}

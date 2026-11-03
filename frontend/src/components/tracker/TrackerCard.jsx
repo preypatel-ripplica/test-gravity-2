@@ -15,6 +15,8 @@ import {
   MARKING_NONE,
   TYPE_LABELS,
   TYPE_PILL,
+  calendarWeekDates,
+  isoDate,
   isVideoCard,
   maybeAdvanceStage,
   nextStageId,
@@ -212,6 +214,48 @@ function DelayProofNote({ card }) {
   )
 }
 
+function VideoEditFields({ card, weekContext, onChange }) {
+  if (!isVideoCard(card.type)) return null
+  const editors = weekContext?.editors || []
+  const dates = weekContext?.weekDates || calendarWeekDates()
+  return (
+    <div className="tracker-edit-fields" onClick={stopToggle}>
+      <label>
+        <span>Editor</span>
+        <select
+          className="form-control"
+          value={card.editor_id || ''}
+          onChange={(event) => onChange({ ...card, editor_id: event.target.value, editor_overridden: true })}
+        >
+          <option value="">Select editor</option>
+          {editors.map((editor) => (
+            <option key={editor.id} value={editor.id}>{editor.name}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Edit date</span>
+        <select
+          className="form-control"
+          value={card.planned_edit_date || ''}
+          onChange={(event) => onChange({ ...card, planned_edit_date: event.target.value })}
+        >
+          <option value="">Unassigned</option>
+          {dates.map((day) => {
+            const value = isoDate(day)
+            return (
+              <option key={value} value={value}>
+                {day.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </option>
+            )
+          })}
+        </select>
+      </label>
+      {card.edit_hours ? <em>{card.edit_hours}h</em> : null}
+    </div>
+  )
+}
+
 function DeleteCardButton({ onDelete }) {
   if (!onDelete) return null
   return (
@@ -296,6 +340,7 @@ export default function TrackerCard({
           <strong className="tracker-collapsed-title">{card.title || 'Untitled'}</strong>
           <StatusBadge card={card} />
           {hasDelayProof(card) ? <span className="tracker-pill tracker-pill-delay">Delay noted</span> : null}
+          <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
           <span className="tracker-icon-btn" data-tip="Expand" aria-hidden="true">
             <i className="fa-solid fa-chevron-down" />
           </span>
@@ -334,6 +379,7 @@ export default function TrackerCard({
       </header>
 
       <DelayProofNote card={card} />
+      <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
 
       <div className="tracker-stage-block">
         <Timeline

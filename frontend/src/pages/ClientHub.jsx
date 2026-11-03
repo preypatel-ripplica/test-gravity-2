@@ -20,6 +20,7 @@ export default function ClientHub() {
       <header className="content-header">
         <div className="greeting">
           <Breadcrumbs items={[{ label: 'Clients', to: '/clients' }, { label: client?.name || 'Client' }]} />
+          <p className="page-kicker">Client</p>
           <h1>{client?.name || 'Client'}</h1>
           <p>Choose the workspace you want to manage.</p>
         </div>
