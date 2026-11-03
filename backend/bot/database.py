@@ -15,8 +15,25 @@ load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "botify")
 
+# Short timeouts so a missing/unreachable Atlas URI cannot block Cloud Run
+# PORT bind (lifespan used to call init_db() before listen).
+_CLIENT_KW = dict(
+    serverSelectionTimeoutMS=8_000,
+    connectTimeoutMS=8_000,
+    socketTimeoutMS=20_000,
+)
 
-client = MongoClient(MONGO_URI)
+if MONGO_URI:
+    client = MongoClient(MONGO_URI, **_CLIENT_KW)
+else:
+    # Import-safe placeholder only. Workers are skipped when MONGO_URI is unset;
+    # accidental use fails in ~1s instead of hanging on localhost defaults.
+    client = MongoClient(
+        "mongodb://127.0.0.1:27017",
+        serverSelectionTimeoutMS=1_000,
+        connectTimeoutMS=1_000,
+    )
+
 db = client[MONGO_DB_NAME]
 
 
@@ -42,7 +59,14 @@ call_reviews_collection = db["call_reviews"]
 call_transcripts_collection = db["call_transcripts"]
 
 
+def bot_mongo_configured() -> bool:
+    return bool(MONGO_URI)
+
+
 def init_db():
+    if not MONGO_URI:
+        raise RuntimeError("MONGO_URI is not configured")
+
     client.admin.command("ping")
 
     clients_collection.create_index("id", unique=True)
