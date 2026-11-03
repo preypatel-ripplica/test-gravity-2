@@ -15,6 +15,7 @@ from backend.bot.lifecycle import start_bot_workers, stop_bot_workers
 from backend.bot.routes import router as bot_router
 from backend.trackers.crudl import router as trackers_router
 from backend.website.crudl import router as website_router
+from backend.website.reports import router as website_reports_router
 
 from backend.tg.google_oauth import router as google_oauth_router
 from backend.tg.routes.channel import router as tg_channel_router
@@ -88,6 +89,7 @@ app.include_router(tg_report_router)
 app.include_router(tg_social_router)
 app.include_router(tg_tracker_sheet_router)
 app.include_router(plug_router)
+app.include_router(website_reports_router)
 
 # Beacon-native domains
 app.include_router(website_router)
