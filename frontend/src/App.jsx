@@ -54,6 +54,7 @@ import ClientVideos from './pages/ClientVideos'
 import ClientsIndex from './pages/ClientsIndex'
 import LoginPage from './pages/LoginPage'
 import PlugRoot from './plug/PlugRoot'
+import BotRoot from './bot/BotRoot'
 
 function RequireAuth({ children }) {
   const { token, user, loading } = useAuth()
@@ -171,6 +172,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/plug/*" element={<PlugRoot />} />
+        <Route path="/bot/*" element={<BotRoot />} />
 
         <Route
           path="/"

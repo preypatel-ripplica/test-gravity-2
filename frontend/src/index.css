@@ -36,10 +36,14 @@
     --transition: cubic-bezier(0.4, 0, 0.2, 1) 0.2s;
 }
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+/* Must stay in @layer base. Unlayered * { padding:0 } beats Tailwind utilities
+   and crushes bot/plug (and any utility-padded) layouts. */
+@layer base {
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
 }
 
 body {
@@ -1592,6 +1596,11 @@ body {
     background: #e0f2fe;
 }
 
+.workspace-card-icon.whatsapp {
+    color: #15803d;
+    background: #dcfce7;
+}
+
 .workspace-card-body h2 {
     font-size: 18px;
     font-weight: 800;
@@ -3043,7 +3052,9 @@ body {
     overflow-x: auto;
 }
 
-table {
+/* Unlayered element rules beat Tailwind @layer utilities. Keep them off
+   product shells (.bot-app / .plug-app) or bot/plug tables look broken. */
+body:not(:has(.bot-app, .plug-app)) table {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
@@ -3051,12 +3062,13 @@ table {
     text-align: left;
 }
 
-th, td {
+body:not(:has(.bot-app, .plug-app)) th,
+body:not(:has(.bot-app, .plug-app)) td {
     padding: 12px 16px;
     vertical-align: middle;
 }
 
-th {
+body:not(:has(.bot-app, .plug-app)) th {
     color: var(--text-secondary);
     font-weight: 600;
     font-size: 11px;
@@ -3066,16 +3078,16 @@ th {
     background: #f8fafc;
 }
 
-td {
+body:not(:has(.bot-app, .plug-app)) td {
     border-bottom: 1px solid var(--border-light);
     color: var(--text-secondary);
 }
 
-tr:last-child td {
+body:not(:has(.bot-app, .plug-app)) tr:last-child td {
     border-bottom: none;
 }
 
-tbody tr {
+body:not(:has(.bot-app, .plug-app)) tbody tr {
     transition: background-color var(--transition);
 }
 
