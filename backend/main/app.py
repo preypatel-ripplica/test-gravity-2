@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
 
+from backend.bot.lifecycle import start_bot_workers, stop_bot_workers
+from backend.bot.routes import router as bot_router
 from backend.trackers.crudl import router as trackers_router
 from backend.website.crudl import router as website_router
 
@@ -38,8 +40,12 @@ async def lifespan(_app: FastAPI):
     backend_root = Path(__file__).resolve().parents[1]
     for name in ("social_assets", "narration_cache", "reports"):
         (backend_root / name).mkdir(parents=True, exist_ok=True)
-    yield
-    close()
+    bot_tasks = start_bot_workers()
+    try:
+        yield
+    finally:
+        await stop_bot_workers(bot_tasks)
+        close()
 
 
 app = FastAPI(title="Beacon", lifespan=lifespan)
@@ -81,6 +87,9 @@ app.include_router(plug_router)
 # Beacon-native domains
 app.include_router(website_router)
 app.include_router(trackers_router)
+
+# WhatsApp bot (Botify) — same logic/UI/DB under /bot/api/*
+app.include_router(bot_router, prefix="/bot/api")
 
 # Compat leftovers (doctor-ref / credentials / select aliases) — after TG so
 # TG handlers win on overlapping client.* / social.* paths.

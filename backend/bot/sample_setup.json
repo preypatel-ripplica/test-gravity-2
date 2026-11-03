@@ -1,0 +1,219 @@
+{
+  "client": {
+    "id": "client:demo",
+    "name": "Demo Business",
+    "username": "demo",
+    "password": "demo123",
+    "status": "active"
+  },
+  "user": {
+    "id": "user:demo_admin",
+    "client_id": "client:demo",
+    "name": "Abhi",
+    "email": "abhib863@gmail.com",
+    "role": "admin",
+    "status": "active"
+  },
+  "whatsapp_account": {
+    "id": "wa:demo_main",
+    "client_id": "client:demo",
+    "name": "Demo Main Number",
+    "phone_number_id": "1282128861641542",
+    "status": "connected"
+  },
+  "workflow": {
+    "id": "client:demo/workflow:support_bot",
+    "client_id": "client:demo",
+    "whatsapp_account_id": "wa:demo_main",
+    "created_by_user_id": "user:demo_admin",
+    "updated_by_user_id": "user:demo_admin",
+    "name": "Support Bot",
+    "description": "Demo support bot: welcome, button menu, order tracking (text), returns (list + condition).",
+    "first_node_id": "client:demo/workflow:support_bot/node:1",
+    "status": "published",
+    "deleted": false
+  },
+  "nodes": [
+    {
+      "id": "client:demo/workflow:support_bot/node:1",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Welcome message",
+      "type": "send_message",
+      "next_node_id": "client:demo/workflow:support_bot/node:2",
+      "config": {
+        "message": "👋 Welcome to Demo Business support! Let me help you."
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:2",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Main menu (buttons)",
+      "type": "ask_question",
+      "next_node_id": null,
+      "config": {
+        "question": "What do you need help with?",
+        "input_type": "buttons",
+        "variable_name": "issue_type",
+        "options": [
+          {
+            "id": "track_order",
+            "label": "Track Order",
+            "next_node_id": "client:demo/workflow:support_bot/node:3"
+          },
+          {
+            "id": "return_item",
+            "label": "Return Item",
+            "next_node_id": "client:demo/workflow:support_bot/node:4"
+          },
+          {
+            "id": "other_help",
+            "label": "Something Else",
+            "next_node_id": "client:demo/workflow:support_bot/node:5"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:3",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Ask order number (free text)",
+      "type": "ask_question",
+      "next_node_id": "client:demo/workflow:support_bot/node:6",
+      "config": {
+        "question": "Please type your order number (e.g. ORD-12345).",
+        "input_type": "text",
+        "variable_name": "order_number"
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:4",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Ask return category (list)",
+      "type": "ask_question",
+      "next_node_id": null,
+      "config": {
+        "question": "What type of product are you returning?",
+        "input_type": "list",
+        "variable_name": "return_category",
+        "list_config": {
+          "button_text": "Choose category",
+          "sections": [
+            {
+              "title": "Electronics",
+              "rows": [
+                {
+                  "id": "cat_electronics",
+                  "label": "Electronics",
+                  "description": "Phones, gadgets, accessories",
+                  "next_node_id": "client:demo/workflow:support_bot/node:7"
+                }
+              ]
+            },
+            {
+              "title": "Everything else",
+              "rows": [
+                {
+                  "id": "cat_clothing",
+                  "label": "Clothing",
+                  "description": "Apparel and footwear",
+                  "next_node_id": "client:demo/workflow:support_bot/node:7"
+                },
+                {
+                  "id": "cat_other",
+                  "label": "Other",
+                  "description": "Anything else",
+                  "next_node_id": "client:demo/workflow:support_bot/node:7"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:5",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Handoff to human",
+      "type": "send_message",
+      "next_node_id": null,
+      "config": {
+        "message": "No problem — a human agent will reach out to you shortly. 🙋"
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:6",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Order lookup confirmation",
+      "type": "send_message",
+      "next_node_id": null,
+      "config": {
+        "message": "Thanks! We are checking your order and will send you an update shortly. 📦"
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:7",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Branch on return category",
+      "type": "condition",
+      "next_node_id": null,
+      "config": {
+        "conditions": [
+          {
+            "variable": "return_category",
+            "operator": "equals",
+            "value": "Electronics",
+            "next_node_id": "client:demo/workflow:support_bot/node:8"
+          }
+        ],
+        "default_next_node_id": "client:demo/workflow:support_bot/node:9"
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:8",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Electronics return instructions",
+      "type": "send_message",
+      "next_node_id": null,
+      "config": {
+        "message": "Electronics returns need the original box and accessories. Our team will email you a pickup slot. 🔌"
+      }
+    },
+    {
+      "id": "client:demo/workflow:support_bot/node:9",
+      "client_id": "client:demo",
+      "workflow_id": "client:demo/workflow:support_bot",
+      "created_by_user_id": "user:demo_admin",
+      "updated_by_user_id": "user:demo_admin",
+      "name": "Standard return instructions",
+      "type": "send_message",
+      "next_node_id": null,
+      "config": {
+        "message": "Your return is registered! Keep the item packed — pickup happens within 3 days. ✅"
+      }
+    }
+  ]
+}
