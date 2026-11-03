@@ -40,7 +40,12 @@ async def lifespan(_app: FastAPI):
     backend_root = Path(__file__).resolve().parents[1]
     for name in ("social_assets", "narration_cache", "reports"):
         (backend_root / name).mkdir(parents=True, exist_ok=True)
-    bot_tasks = start_bot_workers()
+    # Must not block PORT bind — bot mongo init runs in a background task.
+    bot_tasks: list = []
+    try:
+        bot_tasks = start_bot_workers()
+    except Exception as error:  # noqa: BLE001 — Beacon must boot even if bot fails
+        print(f"BOT: failed to schedule workers: {error}", flush=True)
     try:
         yield
     finally:
