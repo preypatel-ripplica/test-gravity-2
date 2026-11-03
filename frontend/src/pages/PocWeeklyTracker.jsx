@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import { emptyTask, formatDueDate } from '../components/custom-tracker/customTrackerUtils'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -315,16 +316,15 @@ function CustomClientSelect({ row, options, onMove }) {
     : [{ id: row.client_id, label: row.client_name || 'Untitled client' }, ...options]
   return (
     <div className="all-trackers-list-client">
-      <select
+      <CustomSelect
+        compact
         className="sheet-cell-select all-trackers-list-client-select"
-        aria-label="Client"
+        ariaLabel="Client"
         value={row.client_id}
-        onChange={(event) => onMove(row, event.target.value)}
-      >
-        {choices.map((item) => (
-          <option key={item.id} value={item.id}>{item.label}</option>
-        ))}
-      </select>
+        onChange={(next) => onMove(row, next)}
+        searchable={choices.length > 8}
+        options={choices.map((item) => ({ value: item.id, label: item.label }))}
+      />
       <a
         className="all-trackers-list-open"
         href={`/clients/${row.client_id}`}
@@ -772,15 +772,17 @@ export default function PocWeeklyTracker() {
                       </td>
                       <td>
                         {custom ? (
-                          <select
+                          <CustomSelect
+                            compact
                             className="sheet-cell-select all-trackers-list-status"
-                            aria-label="Status"
+                            ariaLabel="Status"
                             value={row.completed ? 'done' : 'in_progress'}
-                            onChange={(event) => patchCustom(row, { done: event.target.value === 'done' })}
-                          >
-                            <option value="in_progress">In progress</option>
-                            <option value="done">Done</option>
-                          </select>
+                            onChange={(next) => patchCustom(row, { done: next === 'done' })}
+                            options={[
+                              { value: 'in_progress', label: 'In progress' },
+                              { value: 'done', label: 'Done' },
+                            ]}
+                          />
                         ) : (statusText(row) || '—')}
                       </td>
                       <td className={!row.due_date && !custom ? 'is-muted' : ''}>

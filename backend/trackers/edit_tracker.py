@@ -107,7 +107,7 @@ def _hydrate_card(card: dict, project: dict, late: bool, *, fill_editor: bool = 
     next_card = dict(card)
     overridden = bool(next_card.get("editor_overridden"))
     editor_id = str(next_card.get("editor_id") or "").strip()
-    if fill_editor and not overridden:
+    if fill_editor and not overridden and (not editor_id or not editor_by_id(editor_id)):
         next_card["editor_id"] = default_editor_id(project, late=late)
     elif editor_id and not editor_by_id(editor_id):
         next_card["editor_id"] = default_editor_id(project, late=late)
@@ -176,24 +176,22 @@ def _week_meta(offset: int, today: date) -> dict:
 
 
 def _append_open_cards(items: list[dict], project: dict, doc: dict, late: bool, actor: str) -> None:
-    changed = False
-    cards = list(doc.get("cards") or [])
-    for index, card in enumerate(cards):
+    del actor
+    for card in doc.get("cards") or []:
         if not _open_video(card):
             continue
         hydrated = _hydrate_card(card, project, late)
-        if hydrated != card:
-            cards[index] = hydrated
-            changed = True
         items.append(_item_from_card(project, doc, hydrated, late))
-    if changed:
-        doc["cards"] = cards
-        doc["updated_at"] = _now_iso()
-        doc["updated_by"] = actor
-        weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
 
 
-def _ensure_open_week(items: list[dict], project: dict, target: tuple[int, int, int], actor: str) -> None:
+def _ensure_open_week(
+    items: list[dict],
+    project: dict,
+    target: tuple[int, int, int],
+    actor: str,
+    *,
+    create_missing: bool,
+) -> None:
     if week_is_before_start(project, *target):
         return
     already = any(
@@ -206,11 +204,13 @@ def _ensure_open_week(items: list[dict], project: dict, target: tuple[int, int, 
     doc_id = weekly_doc_id(project["id"], *target)
     doc = weekly_trackers_col().find_one({"id": doc_id}, {"_id": 0})
     if not doc:
+        if not create_missing:
+            return
         doc = _ensure_week(project["id"], *target, actor)
     _append_open_cards(items, project, doc, False, actor)
 
 
-def _collect_items(actor: str, week_offset: int = 0) -> list[dict]:
+def _collect_items(actor: str, week_offset: int = 0, *, create_missing: bool = False) -> list[dict]:
     today = date.today()
     week_offset = _clamp_week_offset(week_offset)
     current = current_week_tuple(today)
@@ -239,9 +239,9 @@ def _collect_items(actor: str, week_offset: int = 0) -> list[dict]:
                 if late and last and (year, month, week) > last:
                     continue
                 _append_open_cards(items, project, doc, late, actor)
-            _ensure_open_week(items, project, target, actor)
+            _ensure_open_week(items, project, target, actor, create_missing=create_missing)
         else:
-            _ensure_open_week(items, project, target, actor)
+            _ensure_open_week(items, project, target, actor, create_missing=create_missing)
     items.sort(key=lambda row: (
         0 if row["late"] else 1,
         row.get("due_date") or "",
@@ -313,29 +313,42 @@ def _annotate_spill(items: list[dict], week_dates: list[str]) -> list[dict]:
     return out
 
 
+_CARD_EDIT_FIELDS = ("editor_id", "planned_edit_date", "editor_overridden")
+
+
 def _save_card_fields(item: dict, patch: dict, actor: str) -> dict | None:
+    allowed = {key: patch[key] for key in _CARD_EDIT_FIELDS if key in patch}
+    if not allowed:
+        return None
     doc_id = weekly_doc_id(item["client_id"], item["year"], item["month"], item["week"])
-    doc = weekly_trackers_col().find_one({"id": doc_id}, {"_id": 0})
+    card_id = str(item["card_id"])
+    doc = weekly_trackers_col().find_one({"id": doc_id}, {"_id": 0, "id": 1, "cards": 1})
     if not doc:
         return None
-    cards = list(doc.get("cards") or [])
     found = None
-    for index, card in enumerate(cards):
-        if str(card.get("id")) != str(item["card_id"]):
+    for card in doc.get("cards") or []:
+        if str(card.get("id")) != card_id:
             continue
-        previous = dict(card)
-        next_card = {**card, **patch}
-        apply_card_history(previous, next_card, by=actor)
-        cards[index] = next_card
-        found = next_card
+        found = dict(card)
         break
-    if not found:
+    if found is None:
         return None
-    doc["cards"] = cards
-    doc["updated_at"] = _now_iso()
-    doc["updated_by"] = actor
-    weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
-    return found
+    previous = dict(found)
+    next_card = {**found, **allowed}
+    apply_card_history(previous, next_card, by=actor)
+    sets = {f"cards.$[card].{key}": next_card[key] for key in allowed}
+    if next_card.get("history") != found.get("history"):
+        sets["cards.$[card].history"] = next_card.get("history") or []
+    sets["updated_at"] = _now_iso()
+    sets["updated_by"] = actor
+    result = weekly_trackers_col().update_one(
+        {"id": doc_id, "cards.id": found.get("id")},
+        {"$set": sets},
+        array_filters=[{"card.id": found.get("id")}],
+    )
+    if not result.matched_count:
+        return None
+    return next_card
 
 
 def _resolve_weekdays(body: EditBoardBody | None) -> list[int]:
@@ -475,7 +488,7 @@ def edit_tracker_board(body: EditBoardBody | None = None, auth: dict = Depends(c
     actor = auth.get("email") or auth["user_id"]
     week_offset = _clamp_week_offset(body.week_offset if body else 0)
     weekdays = _resolve_weekdays(body)
-    items = _collect_items(actor, week_offset)
+    items = _collect_items(actor, week_offset, create_missing=False)
     return _board_payload(items, week_offset=week_offset, working_weekdays=weekdays)
 
 
@@ -490,7 +503,7 @@ def edit_tracker_assign(body: EditAssignBody, auth: dict = Depends(current_user)
     working = working_dates(weekdays=weekdays, week_offset=week_offset)
     if not working:
         raise HTTPException(400, "Select at least one working day")
-    items = _collect_items(actor, week_offset)
+    items = _collect_items(actor, week_offset, create_missing=True)
     items = _assign(items, working, actor)
     return _board_payload(items, week_offset=week_offset, working_weekdays=weekdays)
 
@@ -514,27 +527,40 @@ def _propagate_client_prefs(project: dict) -> None:
     client_id = project.get("id")
     if not client_id:
         return
+    now = _now_iso()
     for doc in weekly_trackers_col().find(
         {"$or": [{"project_id": client_id}, {"client_id": client_id}]},
-        {"_id": 0},
+        {"_id": 0, "id": 1, "year": 1, "month": 1, "week": 1, "cards": 1},
     ):
         try:
             late = week_is_before_current(int(doc.get("year")), int(doc.get("month")), int(doc.get("week")))
         except (TypeError, ValueError):
             late = False
-        cards = list(doc.get("cards") or [])
-        changed = False
-        for index, card in enumerate(cards):
+        for card in doc.get("cards") or []:
             if not isinstance(card, dict) or not _is_video(card):
                 continue
-            hydrated = _hydrate_card(card, project, late)
-            if hydrated != card:
-                cards[index] = hydrated
-                changed = True
-        if changed:
+            card_id = card.get("id")
+            if not card_id:
+                continue
+            sets = {}
+            if not card.get("editor_overridden"):
+                editor_id = default_editor_id(project, late=late)
+                if editor_id != str(card.get("editor_id") or "").strip():
+                    sets["cards.$[card].editor_id"] = editor_id
+            hours = edit_hours_for(project, card.get("type"))
+            try:
+                stored_hours = float(card.get("edit_hours") or 0)
+            except (TypeError, ValueError):
+                stored_hours = 0
+            if hours != stored_hours:
+                sets["cards.$[card].edit_hours"] = hours
+            if not sets:
+                continue
+            sets["updated_at"] = now
             weekly_trackers_col().update_one(
-                {"id": doc["id"]},
-                {"$set": {"cards": cards, "updated_at": _now_iso()}},
+                {"id": doc["id"], "cards.id": card_id},
+                {"$set": sets},
+                array_filters=[{"card.id": card_id}],
             )
 
 

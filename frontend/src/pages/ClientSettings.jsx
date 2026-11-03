@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import api from '../api'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import ProfileTabs from '../components/client-profile/ProfileTabs'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -713,16 +714,17 @@ export default function ClientSettings() {
                   }
                 }}
               />
-              <select
+              <CustomSelect
                 className="topic-weight-select"
                 value={newWeight}
-                onChange={(e) => setNewWeight(e.target.value)}
-                aria-label="Topic priority"
-              >
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
+                ariaLabel="Topic priority"
+                onChange={setNewWeight}
+                options={[
+                  { value: 'high', label: 'High' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'low', label: 'Low' },
+                ]}
+              />
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -771,15 +773,17 @@ export default function ClientSettings() {
                             title={topic.source === 'manual' ? 'Manual' : 'Auto'}
                           >
                             <span className="topic-chip-text">{topic.text}</span>
-                            <select
+                            <CustomSelect
+                              compact
                               value={topic.weight}
-                              onChange={(e) => moveTopic(topic.id, e.target.value)}
-                              aria-label={`Move ${topic.text}`}
-                            >
-                              <option value="high">H</option>
-                              <option value="medium">M</option>
-                              <option value="low">L</option>
-                            </select>
+                              ariaLabel={`Move ${topic.text}`}
+                              onChange={(next) => moveTopic(topic.id, next)}
+                              options={[
+                                { value: 'high', label: 'H' },
+                                { value: 'medium', label: 'M' },
+                                { value: 'low', label: 'L' },
+                              ]}
+                            />
                             <button
                               type="button"
                               className="topic-remove"

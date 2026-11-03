@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import CustomSelect from './CustomSelect'
 
 const DEFAULT_THUMB =
   'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?auto=format&fit=crop&w=80&q=80'
@@ -216,51 +217,53 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
             {isClientLevel && uniqueChannels.length > 0 && (
               <div className="filter-group">
                 <label htmlFor="channel-filter">Channel</label>
-                <select
+                <CustomSelect
                   id="channel-filter"
                   className="filter-select"
                   value={selectedChannel}
-                  onChange={(e) => setSelectedChannel(e.target.value)}
-                >
-                  <option value="all">All Channels</option>
-                  {uniqueChannels.map((ch) => (
-                    <option key={ch.id} value={ch.id}>
-                      {ch.title}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Channel"
+                  onChange={setSelectedChannel}
+                  options={[
+                    { value: 'all', label: 'All Channels' },
+                    ...uniqueChannels.map((ch) => ({ value: ch.id, label: ch.title })),
+                  ]}
+                />
               </div>
             )}
 
             <div className="filter-group">
               <label htmlFor="type-filter">Type</label>
-              <select
+              <CustomSelect
                 id="type-filter"
                 className="filter-select"
                 value={videoType}
-                onChange={(e) => setVideoType(e.target.value)}
-              >
-                <option value="all">All Types</option>
-                <option value="video">Long Videos</option>
-                <option value="short">Shorts</option>
-              </select>
+                ariaLabel="Type"
+                onChange={setVideoType}
+                options={[
+                  { value: 'all', label: 'All Types' },
+                  { value: 'video', label: 'Long Videos' },
+                  { value: 'short', label: 'Shorts' },
+                ]}
+              />
             </div>
 
             <div className="filter-group">
               <label htmlFor="sort-filter">Sort by</label>
-              <select
+              <CustomSelect
                 id="sort-filter"
                 className="filter-select"
                 value={sortBy}
-                onChange={(e) => handleSortChange(e.target.value)}
-              >
-                <option value="views">Most Viewed</option>
-                <option value="likes">Most Liked</option>
-                <option value="comments">Most Commented</option>
-                <option value="date">Publish Date</option>
-                <option value="title">Title (A-Z)</option>
-                {isClientLevel && <option value="channel">Channel (A-Z)</option>}
-              </select>
+                ariaLabel="Sort by"
+                onChange={handleSortChange}
+                options={[
+                  { value: 'views', label: 'Most Viewed' },
+                  { value: 'likes', label: 'Most Liked' },
+                  { value: 'comments', label: 'Most Commented' },
+                  { value: 'date', label: 'Publish Date' },
+                  { value: 'title', label: 'Title (A-Z)' },
+                  ...(isClientLevel ? [{ value: 'channel', label: 'Channel (A-Z)' }] : []),
+                ]}
+              />
             </div>
           </div>
         </div>

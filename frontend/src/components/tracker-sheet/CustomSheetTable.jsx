@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import CustomSelect from '../CustomSelect'
 import { buildCustomSheetRows, notesToText, textToNotes } from './sheetUtils'
 import SheetCommentCell from './SheetCommentCell'
 import {
@@ -166,29 +167,31 @@ function CustomSheetWeekTable({
     }
     if (row.leafType === 'issue') {
       return (
-        <select
+        <CustomSelect
+          compact
           className="sheet-cell-select"
           value={row.issue.status}
-          onChange={(event) => updateIssue(row.category.id, row.issue.id, { status: event.target.value })}
-        >
-          {STATUSES.map((item) => (
-            <option key={item.id} value={item.id}>{item.label}</option>
-          ))}
-        </select>
+          ariaLabel="Issue status"
+          onChange={(next) => updateIssue(row.category.id, row.issue.id, { status: next })}
+          options={STATUSES.map((item) => ({ value: item.id, label: item.label }))}
+        />
       )
     }
     const done = Boolean(row.leaf?.done)
     return (
-      <select
+      <CustomSelect
+        compact
         className="sheet-cell-select"
         value={done ? 'done' : 'todo'}
-        onChange={(event) => {
-          updateTask(row.category.id, row.issue.id, row.task.id, { done: event.target.value === 'done' })
+        ariaLabel="Task status"
+        onChange={(next) => {
+          updateTask(row.category.id, row.issue.id, row.task.id, { done: next === 'done' })
         }}
-      >
-        <option value="todo">To do</option>
-        <option value="done">Done</option>
-      </select>
+        options={[
+          { value: 'todo', label: 'To do' },
+          { value: 'done', label: 'Done' },
+        ]}
+      />
     )
   }
 
@@ -255,16 +258,17 @@ function CustomSheetWeekTable({
         </div>
         <div className="sheet-week-block-actions">
           <span className="sheet-header-label">Category</span>
-          <select
+          <CustomSelect
+            compact
             className="sheet-cell-select sheet-header-category"
             value={creating ? CREATE_CATEGORY : targetCategoryId}
-            onChange={(event) => setHeaderCategoryId(event.target.value)}
-          >
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name || 'Untitled'}</option>
-            ))}
-            <option value={CREATE_CATEGORY}>+ Create category</option>
-          </select>
+            ariaLabel="Category"
+            onChange={setHeaderCategoryId}
+            options={[
+              ...categories.map((category) => ({ value: category.id, label: category.name || 'Untitled' })),
+              { value: CREATE_CATEGORY, label: '+ Create category' },
+            ]}
+          />
           {creating ? (
             <div className="sheet-header-create">
               <input
@@ -351,15 +355,14 @@ function CustomSheetWeekTable({
                           danger
                           onClick={() => removeIssue(row.category.id, row.issue.id)}
                         />
-                        <select
+                        <CustomSelect
+                          compact
                           className="sheet-cell-select sheet-issue-priority"
                           value={row.issue.priority}
-                          onChange={(event) => updateIssue(row.category.id, row.issue.id, { priority: event.target.value })}
-                        >
-                          {PRIORITIES.map((item) => (
-                            <option key={item.id} value={item.id}>{item.label}</option>
-                          ))}
-                        </select>
+                          ariaLabel="Priority"
+                          onChange={(next) => updateIssue(row.category.id, row.issue.id, { priority: next })}
+                          options={PRIORITIES.map((item) => ({ value: item.id, label: item.label }))}
+                        />
                       </div>
                     </td>
                   ) : null}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import CustomSelect from '../CustomSelect'
 import HoursStepper from '../HoursStepper'
 import {
   EDITOR_FIELD_ID,
@@ -101,20 +102,21 @@ export default function DoctorReferenceFields({
           return (
             <div key={field.id} className="doctor-ref-field-row is-editor">
               <div className="doctor-ref-field-label">{EDITOR_FIELD_LABEL}</div>
-              <select
-                className="form-control doctor-ref-editor-select"
+              <CustomSelect
+                className="doctor-ref-editor-select"
                 value={field.value || ''}
-                onChange={(event) => onSaveField({
+                placeholder="Select editor"
+                ariaLabel="Editor"
+                onChange={(next) => onSaveField({
                   id: field.id,
                   label: EDITOR_FIELD_LABEL,
-                  value: event.target.value,
+                  value: next,
                 })}
-              >
-                <option value="">Select editor</option>
-                {editors.map((editor) => (
-                  <option key={editor.id} value={editor.id}>{editor.name}</option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'Select editor' },
+                  ...editors.map((editor) => ({ value: editor.id, label: editor.name })),
+                ]}
+              />
             </div>
           )
         }

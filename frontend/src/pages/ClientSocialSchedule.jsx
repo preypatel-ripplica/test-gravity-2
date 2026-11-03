@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import api from '../api'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import ConfirmModal from '../components/ConfirmModal'
 import CaptionCount, { captionTooLong } from '../components/CaptionCount'
 
@@ -277,24 +278,25 @@ export default function ClientSocialSchedule() {
         
         <div className="form-group" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <label className="form-label" style={{ fontWeight: '500', color: '#334155', margin: 0 }}>Frequency</label>
-          <select 
-            className="form-control" 
-            style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', width: '250px', backgroundColor: isEditing ? '#fff' : '#f1f5f9', cursor: isEditing ? 'auto' : 'not-allowed' }}
+          <CustomSelect
+            className="schedule-frequency-select"
             disabled={!isEditing}
-            value={frequency} 
-            onChange={(e) => {
-              setFrequency(e.target.value)
-              if (e.target.value === 'off' || e.target.value === 'daily' || e.target.value === 'weekdays') {
+            value={frequency}
+            ariaLabel="Frequency"
+            onChange={(next) => {
+              setFrequency(next)
+              if (next === 'off' || next === 'daily' || next === 'weekdays') {
                 setSelectedDays([])
               }
             }}
-          >
-            <option value="off">Off (Scheduler disabled)</option>
-            <option value="daily">Daily</option>
-            <option value="weekdays">Weekdays (Mon-Fri)</option>
-            <option value="once_a_week">Once a Week</option>
-            <option value="twice_a_week">Twice a Week</option>
-          </select>
+            options={[
+              { value: 'off', label: 'Off (Scheduler disabled)' },
+              { value: 'daily', label: 'Daily' },
+              { value: 'weekdays', label: 'Weekdays (Mon-Fri)' },
+              { value: 'once_a_week', label: 'Once a Week' },
+              { value: 'twice_a_week', label: 'Twice a Week' },
+            ]}
+          />
         </div>
 
         <div className="form-group" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

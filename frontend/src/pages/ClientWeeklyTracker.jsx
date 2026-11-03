@@ -31,7 +31,9 @@ export default function ClientWeeklyTracker() {
 
   useEffect(() => {
     if (!ranges.length) return
-    if (!ranges.some((range) => range.week === week)) setWeek(ranges[0].week)
+    if (ranges.some((range) => range.week === week)) return
+    const last = ranges[ranges.length - 1].week
+    setWeek(week > last ? last : ranges[0].week)
   }, [ranges, week, setWeek])
 
   const loadSummaries = useCallback(async (nextYear, nextMonth) => {
@@ -60,7 +62,16 @@ export default function ClientWeeklyTracker() {
     setYear(nextYear)
     setMonth(nextMonth)
     const isCurrent = nextYear === today.year && nextMonth === today.month
-    setWeek(isCurrent ? today.week : 1)
+    if (isCurrent) {
+      setWeek(today.week)
+      return
+    }
+    const goingBack = nextYear < year || (nextYear === year && nextMonth < month)
+    const nextRanges = weekRanges(nextYear, nextMonth).filter(
+      (range) => !isBeforeTrackerStart(client, nextYear, nextMonth, range.week),
+    )
+    if (!nextRanges.length) return
+    setWeek(goingBack ? nextRanges[nextRanges.length - 1].week : nextRanges[0].week)
   }
 
   function shiftMonth(delta) {
@@ -85,11 +96,11 @@ export default function ClientWeeklyTracker() {
           <div className="tracker-month-nav">
             <h1>{monthLabel(year, month)}</h1>
             <div className="tracker-month-switch">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => shiftMonth(-1)}>
+              <button type="button" className="tracker-month-step" onClick={() => shiftMonth(-1)} aria-label="Previous month">
                 <i className="fa-solid fa-chevron-left" />
               </button>
               <TrackerMonthPicker year={year} month={month} onSelect={applyMonth} />
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => shiftMonth(1)}>
+              <button type="button" className="tracker-month-step" onClick={() => shiftMonth(1)} aria-label="Next month">
                 <i className="fa-solid fa-chevron-right" />
               </button>
             </div>

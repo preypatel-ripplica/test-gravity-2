@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -335,13 +336,12 @@ export default function WebsiteEntries() {
         <div className="header-actions">
           <label className="cms-header-select">
             <span>Collection</span>
-            <select value={collectionId} onChange={(e) => selectCollection(e.target.value)}>
-              {collections.map((col) => (
-                <option key={col.id} value={col.id}>
-                  {col.name}
-                </option>
-              ))}
-            </select>
+            <CustomSelect
+              value={collectionId}
+              ariaLabel="Collection"
+              onChange={selectCollection}
+              options={collections.map((col) => ({ value: col.id, label: col.name }))}
+            />
           </label>
           <button
             type="button"
@@ -449,11 +449,17 @@ export default function WebsiteEntries() {
                 </div>
                 <div className="input-group">
                   <label htmlFor="entry-status">Status</label>
-                  <select id="entry-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-                    <option value="draft">draft</option>
-                    <option value="published">published</option>
-                    <option value="archived">archived</option>
-                  </select>
+                  <CustomSelect
+                    id="entry-status"
+                    value={status}
+                    ariaLabel="Status"
+                    onChange={setStatus}
+                    options={[
+                      { value: 'draft', label: 'draft' },
+                      { value: 'published', label: 'published' },
+                      { value: 'archived', label: 'archived' },
+                    ]}
+                  />
                 </div>
               </div>
 

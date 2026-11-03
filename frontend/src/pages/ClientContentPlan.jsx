@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import api from '../api'
@@ -166,8 +167,8 @@ export default function ClientContentPlan() {
     }
   }
 
-  async function handleChannelChange(e) {
-    const chId = e.target.value
+  async function handleChannelChange(next) {
+    const chId = typeof next === 'object' && next?.target ? next.target.value : next
     setSelectedYTChannelId(chId)
     setYtVideos([])
     setYtVideosPage(1)
@@ -234,17 +235,16 @@ export default function ClientContentPlan() {
         <div className="header-actions plan-header-actions">
           <label className="plan-count-field">
             <span className="control-label">Count</span>
-            <select
+            <CustomSelect
               value={count}
               disabled={anyBusy}
-              onChange={(e) => setCount(Number(e.target.value))}
-            >
-              {Array.from({ length: 9 }, (_, i) => i + 2).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+              ariaLabel="Count"
+              onChange={(next) => setCount(Number(next))}
+              options={Array.from({ length: 9 }, (_, i) => i + 2).map((n) => ({
+                value: n,
+                label: String(n),
+              }))}
+            />
           </label>
           <button
             type="button"
@@ -668,17 +668,14 @@ export default function ClientContentPlan() {
                 <p className="text-muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>Select thumbnails as style references. Default: 3 most recent.</p>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <select
-                  className="input"
-                  style={{ width: 'auto', minWidth: '150px' }}
+                <CustomSelect
+                  className="yt-channel-select"
                   value={selectedYTChannelId}
+                  placeholder="Select Channel"
+                  ariaLabel="YouTube channel"
                   onChange={handleChannelChange}
-                >
-                  <option value="" disabled>Select Channel</option>
-                  {ytChannels.map(ch => (
-                    <option key={ch.id} value={ch.id}>{ch.title}</option>
-                  ))}
-                </select>
+                  options={ytChannels.map((ch) => ({ value: ch.id, label: ch.title }))}
+                />
                 <button
                   type="button"
                   className="btn-close"

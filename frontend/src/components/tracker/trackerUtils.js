@@ -43,7 +43,7 @@ export function isDidNotTrack(value) {
   return normalizeMarking(value) === MARKING_DID_NOT_TRACK
 }
 
-export function cardStatus(card) {
+export function cardStatus(card, weekContext) {
   if (isDidNotTrack(card?.marking)) {
     return { id: 'untracked', label: 'Did not track' }
   }
@@ -52,6 +52,17 @@ export function cardStatus(card) {
   const idx = Math.max(0, stages.findIndex((stage) => stage.id === stageId))
   if (stages.length && idx >= stages.length - 1) {
     return { id: 'completed', label: 'Completed' }
+  }
+  const year = weekContext?.year
+  const month = weekContext?.month
+  const week = weekContext?.week
+  if (
+    year != null
+    && month != null
+    && week != null
+    && isPastTrackerWeek(year, month, week)
+  ) {
+    return { id: 'late', label: 'Late' }
   }
   if (!stageId || stageId === 'planned' || idx <= 0) {
     return { id: 'not_started', label: 'Not started' }

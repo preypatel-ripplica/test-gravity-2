@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import CustomSelect from '../CustomSelect'
 import api from '../../api'
 import { LANG_LABELS, parseTimecode } from './trackerUtils'
 
@@ -183,12 +184,17 @@ export default function TrackerNotes({
         </div>
       )}
       <div className="tracker-note-actions">
-        <select className="form-control tracker-lang-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
-          <option value="all">All languages</option>
-          {languages.map((lang) => (
-            <option key={lang} value={lang}>{LANG_LABELS[lang] || lang}</option>
-          ))}
-        </select>
+        <CustomSelect
+          compact
+          className="tracker-lang-select"
+          value={language}
+          ariaLabel="Language"
+          onChange={setLanguage}
+          options={[
+            { value: 'all', label: 'All languages' },
+            ...languages.map((lang) => ({ value: lang, label: LANG_LABELS[lang] || lang })),
+          ]}
+        />
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()}>
           Attach
         </button>

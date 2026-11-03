@@ -213,6 +213,10 @@ export default function EditTracker() {
 
   async function persistPatch(item, patch, previous) {
     if (!token) return
+    const fields = {}
+    if ('editor_id' in patch) fields.editor_id = patch.editor_id
+    if ('planned_edit_date' in patch) fields.planned_edit_date = patch.planned_edit_date
+    if (!Object.keys(fields).length) return
     try {
       await api.patchEditTrackerCard(token, {
         client_id: item.client_id,
@@ -220,7 +224,7 @@ export default function EditTracker() {
         month: item.month,
         week: item.week,
         card_id: item.card_id,
-        ...patch,
+        ...fields,
       })
     } catch (err) {
       if (previous) applyItemPatch(item, previous)

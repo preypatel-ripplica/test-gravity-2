@@ -26,8 +26,8 @@ import {
   stageList,
 } from './trackerUtils'
 
-function StatusBadge({ card }) {
-  const status = cardStatus(card)
+function StatusBadge({ card, weekContext }) {
+  const status = cardStatus(card, weekContext)
   return <span className={`tracker-pill tracker-pill-status-${status.id}`}>{status.label}</span>
 }
 
@@ -220,38 +220,55 @@ function VideoEditFields({ card, weekContext, onChange }) {
   const dates = weekContext?.weekDates || calendarWeekDates()
   return (
     <div className="tracker-edit-fields" onClick={stopToggle}>
-      <label>
-        <span>Editor</span>
-        <select
-          className="form-control"
-          value={card.editor_id || ''}
-          onChange={(event) => onChange({ ...card, editor_id: event.target.value, editor_overridden: true })}
-        >
-          <option value="">Select editor</option>
+      <div className="tracker-assign-field">
+        <span className="tracker-kicker">Editor</span>
+        <div className="tracker-assign-strip" role="listbox" aria-label="Editor">
+          <button
+            type="button"
+            role="option"
+            aria-selected={!card.editor_id}
+            className={`tracker-assign-cell${!card.editor_id ? ' is-on' : ''}`}
+            onClick={() => onChange({ ...card, editor_id: '', editor_overridden: true })}
+          >
+            Unassigned
+          </button>
           {editors.map((editor) => (
-            <option key={editor.id} value={editor.id}>{editor.name}</option>
+            <button
+              type="button"
+              role="option"
+              key={editor.id}
+              aria-selected={card.editor_id === editor.id}
+              className={`tracker-assign-cell${card.editor_id === editor.id ? ' is-on' : ''}`}
+              onClick={() => onChange({ ...card, editor_id: editor.id, editor_overridden: true })}
+            >
+              {editor.name}
+            </button>
           ))}
-        </select>
-      </label>
-      <label>
-        <span>Edit date</span>
-        <select
-          className="form-control"
-          value={card.planned_edit_date || ''}
-          onChange={(event) => onChange({ ...card, planned_edit_date: event.target.value })}
-        >
-          <option value="">Unassigned</option>
+        </div>
+      </div>
+      <div className="tracker-assign-field">
+        <span className="tracker-kicker">Edit date</span>
+        <div className="tracker-day-strip" role="listbox" aria-label="Edit date">
           {dates.map((day) => {
             const value = isoDate(day)
+            const on = card.planned_edit_date === value
             return (
-              <option key={value} value={value}>
-                {day.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-              </option>
+              <button
+                type="button"
+                role="option"
+                key={value}
+                aria-selected={on}
+                className={`tracker-day-cell${on ? ' is-on' : ''}`}
+                onClick={() => onChange({ ...card, planned_edit_date: on ? '' : value })}
+              >
+                <small>{day.toLocaleDateString('en-GB', { weekday: 'short' })}</small>
+                <strong>{day.getDate()}</strong>
+              </button>
             )
           })}
-        </select>
-      </label>
-      {card.edit_hours ? <em>{card.edit_hours}h</em> : null}
+        </div>
+      </div>
+      {card.edit_hours ? <em className="tracker-edit-hours">{card.edit_hours}h</em> : null}
     </div>
   )
 }
@@ -306,7 +323,7 @@ export default function TrackerCard({
     window.setTimeout(() => el.classList.remove('tracker-section-flash'), 1300)
   }
 
-  const status = cardStatus(card)
+  const status = cardStatus(card, weekContext)
   const stateClass = ` is-status-${status.id}`
 
   function toggleCollapsed() {
@@ -338,9 +355,8 @@ export default function TrackerCard({
         >
           <span className={`tracker-pill ${TYPE_PILL[card.type]}`}>{TYPE_LABELS[card.type]}</span>
           <strong className="tracker-collapsed-title">{card.title || 'Untitled'}</strong>
-          <StatusBadge card={card} />
+          <StatusBadge card={card} weekContext={weekContext} />
           {hasDelayProof(card) ? <span className="tracker-pill tracker-pill-delay">Delay noted</span> : null}
-          <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
           <span className="tracker-icon-btn" data-tip="Expand" aria-hidden="true">
             <i className="fa-solid fa-chevron-down" />
           </span>
@@ -361,7 +377,7 @@ export default function TrackerCard({
         onKeyDown={handleTitleKeyDown}
       >
         <span className={`tracker-pill ${TYPE_PILL[card.type]}`}>{TYPE_LABELS[card.type]}</span>
-        <StatusBadge card={card} />
+        <StatusBadge card={card} weekContext={weekContext} />
         <input
           className="tracker-title-input"
           value={card.title || ''}
@@ -379,9 +395,9 @@ export default function TrackerCard({
       </header>
 
       <DelayProofNote card={card} />
-      <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
 
       <div className="tracker-stage-block">
+        <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
         <Timeline
           card={card}
           onSelectStage={(stageId) => {

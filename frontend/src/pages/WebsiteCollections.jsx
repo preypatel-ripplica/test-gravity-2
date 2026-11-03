@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -125,13 +126,12 @@ export default function WebsiteCollections() {
           <div className="access-invite-grid">
             <label className="access-invite-email">
               Schema preset
-              <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
-                {presets.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+              <CustomSelect
+                value={presetId}
+                ariaLabel="Schema preset"
+                onChange={setPresetId}
+                options={presets.map((p) => ({ value: p.id, label: p.label }))}
+              />
             </label>
             {activePreset ? <p className="text-muted">{activePreset.description}</p> : null}
           </div>
