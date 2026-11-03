@@ -501,7 +501,7 @@ def _wait_youtube_ready(youtube, video_id: str, on_status=None) -> None:
     """Poll until YouTube finishes processing. Upload success alone is not enough."""
     import time
 
-    deadline = time.time() + 30 * 60
+    deadline = time.time() + 60 * 60
     last = ""
     while time.time() < deadline:
         response = youtube.videos().list(
@@ -536,6 +536,80 @@ def _wait_youtube_ready(youtube, video_id: str, on_status=None) -> None:
     )
 
 
+def _http_error_text(exc: HttpError) -> str:
+    raw = getattr(exc, "content", b"")
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    return str(raw or "")
+
+
+def _log_youtube_http_error(channel_id: str, exc: HttpError) -> None:
+    reason = exc.reason if hasattr(exc, "reason") else str(exc)
+    status_code = getattr(exc, "status_code", None) or getattr(exc.resp, "status", None)
+    raw_text = _http_error_text(exc)
+    print(
+        f"[youtube] HttpError channel={channel_id} status={status_code} reason={reason}",
+        flush=True,
+    )
+    if raw_text:
+        print(f"[youtube] HttpError body={raw_text}", flush=True)
+    print(f"[youtube] HttpError str={exc}", flush=True)
+
+
+def _try_set_youtube_thumbnail(youtube, channel_id: str, video_id: str, thumbnail_path: str | None) -> str | None:
+    """Best-effort custom thumbnail. Returns a skip reason, or None if set/not requested."""
+    path = str(thumbnail_path or "").strip()
+    if not path:
+        return None
+    if not os.path.exists(path):
+        print(
+            f"[youtube] thumbnail skipped, file missing path={thumbnail_path} video_id={video_id}",
+            flush=True,
+        )
+        return "chosen thumbnail file was missing"
+
+    if os.path.getsize(path) > 2000000:
+        try:
+            with Image.open(path) as img:
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                img.save(path, "JPEG", quality=85, optimize=True)
+                if os.path.getsize(path) > 2000000:
+                    img.thumbnail((1280, 720))
+                    img.save(path, "JPEG", quality=75, optimize=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[youtube] thumbnail compress failed, posting without custom thumbnail: {exc}", flush=True)
+            return "chosen thumbnail could not be prepared"
+
+    print(f"[youtube] setting thumbnail video_id={video_id} path={path}", flush=True)
+    try:
+        youtube.thumbnails().set(
+            videoId=video_id,
+            media_body=MediaFileUpload(path),
+        ).execute()
+        print(f"[youtube] thumbnail set video_id={video_id}", flush=True)
+        return None
+    except HttpError as exc:
+        _log_youtube_http_error(channel_id, exc)
+        print(
+            f"[youtube] thumbnail skipped, video stays live without custom thumbnail "
+            f"video_id={video_id} channel={channel_id}",
+            flush=True,
+        )
+        reason = (exc.reason if hasattr(exc, "reason") else str(exc) or "").lower()
+        body = _http_error_text(exc).lower()
+        if "permission" in reason or "permission" in body or "forbidden" in body:
+            return "no permission"
+        return "YouTube rejected the chosen thumbnail"
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[youtube] thumbnail skipped ({exc}), video stays live without custom thumbnail "
+            f"video_id={video_id} channel={channel_id}",
+            flush=True,
+        )
+        return str(exc) or "YouTube rejected the chosen thumbnail"
+
+
 def upload_video_to_youtube(
     creds,
     channel_id: str,
@@ -546,13 +620,19 @@ def upload_video_to_youtube(
     thumbnail_path: str = None,
     on_progress=None,
     on_status=None,
-) -> str:
+) -> tuple[str, str | None]:
     """
     Uploads a video to YouTube, and sets the thumbnail if provided.
-    Returns the uploaded YouTube Video ID.
+    Returns (video_id, thumbnail_skip_reason). Skip reason is None when the
+    chosen thumbnail was applied, or when none was requested.
     """
     try:
         youtube = build("youtube", "v3", credentials=creds)
+        print(
+            f"[youtube] start upload channel={channel_id} file={video_path} "
+            f"thumbnail={'yes' if thumbnail_path else 'no'}",
+            flush=True,
+        )
 
         body = youtube_upload_body(title, description, tags, channel_id)
 
@@ -583,35 +663,16 @@ def upload_video_to_youtube(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="YouTube upload finished without a video id.",
             )
+        print(f"[youtube] uploaded video_id={video_id} channel={channel_id}", flush=True)
 
-        if thumbnail_path:
-            # Check size and compress if > 2MB
-            if os.path.exists(thumbnail_path) and os.path.getsize(thumbnail_path) > 2000000:
-                try:
-                    from PIL import Image
-                    with Image.open(thumbnail_path) as img:
-                        # Convert to RGB if PNG with alpha, to save as JPEG
-                        if img.mode in ("RGBA", "P"): 
-                            img = img.convert("RGB")
-                        # Save as compressed JPEG
-                        img.save(thumbnail_path, "JPEG", quality=85, optimize=True)
-                        
-                        # If STILL too big, aggressively resize
-                        if os.path.getsize(thumbnail_path) > 2000000:
-                            img.thumbnail((1280, 720))
-                            img.save(thumbnail_path, "JPEG", quality=75, optimize=True)
-                except Exception as e:
-                    print(f"Warning: Failed to compress thumbnail: {e}")
-
-            # Set the custom thumbnail
-            youtube.thumbnails().set(
-                videoId=video_id,
-                media_body=MediaFileUpload(thumbnail_path)
-            ).execute()
+        thumbnail_skip = _try_set_youtube_thumbnail(
+            youtube, channel_id, video_id, thumbnail_path
+        )
 
         _wait_youtube_ready(youtube, video_id, on_status=on_status)
-        return video_id
+        return video_id, thumbnail_skip
     except HttpError as e:
+        _log_youtube_http_error(channel_id, e)
         reason = e.reason if hasattr(e, "reason") else str(e)
         if "timeout" in str(reason).lower() or "timed out" in str(reason).lower():
             detail = f"YouTube upload timed out: {reason}"
