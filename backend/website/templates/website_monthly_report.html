@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ client_name }} — {{ metrics.report_month_label }} Website Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --teal: #0f766e;
+      --teal-dark: #115e59;
+      --teal-mid: #0d9488;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --soft: #f1f5f9;
+      --orange: #ea580c;
+      --purple: #7c3aed;
+      --green: #15803d;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: #fff;
+      line-height: 1.4;
+      font-size: 12.5px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      max-height: 297mm;
+      margin: 0;
+      padding: 14mm 14mm 12mm;
+      page-break-after: always;
+      break-after: page;
+      overflow: hidden;
+      position: relative;
+      background: #fff;
+    }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+    .cover {
+      width: 210mm;
+      min-height: 297mm;
+      max-height: 297mm;
+      margin: 0;
+      padding: 22mm 16mm 16mm;
+      background: linear-gradient(165deg, #0f766e 0%, #134e4a 55%, #0f3f3c 100%);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid rgba(255,255,255,0.55);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .cover h1 {
+      font-size: 40px;
+      line-height: 1.08;
+      margin: 22px 0 12px;
+      letter-spacing: -0.03em;
+      max-width: 15ch;
+      font-weight: 700;
+    }
+    .cover .sub {
+      color: rgba(255,255,255,0.92);
+      max-width: 54ch;
+      font-size: 14px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    .cover-kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .cover-kpi {
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 16px 14px 14px;
+    }
+    .cover-kpi .v { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+    .cover-kpi .l { font-size: 11px; color: rgba(255,255,255,0.85); margin-top: 6px; }
+    .cover-meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      border-top: 1px solid rgba(255,255,255,0.28);
+      padding-top: 16px;
+      font-size: 12px;
+    }
+    .cover-meta .k {
+      color: rgba(255,255,255,0.7);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-size: 9px;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+    h2.sec {
+      color: var(--orange);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin: 0 0 4px;
+      font-weight: 700;
+    }
+    h2.sec.teal { color: var(--teal); }
+    h3 {
+      font-size: 20px;
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+      color: var(--teal-dark);
+      font-weight: 700;
+    }
+    h3.ink { color: var(--ink); }
+    h4 {
+      font-size: 13px;
+      margin: 12px 0 6px;
+      color: var(--ink);
+      font-weight: 700;
+    }
+    p { margin: 0 0 8px; color: #334155; }
+    .muted { color: var(--muted); }
+    .tiny { font-size: 10.5px; color: var(--muted); margin: 0 0 8px; }
+    .scorecards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin: 10px 0 12px;
+    }
+    .scorecard {
+      border-radius: 12px;
+      padding: 12px 12px 10px;
+      background: var(--soft);
+      border: 1px solid var(--line);
+    }
+    .scorecard.primary {
+      background: var(--teal-dark);
+      border-color: var(--teal-dark);
+      color: #fff;
+    }
+    .scorecard.primary .l,
+    .scorecard.primary .d { color: rgba(255,255,255,0.85); }
+    .scorecard.primary .v { color: #fff; }
+    .scorecard .l { font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .scorecard .v { font-size: 24px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+    .scorecard .d { font-size: 10.5px; color: var(--teal); margin-top: 4px; font-weight: 600; }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .chart-wrap { height: 220px; position: relative; }
+    .chart-wrap canvas { image-rendering: auto; }
+    .chart-wrap.sm { height: 160px; }
+    .chart-wrap.xs { height: 140px; }
+    .two-col { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 12px; align-items: start; }
+    .two-col.eq { grid-template-columns: 1fr 1fr; }
+    .two-col.chart-ai { grid-template-columns: 0.95fr 1.05fr; margin-top: 10px; }
+    .teal-box {
+      background: var(--teal-dark);
+      color: #fff;
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .teal-box h3, .teal-box h4 { color: #fff; margin-top: 0; }
+    .teal-box p { color: rgba(255,255,255,0.92); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .chip {
+      border: 1px solid rgba(255,255,255,0.45);
+      border-radius: 10px;
+      padding: 7px 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      margin: 0 0 8px;
+    }
+    th, td {
+      text-align: left;
+      padding: 6px 7px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      background: var(--teal-dark);
+      color: #fff;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+      border-bottom: 0;
+    }
+    th:first-child { border-radius: 6px 0 0 0; }
+    th:last-child { border-radius: 0 6px 0 0; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    td.path {
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .opp {
+      margin-top: 8px;
+      border: 1px solid #fdba74;
+      border-left: 4px solid var(--orange);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #fff7ed;
+    }
+    .opp strong { color: var(--orange); }
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin: 10px 0 12px;
+    }
+    .kpi-row .box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 10px;
+      text-align: center;
+      background: #fff;
+    }
+    .kpi-row .box .v { font-size: 28px; font-weight: 700; color: var(--teal); }
+    .band-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 10px; }
+    .band {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+      max-height: 210mm;
+      overflow: hidden;
+    }
+    .band h4 { margin: 0 0 8px; font-size: 12px; color: var(--teal); }
+    .band ul { list-style: none; padding: 0; margin: 0; font-size: 10px; }
+    .band li {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 3px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .band li span.path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 150px;
+    }
+    .psi-scores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0; }
+    .psi-scores .s, .lab .s {
+      text-align: center;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 6px;
+      background: #fff;
+    }
+    .psi-scores .s .v { font-size: 22px; font-weight: 700; color: var(--green); }
+    .psi-scores .s .l, .lab .s .l { font-size: 9.5px; color: var(--muted); margin-top: 3px; font-weight: 700; text-transform: uppercase; }
+    .lab { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .lab .s .v { font-size: 15px; font-weight: 700; }
+    .footer-line {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      font-size: 9.5px;
+      color: var(--muted);
+    }
+    .device-list { list-style: none; padding: 0; margin: 6px 0 0; font-size: 11px; }
+    .device-list li { margin: 2px 0; }
+    .grow-block { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  {% set cur = metrics.current or {} %}
+  {% set prev = metrics.previous or {} %}
+  {% set mom = metrics.mom or {} %}
+  {% set ai = metrics.ai or {} %}
+  {% set bands = metrics.position_bands or {} %}
+  {% set psi = metrics.pagespeed or {} %}
+  {% set win = metrics.windows or {} %}
+  {% set month_name = (metrics.report_month_label or '').split(' ')[0] %}
+  {% set prev_name = (metrics.previous_month_label or '').split(' ')[0] %}
+
+  <!-- PAGE 1: Cover -->
+  <section class="page cover">
+    <div>
+      <span class="pill">Website Performance Report</span>
+      <h1>{{ client_name }} {{ month_name }} Performance Report</h1>
+      <p class="sub">{{ narrative.cover_subhead }}</p>
+      <div class="cover-kpis">
+        <div class="cover-kpi">
+          {% if mom.show_clicks_mom %}
+          <div class="v">{{ fmt_signed_pct(mom.clicks_pct) }}</div>
+          <div class="l">Clicks vs. {{ prev_name }}</div>
+          {% else %}
+          <div class="v">{{ fmt_int(cur.clicks) }}</div>
+          <div class="l">Clicks in {{ month_name }}</div>
+          {% endif %}
+        </div>
+        <div class="cover-kpi">
+          {% if mom.show_impressions_mom %}
+          <div class="v">{{ fmt_signed_pct(mom.impressions_pct) }}</div>
+          <div class="l">Impressions vs. {{ prev_name }}</div>
+          {% else %}
+          <div class="v">{{ fmt_int(cur.impressions) }}</div>
+          <div class="l">Impressions in {{ month_name }}</div>
+          {% endif %}
+        </div>
+        <div class="cover-kpi">
+          <div class="v">{{ fmt_pos(cur.position) }}</div>
+          <div class="l">Avg. position in {{ month_name }}</div>
+        </div>
+        <div class="cover-kpi">
+          {% if presentation.show_ai_section and ai.show_mom %}
+          <div class="v">{{ fmt_signed_pct(ai.mom_pct) }}</div>
+          <div class="l">AI impressions vs. {{ prev_name }}</div>
+          {% elif presentation.show_ai_section %}
+          <div class="v">{{ fmt_int(ai.current_impressions) }}</div>
+          <div class="l">AI impressions in {{ month_name }}</div>
+          {% else %}
+          <div class="v">{{ '%.2f'|format(cur.ctr or 0) }}%</div>
+          <div class="l">CTR in {{ month_name }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="cover-meta">
+      <div><div class="k">Reporting month</div><div>{{ metrics.report_month_label }}</div></div>
+      <div><div class="k">Website</div><div>{{ metrics.site_host or metrics.site_url }}</div></div>
+      <div><div class="k">Report date</div><div>{{ report_date }}</div></div>
+    </div>
+  </section>
+
+  <!-- PAGE 2: Executive -->
+  <section class="page">
+    <h2 class="sec">Executive summary</h2>
+    <h3>{{ narrative.executive_headline }}</h3>
+    <p>{{ narrative.executive_summary }}</p>
+    <div class="scorecards">
+      <div class="scorecard primary">
+        <div class="l">Clicks in {{ month_name }}</div>
+        <div class="v">{{ fmt_int(cur.clicks) }}</div>
+        <div class="d">
+          {% if mom.show_clicks_mom %}{{ fmt_signed_pct(mom.clicks_pct) }} vs. {{ prev_name }} ({{ fmt_int(prev.clicks) }})
+          {% else %}{{ month_name }} total{% endif %}
+        </div>
+      </div>
+      <div class="scorecard">
+        <div class="l">Impressions</div>
+        <div class="v">{{ fmt_int(cur.impressions) }}</div>
+        <div class="d">
+          {% if mom.show_impressions_mom %}{{ fmt_signed_pct(mom.impressions_pct) }} vs. prior ({{ fmt_int(prev.impressions) }})
+          {% else %}{{ month_name }} total{% endif %}
+        </div>
+      </div>
+      <div class="scorecard">
+        <div class="l">Avg. position</div>
+        <div class="v">{{ fmt_pos(cur.position) }}</div>
+        <div class="d">{% if mom.position_delta and mom.position_delta > 0 %}Improved from{% else %}Changed from{% endif %} {{ fmt_pos(prev.position) }}</div>
+      </div>
+      <div class="scorecard">
+        {% if presentation.show_ai_section %}
+        <div class="l">Google AI impressions</div>
+        <div class="v">{{ fmt_int(ai.current_impressions) }}</div>
+        <div class="d">
+          {% if ai.show_mom %}{{ fmt_signed_pct(ai.mom_pct) }} vs. prior ({{ fmt_int(ai.previous_impressions) }})
+          {% else %}{{ month_name }} total{% endif %}
+        </div>
+        {% else %}
+        <div class="l">CTR in {{ month_name }}</div>
+        <div class="v">{{ '%.2f'|format(cur.ctr or 0) }}%</div>
+        <div class="d">Prior month {{ '%.2f'|format(prev.ctr or 0) }}%</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if 'weekly_traffic' not in suppress %}
+    <div class="panel">
+      <div class="tiny" style="font-weight:700;margin-bottom:4px;">Weekly impressions &amp; clicks</div>
+      <div class="chart-wrap"><canvas id="chartWeekly"></canvas></div>
+    </div>
+    {% endif %}
+
+    <div class="grow-block">
+      <h4>What's driving the growth</h4>
+      <p>{{ narrative.growth_story }}</p>
+    </div>
+
+    {% if presentation.show_ai_section %}
+    <div class="two-col chart-ai">
+      <div class="panel">
+        <div class="tiny" style="font-weight:700;margin-bottom:4px;">Weekly AI impressions</div>
+        {% if 'ai_weekly' not in suppress %}
+        <div class="chart-wrap xs"><canvas id="chartAiWeekly"></canvas></div>
+        {% endif %}
+      </div>
+      <div class="teal-box">
+        <h4 style="font-size:15px;">{{ narrative.ai_visibility_headline or 'Google AI visibility' }}</h4>
+        <p>{{ narrative.ai_visibility_body }}</p>
+        {% if narrative.ai_mode_observation %}<p>{{ narrative.ai_mode_observation }}</p>{% endif %}
+        <div class="chips">
+          {% for p in (ai.top_pages or [])[:2] %}
+          <div class="chip">{{ p.slug }}: {{ fmt_int(p.impressions) }} AI imps</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="two-col eq" style="margin-top:10px;">
+      <div>
+        <h4>Top queries this month</h4>
+        <table>
+          <thead><tr><th>Query</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">Pos.</th></tr></thead>
+          <tbody>
+            {% for row in (metrics.queries or [])[:8] %}
+            <tr>
+              <td class="path" title="{{ row.key }}">{{ row.key }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+              <td class="num">{{ fmt_pos(row.position) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h4>Language mix (3-month pages)</h4>
+        <table>
+          <thead><tr><th>Language</th><th class="num">Clicks</th><th class="num">Share</th></tr></thead>
+          <tbody>
+            {% set lang_total = (metrics.languages or [])|sum(attribute='clicks') %}
+            {% for row in metrics.languages or [] %}
+            <tr>
+              <td>{{ row.language }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{% if lang_total %}{{ '%.0f'|format((row.clicks / lang_total) * 100) }}%{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="teal-box" style="margin-top:8px;">
+          <h4 style="font-size:14px;margin:0 0 6px;">Top page this month</h4>
+          {% set top_page = (metrics.pages or [none])[0] %}
+          {% if top_page %}
+          <p style="margin:0;">
+            <strong>{{ top_page.path }}</strong> —
+            {{ fmt_int(top_page.clicks) }} clicks,
+            {{ fmt_int(top_page.impressions) }} impressions,
+            pos. {{ fmt_pos(top_page.position) }}.
+          </p>
+          {% else %}
+          <p style="margin:0;">{{ narrative.content_language_blurb }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- PAGE 3: Content -->
+  <section class="page">
+    <h2 class="sec">Content performance</h2>
+    <h3>Content performance by language</h3>
+    <p class="tiny">Page-level window {{ (win.three_month or {}).start }} → {{ (win.three_month or {}).end }}.</p>
+    <p>{{ narrative.content_language_blurb }}</p>
+    <div class="two-col">
+      <div class="panel">
+        <div class="tiny" style="font-weight:700;margin-bottom:4px;">Content clicks by language</div>
+        <div class="chart-wrap sm"><canvas id="chartLang"></canvas></div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Language</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">CTR</th></tr></thead>
+          <tbody>
+            {% for row in metrics.languages or [] %}
+            <tr>
+              <td>{{ row.language }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+              <td class="num">{{ '%.2f'|format(row.ctr or 0) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="tiny">Language totals are summed from page-path prefixes in the three-month Search Console window.</p>
+      </div>
+    </div>
+
+    {% set en = (metrics.top_by_language or {}).get('English') or [] %}
+    {% set hi = (metrics.top_by_language or {}).get('Hindi') or [] %}
+    <div class="two-col eq" style="margin-top:4px;">
+      <div>
+        <h4>Top English content</h4>
+        <table>
+          <thead><tr><th>Content page</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">Pos.</th></tr></thead>
+          <tbody>
+            {% for row in en[:5] %}
+            <tr>
+              <td class="path" title="{{ row.path }}">{{ row.slug }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+              <td class="num">{{ fmt_pos(row.position) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">No English pages in this window.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h4>Top Hindi content</h4>
+        <table>
+          <thead><tr><th>Content page</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">Pos.</th></tr></thead>
+          <tbody>
+            {% for row in hi[:5] %}
+            <tr>
+              <td class="path" title="{{ row.path }}">{{ row.slug }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+              <td class="num">{{ fmt_pos(row.position) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">No Hindi pages in this window.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% set ar = (metrics.top_by_language or {}).get('Arabic') or [] %}
+    {% set ru = (metrics.top_by_language or {}).get('Russian') or [] %}
+    {% if ar or ru %}
+    <h4>Emerging Arabic and Russian content</h4>
+    <table>
+      <thead><tr><th>Language</th><th>Content page</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">Pos.</th></tr></thead>
+      <tbody>
+        {% for row in (ar[:3] + ru[:3]) %}
+        <tr>
+          <td>{{ row.language }}</td>
+          <td class="path" title="{{ row.path }}">{{ row.slug }}</td>
+          <td class="num">{{ fmt_int(row.clicks) }}</td>
+          <td class="num">{{ fmt_int(row.impressions) }}</td>
+          <td class="num">{{ fmt_pos(row.position) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <p class="tiny">Note: page and language results use the three-month GSC window, not the reporting month alone.</p>
+  </section>
+
+  <!-- PAGE 4: Search -->
+  <section class="page">
+    <h2 class="sec teal">Google Search Console</h2>
+    <h3 class="ink">Search performance</h3>
+    <p>{{ narrative.search_intro }}</p>
+    <div class="two-col eq">
+      <div>
+        <h4>Top search queries by clicks</h4>
+        <table>
+          <thead>
+            <tr><th>Query</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">CTR</th><th class="num">Pos.</th></tr>
+          </thead>
+          <tbody>
+            {% for row in (metrics.queries or [])[:12] %}
+            <tr>
+              <td class="path" title="{{ row.key }}">{{ row.key }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+              <td class="num">{{ '%.1f'|format(row.ctr or 0) }}%</td>
+              <td class="num">{{ fmt_pos(row.position) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h4>Top performing pages</h4>
+        <table>
+          <thead>
+            <tr><th>Page</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">CTR</th><th class="num">Pos.</th></tr>
+          </thead>
+          <tbody>
+            {% for row in (metrics.pages or [])[:12] %}
+            <tr>
+              <td class="path" title="{{ row.path }}">{{ row.path }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+              <td class="num">{{ '%.1f'|format(row.ctr or 0) }}%</td>
+              <td class="num">{{ fmt_pos(row.position) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="kpi-row" style="margin-top:10px;">
+      <div class="box"><div class="v">{{ '%.2f'|format(cur.ctr or 0) }}%</div><div class="muted">CTR · {{ month_name }}</div></div>
+      <div class="box"><div class="v">{{ fmt_pos(cur.position) }}</div><div class="muted">Avg. position</div></div>
+      <div class="box"><div class="v">{{ fmt_int((metrics.queries or [])|length) }}</div><div class="muted">Tracked queries</div></div>
+      <div class="box"><div class="v">{{ fmt_int((metrics.pages or [])|length) }}</div><div class="muted">Tracked pages</div></div>
+    </div>
+
+    <div class="two-col eq" style="margin-top:10px;">
+      <div>
+        <h4>Audience by country</h4>
+        <table>
+          <thead><tr><th>Country</th><th class="num">Clicks</th><th class="num">Impr.</th></tr></thead>
+          <tbody>
+            {% for row in (metrics.countries or [])[:8] %}
+            <tr>
+              <td>{{ row.key }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h4>Clicks by device</h4>
+        <table>
+          <thead><tr><th>Device</th><th class="num">Clicks</th><th class="num">Share</th></tr></thead>
+          <tbody>
+            {% for d in metrics.devices or [] %}
+            <tr>
+              <td>{{ d.label }}</td>
+              <td class="num">{{ fmt_int(d.clicks) }}</td>
+              <td class="num">{{ d.share_pct }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="teal-box" style="margin-top:8px;">
+          <h4 style="font-size:14px;margin:0 0 6px;">Audience snapshot</h4>
+          <p style="margin:0;">{{ narrative.audience_blurb }}</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 5: Rank bands (pages, or queries when few pages rank top-3) -->
+  {% set band_dim = bands.dimension or 'page' %}
+  {% set band_noun = bands.label or ('Queries' if band_dim == 'query' else 'Pages') %}
+  <section class="page">
+    <h2 class="sec teal">Google Search Console</h2>
+    <h3 class="ink">{{ band_noun }} ranking in the top 10</h3>
+    <p class="tiny">
+      Three-month {{ 'query' if band_dim == 'query' else 'page' }}-level export ·
+      {{ (win.three_month or {}).start }} – {{ (win.three_month or {}).end }}
+      {% if band_dim == 'query' %}
+      · Showing high-volume queries in each position band
+      {% endif %}
+    </p>
+    <div class="kpi-row">
+      <div class="box"><div class="v">{{ bands.top3_count or 0 }}</div><div class="muted">{{ band_noun }} in top 3</div></div>
+      <div class="box"><div class="v">{{ bands.top5_count or 0 }}</div><div class="muted">{{ band_noun }} in top 5</div></div>
+      <div class="box"><div class="v">{{ bands.top10_count or 0 }}</div><div class="muted">{{ band_noun }} in top 10</div></div>
+    </div>
+    <div class="band-grid">
+      <div class="band">
+        <h4>Top 3 · position ≤ 3</h4>
+        <ul>
+          {% for row in (bands.top3 or [])[:16] %}
+          <li>
+            <span class="path" title="{{ row.label or row.query or row.path }}">{{ row.label or row.query or row.path }}</span>
+            <strong>
+              {{ fmt_pos(row.position) }}
+              {% if band_dim == 'query' and row.clicks is defined %}
+              <span class="muted" style="font-weight:500;font-size:10px;"> · {{ fmt_int(row.clicks) }} clk</span>
+              {% endif %}
+            </strong>
+          </li>
+          {% else %}
+          <li class="muted">None</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="band">
+        <h4>Top 5 · 3.01–5.00</h4>
+        <ul>
+          {% for row in (bands.top5 or [])[:16] %}
+          <li>
+            <span class="path" title="{{ row.label or row.query or row.path }}">{{ row.label or row.query or row.path }}</span>
+            <strong>
+              {{ fmt_pos(row.position) }}
+              {% if band_dim == 'query' and row.clicks is defined %}
+              <span class="muted" style="font-weight:500;font-size:10px;"> · {{ fmt_int(row.clicks) }} clk</span>
+              {% endif %}
+            </strong>
+          </li>
+          {% else %}
+          <li class="muted">None</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="band">
+        <h4>Top 10 · 5.01–10.00</h4>
+        <ul>
+          {% for row in (bands.top10 or [])[:28] %}
+          <li>
+            <span class="path" title="{{ row.label or row.query or row.path }}">{{ row.label or row.query or row.path }}</span>
+            <strong>
+              {{ fmt_pos(row.position) }}
+              {% if band_dim == 'query' and row.clicks is defined %}
+              <span class="muted" style="font-weight:500;font-size:10px;"> · {{ fmt_int(row.clicks) }} clk</span>
+              {% endif %}
+            </strong>
+          </li>
+          {% else %}
+          <li class="muted">None</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <p class="tiny" style="margin-top:10px;">
+      Source: Google Search Console {{ 'query' if band_dim == 'query' else 'page' }}-level export |
+      Average position is the exported {{ 'query' if band_dim == 'query' else 'page' }}-level metric.
+    </p>
+  </section>
+
+  <!-- PAGE 6: Audience + technical (was page 5) -->
+  <section class="page">
+    <h2 class="sec teal">Audience and technical health</h2>
+    <h3 class="ink">Who's finding the site, and how well it performs</h3>
+    <div class="two-col">
+      <div class="panel">
+        <div class="tiny" style="font-weight:700;margin-bottom:4px;">Clicks by device</div>
+        {% if 'device_donut' not in suppress %}
+        <div class="chart-wrap sm"><canvas id="chartDevice"></canvas></div>
+        {% endif %}
+        <ul class="device-list">
+          {% for d in metrics.devices or [] %}
+          <li><strong>{{ d.label }}</strong> — {{ fmt_int(d.clicks) }} clicks ({{ d.share_pct }}%)</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <p>{{ narrative.audience_blurb }}</p>
+        <table>
+          <thead><tr><th>Country</th><th class="num">Clicks</th><th class="num">Impr.</th></tr></thead>
+          <tbody>
+            {% for row in (metrics.countries or [])[:8] %}
+            <tr>
+              <td>{{ row.key }}</td>
+              <td class="num">{{ fmt_int(row.clicks) }}</td>
+              <td class="num">{{ fmt_int(row.impressions) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if presentation.show_pagespeed_section and psi %}
+    <h4 style="margin-top:12px;">PageSpeed Insights - Lighthouse test</h4>
+    <p class="tiny">Captured {{ psi.fetched_at }}</p>
+    <div class="psi-scores">
+      <div class="s"><div class="v">{{ psi.scores.performance if psi.scores.performance is not none else '—' }}</div><div class="l">Performance</div></div>
+      <div class="s"><div class="v">{{ psi.scores.accessibility if psi.scores.accessibility is not none else '—' }}</div><div class="l">Accessibility</div></div>
+      <div class="s"><div class="v">{{ psi.scores.best_practices if psi.scores.best_practices is not none else '—' }}</div><div class="l">Best Practices</div></div>
+      <div class="s"><div class="v">{{ psi.scores.seo if psi.scores.seo is not none else '—' }}</div><div class="l">SEO</div></div>
+    </div>
+    <div class="lab">
+      <div class="s"><div class="v">{% if psi.lab.fcp_s is not none %}{{ psi.lab.fcp_s }}s{% else %}—{% endif %}</div><div class="l">FCP</div></div>
+      <div class="s"><div class="v">{% if psi.lab.lcp_s is not none %}{{ psi.lab.lcp_s }}s{% else %}—{% endif %}</div><div class="l">LCP</div></div>
+      <div class="s"><div class="v">{% if psi.lab.tbt_ms is not none %}{{ psi.lab.tbt_ms }}ms{% else %}—{% endif %}</div><div class="l">TBT</div></div>
+      <div class="s"><div class="v">{% if psi.lab.cls is not none %}{{ psi.lab.cls }}{% else %}—{% endif %}</div><div class="l">CLS</div></div>
+      <div class="s"><div class="v">{% if psi.lab.si_s is not none %}{{ psi.lab.si_s }}s{% else %}—{% endif %}</div><div class="l">Speed Index</div></div>
+    </div>
+    {% if narrative.pagespeed_verdict_title %}
+    <div class="teal-box" style="margin-top:10px;">
+      <h4 style="font-size:15px;">{{ narrative.pagespeed_verdict_title }}</h4>
+      <p>{{ narrative.pagespeed_verdict_body }}</p>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <div class="footer-line">
+      <span>{{ client_name }} — {{ metrics.report_month_label }} Performance Report</span>
+      <span>Sources: Google Search Console{% if psi %}, PageSpeed Insights{% endif %}</span>
+    </div>
+  </section>
+
+  <script>
+    window.__CHARTS_READY__ = false;
+    const charts = {{ charts_json|safe }};
+    const teal = '#0f766e';
+    const orange = '#ea580c';
+    const purple = '#7c3aed';
+    // Sharper charts in Playwright PDF (default 1x canvas looks blurry when printed)
+    if (window.Chart) {
+      Chart.defaults.devicePixelRatio = Math.max(3, window.devicePixelRatio || 1);
+      Chart.defaults.animation = false;
+      Chart.defaults.font.family = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+    }
+
+    function ready() { window.__CHARTS_READY__ = true; }
+
+    try {
+      const weekly = charts.weekly || [];
+      const wEl = document.getElementById('chartWeekly');
+      if (wEl && weekly.length) {
+        new Chart(wEl, {
+          data: {
+            labels: weekly.map(r => r.label),
+            datasets: [
+              {
+                type: 'bar',
+                label: 'Impressions',
+                data: weekly.map(r => r.impressions),
+                backgroundColor: 'rgba(13,148,136,0.28)',
+                borderRadius: 3,
+                yAxisID: 'y',
+                order: 2,
+              },
+              {
+                type: 'line',
+                label: 'Clicks',
+                data: weekly.map(r => r.clicks),
+                borderColor: orange,
+                backgroundColor: orange,
+                pointRadius: 3,
+                pointHoverRadius: 4,
+                borderWidth: 2.5,
+                tension: 0.25,
+                yAxisID: 'y1',
+                order: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            devicePixelRatio: 3,
+            layout: { padding: { right: 8, left: 4, top: 4, bottom: 0 } },
+            plugins: {
+              legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+            },
+            scales: {
+              x: {
+                ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } },
+                grid: { display: false },
+              },
+              y: {
+                position: 'left',
+                title: { display: true, text: 'Impressions', color: teal, font: { size: 11 } },
+                ticks: { color: teal, font: { size: 10 } },
+                grid: { color: 'rgba(148,163,184,0.18)' },
+              },
+              y1: {
+                position: 'right',
+                title: { display: true, text: 'Clicks', color: orange, font: { size: 11 } },
+                ticks: { color: orange, font: { size: 10 } },
+                grid: { drawOnChartArea: false },
+              },
+            },
+          },
+        });
+      }
+
+      const aiW = charts.ai_weekly || [];
+      const aEl = document.getElementById('chartAiWeekly');
+      if (aEl && aiW.length) {
+        new Chart(aEl, {
+          type: 'bar',
+          data: {
+            labels: aiW.map(r => r.label),
+            datasets: [{
+              label: 'AI impressions',
+              data: aiW.map(r => r.impressions),
+              backgroundColor: purple,
+              borderRadius: 3,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            devicePixelRatio: 3,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+              y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.18)' } },
+            },
+          },
+        });
+      }
+
+      const langs = charts.languages || [];
+      const lEl = document.getElementById('chartLang');
+      if (lEl && langs.length) {
+        new Chart(lEl, {
+          type: 'doughnut',
+          data: {
+            labels: langs.map(r => `${r.language} (${r.clicks})`),
+            datasets: [{
+              data: langs.map(r => r.clicks),
+              backgroundColor: [teal, orange, purple, '#94a3b8', '#0ea5e9', '#f59e0b'],
+              borderWidth: 0,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            devicePixelRatio: 3,
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+          },
+        });
+      }
+
+      const devices = charts.devices || [];
+      const dEl = document.getElementById('chartDevice');
+      if (dEl && devices.length) {
+        new Chart(dEl, {
+          type: 'doughnut',
+          data: {
+            labels: devices.map(r => r.label),
+            datasets: [{
+              data: devices.map(r => r.clicks),
+              backgroundColor: [teal, orange, '#cbd5e1'],
+              borderWidth: 0,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            devicePixelRatio: 3,
+            plugins: { legend: { display: false } },
+          },
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setTimeout(ready, 700);
+  </script>
+</body>
+</html>
