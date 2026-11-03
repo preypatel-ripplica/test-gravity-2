@@ -8,8 +8,17 @@ import type {
   WhatsAppAccount, AiUsage, CallRecord, CallReview,
 } from "./types";
 
-// In Beacon, bot API is mounted at /bot/api (same origin). Override with VITE_API_BASE_URL if needed.
-const RAW = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/bot/api").trim();
+// Prod: same split as Beacon — page on plugai.ripplica.com, API on
+// plugai.api.ripplica.com (see deploy/frontend.Dockerfile VITE_API_URL).
+// Local vite proxies /bot/api → :8000 when VITE_API_URL is unset.
+const RAW = (
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
+  || (
+    (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "")
+      ? `${String(import.meta.env.VITE_API_URL).replace(/\/+$/, "")}/bot/api`
+      : "/bot/api"
+  )
+);
 export const BASE = RAW.replace(/\/+$/, "");
 export const enabled = BASE.length > 0;
 
