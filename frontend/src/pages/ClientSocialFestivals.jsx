@@ -492,7 +492,7 @@ export default function ClientSocialFestivals() {
               position: 'relative',
               width: '44px',
               height: '24px',
-              backgroundColor: scheduleData?.festive_auto_publish ? 'var(--primary, #3b82f6)' : '#cbd5e1',
+              backgroundColor: scheduleData?.festive_auto_publish ? 'var(--primary, #ff4d00)' : '#cbd5e1',
               borderRadius: '24px',
               transition: 'background-color 0.3s',
               pointerEvents: savingSchedule ? 'none' : 'auto'
@@ -524,7 +524,7 @@ export default function ClientSocialFestivals() {
               position: 'relative',
               width: '44px',
               height: '24px',
-              backgroundColor: scheduleData?.festive_facebook_auto_publish ? 'var(--primary, #3b82f6)' : '#cbd5e1',
+              backgroundColor: scheduleData?.festive_facebook_auto_publish ? 'var(--primary, #ff4d00)' : '#cbd5e1',
               borderRadius: '24px',
               transition: 'background-color 0.3s',
               pointerEvents: savingSchedule ? 'none' : 'auto'

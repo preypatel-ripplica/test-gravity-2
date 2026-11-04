@@ -119,14 +119,16 @@ function MonthPicker({ value, onChange, onClear }) {
 }
 
 function emptyForm() {
-  return { videos: [{ format: 'long' }], static_post: 1, blog: 1, paid_ads: 0 }
+  return { long_video: 1, short_video: 0, static_post: 1, blog: 1, paid_ads: 0 }
 }
 
 function formFromSlots(slots) {
-  const form = { videos: [], static_post: 0, blog: 0, paid_ads: 0 }
+  const form = { long_video: 0, short_video: 0, static_post: 0, blog: 0, paid_ads: 0 }
   for (const slot of normalizeDeliverables(slots)) {
-    if (slot.type === 'video') form.videos.push({ format: slot.format === 'short' ? 'short' : 'long' })
-    else if (slot.type === 'static_post') form.static_post += 1
+    if (slot.type === 'video') {
+      if (slot.format === 'short') form.short_video += 1
+      else form.long_video += 1
+    } else if (slot.type === 'static_post') form.static_post += 1
     else if (slot.type === 'blog') form.blog += 1
     else if (slot.type === 'paid_ads') form.paid_ads += 1
   }
@@ -135,23 +137,22 @@ function formFromSlots(slots) {
 
 function slotsFromForm(form) {
   const slots = []
-  for (const video of form.videos || []) {
-    slots.push({ type: 'video', format: video.format === 'short' ? 'short' : 'long' })
-  }
+  for (let i = 0; i < Number(form.long_video || 0); i += 1) slots.push({ type: 'video', format: 'long' })
+  for (let i = 0; i < Number(form.short_video || 0); i += 1) slots.push({ type: 'video', format: 'short' })
   for (let i = 0; i < Number(form.static_post || 0); i += 1) slots.push({ type: 'static_post' })
   for (let i = 0; i < Number(form.blog || 0); i += 1) slots.push({ type: 'blog' })
   for (let i = 0; i < Number(form.paid_ads || 0); i += 1) slots.push({ type: 'paid_ads' })
   return slots
 }
 
-function CountRow({ label, hint, value, onChange }) {
+function CountRow({ label, hint, value, onChange, max = MAX_SLOTS_PER_FAMILY, showSplit = true }) {
   const split = weekShareCounts(value).join('-')
   return (
     <div className={`deliverable-count${value > 0 ? ' is-on' : ''}`}>
       <div>
         <strong>{label}</strong>
         <small>{hint}</small>
-        {value > 0 ? <small>This month by week: {split}</small> : null}
+        {showSplit && value > 0 ? <small>This month by week: {split}</small> : null}
       </div>
       <div className="deliverable-stepper">
         <button type="button" className="btn btn-secondary btn-sm" disabled={value <= 0} onClick={() => onChange(value - 1)}>
@@ -161,7 +162,7 @@ function CountRow({ label, hint, value, onChange }) {
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          disabled={value >= MAX_SLOTS_PER_FAMILY}
+          disabled={value >= max}
           onClick={() => onChange(value + 1)}
         >
           +
@@ -236,25 +237,13 @@ export default function ClientDeliverables() {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  function addVideo() {
+  function setVideoCount(key, next) {
     setForm((current) => {
-      if (current.videos.length >= MAX_SLOTS_PER_FAMILY) return current
-      return { ...current, videos: [...current.videos, { format: 'long' }] }
+      const other = key === 'long_video' ? current.short_video : current.long_video
+      const maxThis = Math.max(0, MAX_SLOTS_PER_FAMILY - Number(other || 0))
+      const value = Math.max(0, Math.min(maxThis, Number(next) || 0))
+      return { ...current, [key]: value }
     })
-  }
-
-  function removeVideo(index) {
-    setForm((current) => ({
-      ...current,
-      videos: current.videos.filter((_, i) => i !== index),
-    }))
-  }
-
-  function setVideoFormat(index, format) {
-    setForm((current) => ({
-      ...current,
-      videos: current.videos.map((video, i) => (i === index ? { ...video, format } : video)),
-    }))
   }
 
   async function handleSave(e) {
@@ -330,7 +319,7 @@ export default function ClientDeliverables() {
           />
           <h1>Deliverables</h1>
           <p>
-            Set how many tracker cards this client gets each month. Videos (long + short) split
+            Set how many tracker cards this client gets each month. Long and short videos split
             together across the four weeks (4 → 1-1-1-1, 6 → 1-2-1-2). If tracker start is week 1,
             the whole month applies. If they join in week 3, only the second half of that month
             counts. Past months stay as they were.
@@ -342,49 +331,30 @@ export default function ClientDeliverables() {
         <section className="profile-section">
           <h2>Videos</h2>
           <p className="profile-section-desc">
-            Each video is its own tracker for the month. Choose long or short per video — short is a
-            format, not a separate deliverable.
-            {form.videos.length
-              ? ` This month by week: ${weekShareCounts(form.videos.length).join('-')}.`
+            Count is how many long and short video cards are created for the month. They split
+            together across the four weeks.
+            {form.long_video + form.short_video
+              ? ` This month by week: ${weekShareCounts(form.long_video + form.short_video).join('-')}.`
               : ''}
           </p>
-          <div className="deliverable-slot-list">
-            {form.videos.length === 0 ? (
-              <p className="text-muted">No videos this month.</p>
-            ) : null}
-            {form.videos.map((video, index) => (
-              <div key={`video-${index}`} className="deliverable-slot">
-                <strong>Video {index + 1}</strong>
-                <div className="deliverable-format-toggle">
-                  <button
-                    type="button"
-                    className={video.format === 'long' ? 'is-on' : ''}
-                    onClick={() => setVideoFormat(index, 'long')}
-                  >
-                    Long
-                  </button>
-                  <button
-                    type="button"
-                    className={video.format === 'short' ? 'is-on' : ''}
-                    onClick={() => setVideoFormat(index, 'short')}
-                  >
-                    Short
-                  </button>
-                </div>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeVideo(index)}>
-                  Remove
-                </button>
-              </div>
-            ))}
+          <div className="deliverable-count-list">
+            <CountRow
+              label="Long videos"
+              hint="Full-length YouTube videos"
+              value={form.long_video}
+              max={Math.max(0, MAX_SLOTS_PER_FAMILY - form.short_video)}
+              showSplit={false}
+              onChange={(value) => setVideoCount('long_video', value)}
+            />
+            <CountRow
+              label="Short videos"
+              hint="Short-form videos"
+              value={form.short_video}
+              max={Math.max(0, MAX_SLOTS_PER_FAMILY - form.long_video)}
+              showSplit={false}
+              onChange={(value) => setVideoCount('short_video', value)}
+            />
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={addVideo}
-            disabled={form.videos.length >= MAX_SLOTS_PER_FAMILY}
-          >
-            + Add video
-          </button>
         </section>
 
         <section className="profile-section">

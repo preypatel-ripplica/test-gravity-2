@@ -152,6 +152,10 @@ def default_card(card_type: str, sort_order: int, *, is_default: bool = False) -
         "delay_recorded_at": "",
         "delay_recorded_by": "",
         "history": [],
+        "editor_id": "",
+        "editor_overridden": False,
+        "edit_hours": 0,
+        "planned_edit_date": "",
     }
 
 
@@ -479,21 +483,24 @@ def _ensure_week(project_id: str, year: int, month: int, week: int, actor: str) 
         }
     existing = weekly_trackers_col().find_one({"id": doc_id}, {"_id": 0})
     before_current = week_is_before_current(year, month, week)
+    late = before_current
+    from backend.trackers.editors import VIDEO_TYPES, default_editor_id, edit_hours_for
+
     if existing:
-        changed = False
         if existing.get("deliverable_slots") is None:
-            changed = _stamp_week_slots(existing, slots) or changed
-        for card in existing.get("cards") or []:
-            if isinstance(card, dict) and _ensure_card_started(card, languages):
-                changed = True
-        if changed:
-            existing["updated_at"] = _now_iso()
-            existing["updated_by"] = actor
-            weekly_trackers_col().replace_one({"id": doc_id}, existing, upsert=True)
+            _stamp_week_slots(existing, slots)
+            weekly_trackers_col().update_one(
+                {"id": doc_id},
+                {"$set": {"deliverable_slots": existing.get("deliverable_slots")}},
+            )
         return existing
     cards = seed_default_cards(slots)
+
     for card in cards:
         _ensure_card_started(card, languages)
+        if str(card.get("type") or "") in VIDEO_TYPES:
+            card["editor_id"] = default_editor_id(project, late=late)
+            card["edit_hours"] = edit_hours_for(project, card.get("type"))
     doc = {
         "id": doc_id,
         "project_id": project_id,

@@ -14,6 +14,7 @@ from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeout
 from backend.bot.lifecycle import start_bot_workers, stop_bot_workers
 from backend.bot.routes import router as bot_router
 from backend.trackers.crudl import router as trackers_router
+from backend.trackers.edit_tracker import router as edit_tracker_router
 from backend.website.crudl import router as website_router
 from backend.website.reports import router as website_reports_router
 
@@ -94,6 +95,7 @@ app.include_router(website_reports_router)
 # Beacon-native domains
 app.include_router(website_router)
 app.include_router(trackers_router)
+app.include_router(edit_tracker_router)
 
 # WhatsApp bot (Botify) — same logic/UI/DB under /bot/api/*
 app.include_router(bot_router, prefix="/bot/api")

@@ -5,9 +5,12 @@ import {
   ADDABLE_CARD_TYPES,
   allowedCardTypes,
   cardsSummary,
+  calendarWeekDates,
+  defaultEditHours,
   displayLanguages,
   applyCardHistory,
   emptyCard,
+  isVideoCard,
   maybeAdvanceStage,
   needsDelayProof,
   seedDestinations,
@@ -32,6 +35,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   const [planKeywords, setPlanKeywords] = useState([])
   const [scriptBusyId, setScriptBusyId] = useState(null)
   const [channels, setChannels] = useState([])
+  const [editors, setEditors] = useState([])
   const [delayGate, setDelayGate] = useState(null)
   const saveTimer = useRef(null)
   const skipNextSave = useRef(true)
@@ -99,6 +103,19 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     loadScripts(clientId)
     loadChannels(clientId)
   }, [clientId, loadScripts, loadChannels])
+
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    api.getEditTrackerMeta(token).then((data) => {
+      if (!cancelled) setEditors(data.editors || [])
+    }).catch(() => {
+      if (!cancelled) setEditors([])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   const persist = useCallback((nextCards, { immediate } = {}) => {
     if (!token || !clientId) return
@@ -192,6 +209,10 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   function addCard(type) {
     setCards((prev) => {
       const card = startCard(emptyCard(type, prev.length, false), languages)
+      if (isVideoCard(type)) {
+        card.editor_id = client?.video_editor_id || editors[0]?.id || ''
+        card.edit_hours = defaultEditHours(client, type)
+      }
       return sortCardsByType([...prev, applyCardHistory(null, { ...card, collapsed: true }, actor)])
     })
   }
@@ -216,6 +237,8 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     week,
     toast,
     channels,
+    editors,
+    weekDates: calendarWeekDates(),
     onWeekUpdate: applyWeekUpdate,
     reloadWeek: async () => {
       if (!token || !clientId) return null

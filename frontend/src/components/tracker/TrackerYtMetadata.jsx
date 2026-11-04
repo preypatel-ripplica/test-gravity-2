@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import CustomSelect from '../CustomSelect'
 import api from '../../api'
 import { YT_LANGUAGE_OPTIONS, localeHasTitle, maybeAdvanceStage } from './trackerUtils'
 
@@ -250,15 +251,12 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
       {showRefs && (
         <div className="tracker-ref-grid-wrap">
           {channels.length > 1 && (
-            <select
-              className="form-control"
+            <CustomSelect
               value={refChannelId}
-              onChange={(e) => setRefChannelId(e.target.value)}
-            >
-              {channels.map((ch) => (
-                <option key={ch.id} value={ch.id}>{ch.title || ch.id}</option>
-              ))}
-            </select>
+              ariaLabel="Reference channel"
+              onChange={setRefChannelId}
+              options={channels.map((ch) => ({ value: ch.id, label: ch.title || ch.id }))}
+            />
           )}
           <p className="tracker-hint">If you pick none, the newest 3 thumbnails are used, and the newest 3 descriptions of the same format are used as examples.</p>
           <div className="tracker-ref-grid">

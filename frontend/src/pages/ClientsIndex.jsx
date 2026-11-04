@@ -52,6 +52,7 @@ export default function ClientsIndex() {
       <header className="content-header">
         <div className="greeting">
           <Breadcrumbs items={[{ label: 'Clients' }]} />
+          <p className="page-kicker">Workspace</p>
           <h1>Clients</h1>
           <p>Select a client account or create a new one to manage YouTube channels.</p>
         </div>

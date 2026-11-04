@@ -203,6 +203,9 @@ def auth_me(auth: dict = Depends(current_user)):
                 "tracker_deliverables": stored_monthly_slots(p),
                 "tracker_deliverables_period": p.get("tracker_deliverables_period")
                 or "",
+                "video_editor_id": p.get("video_editor_id") or "",
+                "long_video_hours": p.get("long_video_hours") or 0,
+                "short_video_hours": p.get("short_video_hours") or 0,
             }
         )
 

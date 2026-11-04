@@ -8,7 +8,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Beacon dotted CRUDL routes (and /health)
-      '^/(auth|user|project|client|channel|video|production|report|social|website|weekly|custom|tracker|google)\\..*': {
+      // edit = editor-screen tracker editor APIs; google = OAuth/GSC helpers
+      '^/(auth|user|project|client|channel|video|production|report|social|website|weekly|custom|tracker|edit|google)\\..*': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },

@@ -164,7 +164,6 @@ export default function TrackerScriptSlot({
       <div className="tracker-script-slot">
         {header}
         <div className="tracker-script-choose">
-          <strong>Pick a title</strong>
           <p className="tracker-hint">Every keyword is listed, including ones that do not have a script yet. This script stays on the card.</p>
           <input
             className="form-control"
@@ -234,7 +233,6 @@ export default function TrackerScriptSlot({
       <div className="tracker-script-slot">
         {header}
         <div className="tracker-script-choose">
-          <strong>Existing script</strong>
           <p className="tracker-hint">Use a script that was already written in the content plan.</p>
           {available.length === 0 ? (
             <p className="tracker-hint">No generated {card.type === 'short' ? 'short' : 'long'} scripts yet.</p>

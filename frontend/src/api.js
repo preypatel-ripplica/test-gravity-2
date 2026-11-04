@@ -840,6 +840,30 @@ export const api = {
       token,
       body: { client_id: clientId, tasks },
     }),
+  getEditTrackerMeta: (token) =>
+    apiFetch('/edit.tracker.meta', { token, body: {} }),
+  getEditTrackerBoard: (token, { week_offset = 0, working_weekdays } = {}) =>
+    apiFetch('/edit.tracker.board', {
+      token,
+      body: { week_offset, working_weekdays },
+    }),
+  assignEditTracker: (token, { week_offset = 0, working_weekdays } = {}) =>
+    apiFetch('/edit.tracker.assign', {
+      token,
+      body: { week_offset, working_weekdays },
+    }),
+  patchEditTrackerCard: (token, fields) =>
+    apiFetch('/edit.tracker.card.patch', {
+      token,
+      body: fields,
+    }),
+  getEditTrackerSettings: (token) =>
+    apiFetch('/edit.tracker.settings', { token, body: {} }),
+  patchEditTrackerSettings: (token, fields) =>
+    apiFetch('/edit.tracker.settings.patch', {
+      token,
+      body: fields,
+    }),
   getTrackerSheetAll: (token, year, month) =>
     apiFetch('/tracker.sheet.all', {
       token,

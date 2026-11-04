@@ -15,6 +15,8 @@ import {
   MARKING_NONE,
   TYPE_LABELS,
   TYPE_PILL,
+  calendarWeekDates,
+  isoDate,
   isVideoCard,
   maybeAdvanceStage,
   nextStageId,
@@ -24,8 +26,8 @@ import {
   stageList,
 } from './trackerUtils'
 
-function StatusBadge({ card }) {
-  const status = cardStatus(card)
+function StatusBadge({ card, weekContext }) {
+  const status = cardStatus(card, weekContext)
   return <span className={`tracker-pill tracker-pill-status-${status.id}`}>{status.label}</span>
 }
 
@@ -212,6 +214,65 @@ function DelayProofNote({ card }) {
   )
 }
 
+function VideoEditFields({ card, weekContext, onChange }) {
+  if (!isVideoCard(card.type)) return null
+  const editors = weekContext?.editors || []
+  const dates = weekContext?.weekDates || calendarWeekDates()
+  return (
+    <div className="tracker-edit-fields" onClick={stopToggle}>
+      <div className="tracker-assign-field">
+        <span className="tracker-kicker">Editor</span>
+        <div className="tracker-assign-strip" role="listbox" aria-label="Editor">
+          <button
+            type="button"
+            role="option"
+            aria-selected={!card.editor_id}
+            className={`tracker-assign-cell${!card.editor_id ? ' is-on' : ''}`}
+            onClick={() => onChange({ ...card, editor_id: '', editor_overridden: true })}
+          >
+            Unassigned
+          </button>
+          {editors.map((editor) => (
+            <button
+              type="button"
+              role="option"
+              key={editor.id}
+              aria-selected={card.editor_id === editor.id}
+              className={`tracker-assign-cell${card.editor_id === editor.id ? ' is-on' : ''}`}
+              onClick={() => onChange({ ...card, editor_id: editor.id, editor_overridden: true })}
+            >
+              {editor.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="tracker-assign-field">
+        <span className="tracker-kicker">Edit date</span>
+        <div className="tracker-day-strip" role="listbox" aria-label="Edit date">
+          {dates.map((day) => {
+            const value = isoDate(day)
+            const on = card.planned_edit_date === value
+            return (
+              <button
+                type="button"
+                role="option"
+                key={value}
+                aria-selected={on}
+                className={`tracker-day-cell${on ? ' is-on' : ''}`}
+                onClick={() => onChange({ ...card, planned_edit_date: on ? '' : value })}
+              >
+                <small>{day.toLocaleDateString('en-GB', { weekday: 'short' })}</small>
+                <strong>{day.getDate()}</strong>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {card.edit_hours ? <em className="tracker-edit-hours">{card.edit_hours}h</em> : null}
+    </div>
+  )
+}
+
 function DeleteCardButton({ onDelete }) {
   if (!onDelete) return null
   return (
@@ -262,7 +323,7 @@ export default function TrackerCard({
     window.setTimeout(() => el.classList.remove('tracker-section-flash'), 1300)
   }
 
-  const status = cardStatus(card)
+  const status = cardStatus(card, weekContext)
   const stateClass = ` is-status-${status.id}`
 
   function toggleCollapsed() {
@@ -294,7 +355,7 @@ export default function TrackerCard({
         >
           <span className={`tracker-pill ${TYPE_PILL[card.type]}`}>{TYPE_LABELS[card.type]}</span>
           <strong className="tracker-collapsed-title">{card.title || 'Untitled'}</strong>
-          <StatusBadge card={card} />
+          <StatusBadge card={card} weekContext={weekContext} />
           {hasDelayProof(card) ? <span className="tracker-pill tracker-pill-delay">Delay noted</span> : null}
           <span className="tracker-icon-btn" data-tip="Expand" aria-hidden="true">
             <i className="fa-solid fa-chevron-down" />
@@ -316,7 +377,7 @@ export default function TrackerCard({
         onKeyDown={handleTitleKeyDown}
       >
         <span className={`tracker-pill ${TYPE_PILL[card.type]}`}>{TYPE_LABELS[card.type]}</span>
-        <StatusBadge card={card} />
+        <StatusBadge card={card} weekContext={weekContext} />
         <input
           className="tracker-title-input"
           value={card.title || ''}
@@ -336,6 +397,7 @@ export default function TrackerCard({
       <DelayProofNote card={card} />
 
       <div className="tracker-stage-block">
+        <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
         <Timeline
           card={card}
           onSelectStage={(stageId) => {

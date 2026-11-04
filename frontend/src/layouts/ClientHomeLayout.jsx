@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useParams } from 'react-router-dom'
 import api from '../api'
+import BrandLockup from '../components/BrandLockup'
 import { NavItem, NavSection } from '../components/NavSection'
 import { hasStaticDeliverable, hasVideoDeliverable } from '../components/tracker/trackerUtils'
 import { useAuth } from '../context/AuthContext'
@@ -63,10 +64,7 @@ export default function ClientHomeLayout() {
     <div className="dashboard">
       <aside className="sidebar card">
         <div className="sidebar-header">
-          <div className="brand-logo">
-            <i className="fa-solid fa-building brand-icon" />
-            <h3>{client?.name || 'Client'}</h3>
-          </div>
+          <BrandLockup subtitle={client?.name || 'Client workspace'} />
         </div>
 
         <div className="user-profile">
@@ -74,7 +72,7 @@ export default function ClientHomeLayout() {
             <i className="fa-solid fa-user" />
           </div>
           <div className="user-info">
-            <h4>{user?.username || '—'}</h4>
+            <h4>{user?.username || user?.email || 'User'}</h4>
             <p className="role">{client?.name || 'Client'}</p>
           </div>
         </div>

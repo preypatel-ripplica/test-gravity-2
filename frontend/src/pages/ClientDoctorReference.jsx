@@ -5,7 +5,7 @@ import Breadcrumbs from '../components/Breadcrumbs'
 import DoctorReferenceFields from '../components/client-profile/DoctorReferenceFields'
 import DoctorReferenceSections from '../components/client-profile/DoctorReferenceSections'
 import ProfileTabs from '../components/client-profile/ProfileTabs'
-import { newProfileId } from '../components/client-profile/profileUtils'
+import { isDefaultPreferenceSection, newProfileId } from '../components/client-profile/profileUtils'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
@@ -15,6 +15,7 @@ export default function ClientDoctorReference() {
   const { toast } = useUI()
 
   const [sections, setSections] = useState([])
+  const [editors, setEditors] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -46,9 +47,16 @@ export default function ClientDoctorReference() {
     ;(async () => {
       setLoading(true)
       try {
-        const data = await api.getDoctorReference(token, clientId)
+        const [data, meta] = await Promise.all([
+          api.getDoctorReference(token, clientId),
+          api.getEditTrackerMeta(token).catch(() => ({ editors: [] })),
+        ])
         if (cancelled) return
-        const next = data?.reference?.sections || []
+        const next = (data?.reference?.sections || []).map((section) => ({
+          ...section,
+          is_default: isDefaultPreferenceSection(section),
+        }))
+        setEditors(meta.editors || [])
         setSections(next)
         setActiveId(next[0]?.id || null)
       } catch (err) {
@@ -128,7 +136,9 @@ export default function ClientDoctorReference() {
   }
 
   async function handleDeleteSection(targetId) {
-    const next = sections.filter((section) => section.id !== targetId || section.is_default)
+    const next = sections.filter(
+      (section) => section.id !== targetId || isDefaultPreferenceSection(section),
+    )
     setSections(next)
     if (activeId === targetId) {
       setActiveId(next[0]?.id || null)
@@ -169,6 +179,7 @@ export default function ClientDoctorReference() {
           {activeSection ? (
             <DoctorReferenceFields
               section={activeSection}
+              editors={editors}
               onSaveField={handleSaveField}
               onDeleteField={handleDeleteField}
               onAddField={handleAddField}

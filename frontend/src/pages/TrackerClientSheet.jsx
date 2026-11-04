@@ -163,11 +163,11 @@ export default function TrackerClientSheet({ mode = 'weekly' }) {
           <div className="tracker-month-nav">
             <h1>{clientName}</h1>
             <div className="tracker-month-switch">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => shiftMonth(-1)}>
+              <button type="button" className="tracker-month-step" onClick={() => shiftMonth(-1)} aria-label="Previous month">
                 <i className="fa-solid fa-chevron-left" />
               </button>
               <TrackerMonthPicker year={year} month={month} onSelect={setMonth} />
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => shiftMonth(1)}>
+              <button type="button" className="tracker-month-step" onClick={() => shiftMonth(1)} aria-label="Next month">
                 <i className="fa-solid fa-chevron-right" />
               </button>
             </div>

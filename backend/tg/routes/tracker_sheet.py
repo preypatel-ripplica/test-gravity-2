@@ -20,12 +20,13 @@ from backend.tg.database import (
     weekly_tracker_doc_id,
 )
 from backend.tg.services.tracker_sheet import (
+    STAGE_LABELS,
     comments_map,
     flatten_weekly_rows,
     week_end_date,
     weeks_in_month,
 )
-from backend.trackers.crudl import _ensure_week, _now_iso, seed_default_cards
+from backend.trackers.crudl import STAGES, _card_is_complete, _ensure_week, _now_iso, seed_default_cards
 from backend.trackers.tracker_settings import (
     LEGACY_TRACKER_START,
     current_week_tuple,
@@ -39,7 +40,6 @@ from backend.trackers.tracker_settings import (
 
 router = APIRouter(tags=["tracker-sheet"])
 
-DONE_STAGES = {"posted", "published", "results_discussed", "link_shared_with_doctor"}
 NEXT_WEEK_GREEN_STAGES = {
     "audio_generated",
     "video_edited",
@@ -199,6 +199,11 @@ def _pending_custom_rows(
     return rows
 
 
+def _stage_label(stage: str) -> str:
+    key = str(stage or "").strip()
+    return STAGE_LABELS.get(key, key.replace("_", " ").title() if key else "")
+
+
 def _in_memory_week_doc(client: dict, year: int, month: int, week: int) -> dict:
     slots = slots_for_week(client, year, month, week)
     return {
@@ -238,7 +243,10 @@ def _weekly_rows_from_doc(
             continue
         if row.get("marking") == "did_not_track":
             continue
-        done = row.get("stage") in DONE_STAGES
+        done = _card_is_complete({
+            "type": row.get("content_type"),
+            "stage": row.get("stage"),
+        })
         if done and not include_completed:
             continue
         label = row.get("content_type_label") or row.get("content_type") or "Task"
@@ -251,6 +259,11 @@ def _weekly_rows_from_doc(
             )
         else:
             tone = "completed" if done else open_tone
+        stages = STAGES.get(str(row.get("content_type") or ""), [])
+        if not done and open_tone == "urgent" and stages:
+            status = _stage_label(stages[-1])
+        else:
+            status = row.get("stage_label") or _stage_label(stage) or stage
         card_id = str(row.get("card_id") or "").strip()
         href = f"/clients/{client_id}/tracker?year={year}&month={month}&week={week}"
         if card_id:
@@ -261,7 +274,7 @@ def _weekly_rows_from_doc(
                 "client_id": client_id,
                 "client_name": client_name,
                 "task": f"{label}-week {week}",
-                "status": row.get("stage_label") or row.get("stage") or "",
+                "status": status,
                 "status_id": row.get("stage") or "",
                 "due_date": week_end_date(year, month, week),
                 "comment": "",

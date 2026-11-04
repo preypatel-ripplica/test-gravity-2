@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import CustomSelect from '../components/CustomSelect'
 import TrackerWeekPicker from '../components/tracker/TrackerWeekPicker'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -323,8 +324,8 @@ export default function ClientScripts() {
     }
   }
 
-  async function handleChannelChange(e) {
-    const chId = e.target.value
+  async function handleChannelChange(next) {
+    const chId = typeof next === 'object' && next?.target ? next.target.value : next
     setSelectedYTChannelId(chId)
     setYtVideos([])
     setYtVideosPage(1)
@@ -1153,17 +1154,14 @@ export default function ClientScripts() {
                 <p className="text-muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>Select thumbnails as style references. Default: 3 most recent.</p>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <select
-                  className="input"
-                  style={{ width: 'auto', minWidth: '150px' }}
+                <CustomSelect
+                  className="yt-channel-select"
                   value={selectedYTChannelId}
+                  placeholder="Select Channel"
+                  ariaLabel="YouTube channel"
                   onChange={handleChannelChange}
-                >
-                  <option value="" disabled>Select Channel</option>
-                  {ytChannels.map(ch => (
-                    <option key={ch.id} value={ch.id}>{ch.title}</option>
-                  ))}
-                </select>
+                  options={ytChannels.map((ch) => ({ value: ch.id, label: ch.title }))}
+                />
                 <button
                   type="button"
                   className="btn-close"
@@ -1260,18 +1258,13 @@ export default function ClientScripts() {
                   <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-main)' }}>
                     YouTube Channel
                   </label>
-                  <select
-                    className="input"
+                  <CustomSelect
                     value={selectedYTChannelId}
+                    placeholder="Select Channel"
+                    ariaLabel="YouTube channel"
                     onChange={handleChannelChange}
-                    required
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px' }}
-                  >
-                    <option value="" disabled>Select Channel</option>
-                    {ytChannels.map(ch => (
-                      <option key={ch.id} value={ch.id}>{ch.title}</option>
-                    ))}
-                  </select>
+                    options={ytChannels.map((ch) => ({ value: ch.id, label: ch.title }))}
+                  />
                 </div>
                 <div className="form-group">
                   <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-main)' }}>

@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import BrandLockup from '../components/BrandLockup'
 import { useAuth } from '../context/AuthContext'
 
 export default function AppShell() {
@@ -14,10 +15,7 @@ export default function AppShell() {
     <div className="dashboard">
       <aside className="sidebar sidebar-compact card">
         <div className="sidebar-header">
-          <div className="brand-logo">
-            <i className="fa-solid fa-chart-line brand-icon" />
-            <h3>Analytics Portal</h3>
-          </div>
+          <BrandLockup subtitle="Internal workspace" />
         </div>
 
         <div className="user-profile">
@@ -25,8 +23,8 @@ export default function AppShell() {
             <i className="fa-solid fa-user" />
           </div>
           <div className="user-info">
-            <h4>{user?.username || '—'}</h4>
-            <p className="role">Channel Manager</p>
+            <h4>{user?.username || user?.email || 'User'}</h4>
+            <p className="role">Internal</p>
           </div>
         </div>
 
@@ -37,14 +35,21 @@ export default function AppShell() {
             className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
           >
             <i className="fa-solid fa-building" />
-            <span>All Clients</span>
+            <span>Clients</span>
           </NavLink>
           <NavLink
             to="/tracker"
             className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
           >
             <i className="fa-solid fa-calendar-week" />
-            <span>All trackers</span>
+            <span>Tracker</span>
+          </NavLink>
+          <NavLink
+            to="/edit-tracker"
+            className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+          >
+            <i className="fa-solid fa-clapperboard" />
+            <span>Edit tracker</span>
           </NavLink>
         </nav>
 

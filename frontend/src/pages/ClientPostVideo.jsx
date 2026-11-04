@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import api, { apiFetchProgress } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import VideoUrlAttachField from '../components/VideoUrlAttachField'
 import PublishProgressBusy from '../components/PublishProgressBusy'
 import { useAuth } from '../context/AuthContext'
@@ -828,21 +829,15 @@ export default function ClientPostVideo() {
             <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
               <div className="form-group">
                 <label style={{ color: '#fff', display: 'block', marginBottom: '8px' }}>YouTube Channel</label>
-                <select
-                  className="form-control"
+                <CustomSelect
                   value={modalChannelId}
-                  onChange={(e) => {
-                    setModalChannelId(e.target.value)
+                  ariaLabel="YouTube channel"
+                  onChange={(next) => {
+                    setModalChannelId(next)
                     setChannelVideos([])
                   }}
-                  style={{ width: '100%', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
-                >
-                  {channels.map((c) => (
-                    <option key={c.id} value={c.id} style={{ color: '#000' }}>
-                      {c.title || c.id}
-                    </option>
-                  ))}
-                </select>
+                  options={channels.map((c) => ({ value: c.id, label: c.title || c.id }))}
+                />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', marginTop: '20px' }}>

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import CustomSelect from './CustomSelect'
 
 const DEFAULT_THUMB =
   'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?auto=format&fit=crop&w=80&q=80'
@@ -22,7 +23,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
     return (
       <i
         className={`fa-solid ${sortOrder === 'asc' ? 'fa-arrow-up-short-wide' : 'fa-arrow-down-wide-short'}`}
-        style={{ marginLeft: '6px', color: '#4f46e5' }}
+        style={{ marginLeft: '6px', color: '#ff4d00' }}
       />
     )
   }
@@ -216,51 +217,53 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
             {isClientLevel && uniqueChannels.length > 0 && (
               <div className="filter-group">
                 <label htmlFor="channel-filter">Channel</label>
-                <select
+                <CustomSelect
                   id="channel-filter"
                   className="filter-select"
                   value={selectedChannel}
-                  onChange={(e) => setSelectedChannel(e.target.value)}
-                >
-                  <option value="all">All Channels</option>
-                  {uniqueChannels.map((ch) => (
-                    <option key={ch.id} value={ch.id}>
-                      {ch.title}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Channel"
+                  onChange={setSelectedChannel}
+                  options={[
+                    { value: 'all', label: 'All Channels' },
+                    ...uniqueChannels.map((ch) => ({ value: ch.id, label: ch.title })),
+                  ]}
+                />
               </div>
             )}
 
             <div className="filter-group">
               <label htmlFor="type-filter">Type</label>
-              <select
+              <CustomSelect
                 id="type-filter"
                 className="filter-select"
                 value={videoType}
-                onChange={(e) => setVideoType(e.target.value)}
-              >
-                <option value="all">All Types</option>
-                <option value="video">Long Videos</option>
-                <option value="short">Shorts</option>
-              </select>
+                ariaLabel="Type"
+                onChange={setVideoType}
+                options={[
+                  { value: 'all', label: 'All Types' },
+                  { value: 'video', label: 'Long Videos' },
+                  { value: 'short', label: 'Shorts' },
+                ]}
+              />
             </div>
 
             <div className="filter-group">
               <label htmlFor="sort-filter">Sort by</label>
-              <select
+              <CustomSelect
                 id="sort-filter"
                 className="filter-select"
                 value={sortBy}
-                onChange={(e) => handleSortChange(e.target.value)}
-              >
-                <option value="views">Most Viewed</option>
-                <option value="likes">Most Liked</option>
-                <option value="comments">Most Commented</option>
-                <option value="date">Publish Date</option>
-                <option value="title">Title (A-Z)</option>
-                {isClientLevel && <option value="channel">Channel (A-Z)</option>}
-              </select>
+                ariaLabel="Sort by"
+                onChange={handleSortChange}
+                options={[
+                  { value: 'views', label: 'Most Viewed' },
+                  { value: 'likes', label: 'Most Liked' },
+                  { value: 'comments', label: 'Most Commented' },
+                  { value: 'date', label: 'Publish Date' },
+                  { value: 'title', label: 'Title (A-Z)' },
+                  ...(isClientLevel ? [{ value: 'channel', label: 'Channel (A-Z)' }] : []),
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -436,15 +439,15 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                                 onClick={() => toggleExpand(v)}
                                 className="action-edit-btn"
                                 style={{
-                                  color: '#4f46e5',
+                                  color: '#ff4d00',
                                   width: '32px',
                                   height: '32px',
                                   borderRadius: '50%',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  background: expandedVideoId === v.id ? '#4f46e5' : '#f5f3ff',
-                                  color: expandedVideoId === v.id ? 'white' : '#4f46e5',
+                                  background: expandedVideoId === v.id ? '#ff4d00' : '#ffe8de',
+                                  color: expandedVideoId === v.id ? 'white' : '#ff4d00',
                                   border: 'none',
                                   cursor: 'pointer',
                                   transition: 'all 0.2s',
@@ -464,7 +467,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                           <td colSpan={isClientLevel ? 9 : 8} style={{ padding: '24px 32px', borderTop: 'none' }}>
                             <div style={{ background: 'white', border: '1px solid #e0e0f0', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                               <h4 style={{ margin: '0 0 16px 0', color: '#1e1b4b', fontSize: '15px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-pen-to-square" style={{ color: '#4f46e5' }} />
+                                <i className="fa-solid fa-pen-to-square" style={{ color: '#ff4d00' }} />
                                 Edit Video Notes & Custom Metadata
                               </h4>
                               
@@ -616,7 +619,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                                     padding: '8px 20px',
                                     borderRadius: '8px',
                                     border: 'none',
-                                    background: '#4f46e5',
+                                    background: '#ff4d00',
                                     color: 'white',
                                     fontSize: '13.5px',
                                     fontWeight: '600',
