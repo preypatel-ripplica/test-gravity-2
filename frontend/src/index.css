@@ -5146,14 +5146,15 @@ a.plan-item-link {
 
 .tracker-timeline {
     position: relative;
-    padding: 6px 0 4px;
+    padding: 12px 0 4px;
+    overflow: visible;
 }
 
 .tracker-timeline-track {
     position: absolute;
     left: calc(100% / (2 * var(--tracker-steps, 6)));
     right: calc(100% / (2 * var(--tracker-steps, 6)));
-    top: 12px;
+    top: 18px;
     height: 3px;
     background: var(--border);
     border-radius: 99px;
@@ -5170,6 +5171,7 @@ a.plan-item-link {
     display: grid;
     grid-template-columns: repeat(var(--tracker-steps, 6), minmax(0, 1fr));
     position: relative;
+    overflow: visible;
 }
 
 .tracker-timeline-step {
@@ -5178,7 +5180,7 @@ a.plan-item-link {
     align-items: center;
     gap: 8px;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
     color: var(--text-muted);
     font-size: 11px;
     text-align: center;
@@ -5218,6 +5220,111 @@ a.plan-item-link {
 .tracker-timeline-step.is-current {
     color: var(--primary);
     font-weight: 700;
+}
+
+.tracker-timeline-step.is-selected {
+    color: var(--primary);
+}
+
+.tracker-timeline-step.is-selected .tracker-timeline-dot {
+    box-shadow: 0 0 0 4px var(--primary-light);
+    border-color: var(--primary);
+    background: #fff;
+}
+
+.tracker-timeline-step.is-selected.is-done .tracker-timeline-dot,
+.tracker-timeline-step.is-selected.is-current .tracker-timeline-dot {
+    background: var(--primary);
+}
+
+.tracker-timeline-step.is-selected small {
+    color: var(--primary);
+    font-weight: 800;
+}
+
+.tracker-current-stage {
+    margin: 4px 0 0;
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.tracker-stage-panel {
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 14px 16px 16px;
+    background: var(--widget);
+}
+
+.tracker-stage-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.tracker-stage-tick {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: #fff;
+    color: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    pointer-events: none;
+}
+
+.tracker-stage-tick.is-done {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+}
+
+.tracker-stage-checklist,
+.tracker-stage-links {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tracker-stage-checklist li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.tracker-stage-checklist li i {
+    width: 16px;
+    text-align: center;
+}
+
+.tracker-stage-checklist li.is-done {
+    color: var(--text);
+}
+
+.tracker-stage-checklist li.is-done i {
+    color: var(--success);
+}
+
+.tracker-stage-links a {
+    color: var(--primary);
+    font-size: 14px;
+}
+
+.tracker-stage-confirm {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .tracker-stage-block {

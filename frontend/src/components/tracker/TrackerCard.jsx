@@ -26,6 +26,7 @@ import {
   nextStageLabel,
   nextStageSection,
   sectionForStage,
+  stageCheckpointDone,
   stageList,
   stageReached,
   templateKind,
@@ -146,7 +147,7 @@ function VideoAssetRow({ card, value, onSave, weekContext }) {
   )
 }
 
-function Timeline({ card, onSelectStage }) {
+function Timeline({ card, onSelectStage, selectedId = '' }) {
   const stages = stageList(card.type)
   const current = Math.max(0, stages.findIndex((s) => s.id === card.stage))
   const progress = stages.length <= 1 ? 1 : current / (stages.length - 1)
@@ -160,7 +161,8 @@ function Timeline({ card, onSelectStage }) {
           <button
             type="button"
             key={stage.id}
-            className={`tracker-timeline-step${index <= current ? ' is-done' : ''}${index === current ? ' is-current' : ''}`}
+            className={`tracker-timeline-step${index <= current ? ' is-done' : ''}${index === current ? ' is-current' : ''}${stage.id === selectedId ? ' is-selected' : ''}`}
+            aria-current={stage.id === selectedId ? 'true' : undefined}
             onClick={() => onSelectStage?.(stage.id)}
           >
             <span className="tracker-timeline-dot" />
@@ -170,6 +172,62 @@ function Timeline({ card, onSelectStage }) {
       </div>
     </div>
   )
+}
+
+function StageTick({ done }) {
+  return (
+    <span className={`tracker-stage-tick${done ? ' is-done' : ''}`} aria-label={done ? 'Completed' : 'Not completed'}>
+      <i className="fa-solid fa-check" aria-hidden="true" />
+    </span>
+  )
+}
+
+function StagePanel({ title, done, children }) {
+  return (
+    <section className="tracker-stage-panel">
+      <div className="tracker-stage-panel-head">
+        <span className="tracker-kicker">{title}</span>
+        <StageTick done={done} />
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function CollapsedBlock({ title, count, children }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className={`tracker-section tracker-card-history${open ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="tracker-history-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <h3 className="tracker-kicker">{title}</h3>
+        <em>{count ? String(count) : 'None'}</em>
+        <span className="tracker-icon-btn" aria-hidden="true">
+          <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} />
+        </span>
+      </button>
+      {open ? children : null}
+    </section>
+  )
+}
+
+function defaultVideoTab(card) {
+  const stage = card?.stage || 'planned'
+  if (stage === 'planned') return 'script_generated'
+  return stage
+}
+
+function videoConfirmChecks(card) {
+  return [
+    { id: 'script_generated', label: 'Script generated' },
+    { id: 'video_edited', label: 'Video edited' },
+    { id: 'shared_with_doctor', label: 'Shared with doctor' },
+    { id: 'posted', label: 'Posted' },
+  ].map((row) => ({ ...row, done: stageCheckpointDone(card, row.id) }))
 }
 
 function stopToggle(event) {
@@ -352,9 +410,55 @@ export default function TrackerCard({
   variant = 'full',
 }) {
   const editorView = variant === 'editor'
+  const useVideoTabs = isVideoCard(card.type) && !editorView
   const nextLabel = nextStageLabel(card)
   const nextSection = nextStageSection(card)
   const cardRef = useRef(null)
+  const [selectedTab, setSelectedTab] = useState(() => defaultVideoTab(card))
+  const tabGate = useRef({
+    tab: defaultVideoTab(card),
+    done: stageCheckpointDone(card, defaultVideoTab(card)),
+    videoDone: stageCheckpointDone(card, 'video_edited'),
+  })
+
+  useEffect(() => {
+    if (!useVideoTabs) return undefined
+    const shared = selectedTab === 'audio_generated' || selectedTab === 'video_edited'
+    const done = stageCheckpointDone(card, selectedTab)
+    const videoDone = stageCheckpointDone(card, 'video_edited')
+    const sameTab = tabGate.current.tab === selectedTab
+    const wasDone = sameTab ? tabGate.current.done : done
+    const wasVideoDone = tabGate.current.videoDone
+    tabGate.current = { tab: selectedTab, done, videoDone }
+    if (shared) {
+      if (!wasVideoDone && videoDone) {
+        const nextDone = stageCheckpointDone(card, 'shared_with_doctor')
+        tabGate.current = { tab: 'shared_with_doctor', done: nextDone, videoDone }
+        setSelectedTab('shared_with_doctor')
+      }
+      return undefined
+    }
+    if (wasDone || !done) return undefined
+    const stages = stageList(card.type).map((row) => row.id)
+    const next = stages[stages.indexOf(selectedTab) + 1]
+    if (!next || next === selectedTab) return undefined
+    tabGate.current = {
+      tab: next,
+      done: stageCheckpointDone(card, next),
+      videoDone,
+    }
+    setSelectedTab(next)
+    return undefined
+  }, [card, selectedTab, useVideoTabs])
+
+  function selectVideoTab(stageId) {
+    tabGate.current = {
+      tab: stageId,
+      done: stageCheckpointDone(card, stageId),
+      videoDone: stageCheckpointDone(card, 'video_edited'),
+    }
+    setSelectedTab(stageId)
+  }
 
   function saveAsset(key, url) {
     const assets = { ...(card.assets || {}), [key]: url }
@@ -380,6 +484,10 @@ export default function TrackerCard({
   }
 
   function handleSelectStage(stageId) {
+    if (useVideoTabs) {
+      selectVideoTab(stageId)
+      return
+    }
     if (stageId === COMPLETE_STAGE) {
       confirmLinkShared()
       return
@@ -387,7 +495,18 @@ export default function TrackerCard({
     scrollToSection(sectionForStage(card, stageId))
   }
 
+  const videoStages = stageList(card.type).map((row) => row.id)
+  const sharedVideoTab = selectedTab === 'audio_generated' || selectedTab === 'video_edited'
+  const nextVideoTab = sharedVideoTab
+    ? (videoStages[videoStages.indexOf('video_edited') + 1] || null)
+    : (videoStages[videoStages.indexOf(selectedTab) + 1] || null)
+  const nextVideoLabel = stageList(card.type).find((row) => row.id === nextVideoTab)?.label || null
+
   function handleNextClick() {
+    if (useVideoTabs) {
+      if (nextVideoTab) selectVideoTab(nextVideoTab)
+      return
+    }
     if (nextStageId(card) === COMPLETE_STAGE) {
       confirmLinkShared()
       return
@@ -417,6 +536,101 @@ export default function TrackerCard({
     void el.offsetWidth
     el.classList.add('tracker-section-flash')
     window.setTimeout(() => el.classList.remove('tracker-section-flash'), 1300)
+  }
+
+  function renderVideoPanel() {
+    const tab = selectedTab === 'audio_generated' ? 'video_edited' : selectedTab
+    const title = tab === 'video_edited' && (selectedTab === 'audio_generated' || selectedTab === 'video_edited')
+      ? 'Audio received / Video edited'
+      : (stageList(card.type).find((row) => row.id === tab)?.label || 'Step')
+    const done = selectedTab === 'audio_generated'
+      ? stageCheckpointDone(card, 'audio_generated') && stageCheckpointDone(card, 'video_edited')
+      : stageCheckpointDone(card, tab)
+
+    let body = null
+    if (tab === 'planned') {
+      body = <p className="tracker-hint">Next is the script. Open Script generated to add it.</p>
+    } else if (tab === 'script_generated') {
+      body = (
+        <TrackerScriptSlot
+          card={card}
+          scriptedItems={scriptedItems}
+          busy={scriptBusy}
+          onPick={onPickScript}
+          onSaveEdit={onSaveScriptText}
+          onSaveManual={onSaveManualScript}
+        />
+      )
+    } else if (tab === 'yt_metadata_generated') {
+      body = <TrackerYtMetadata card={card} weekContext={weekContext} onChange={onChange} />
+    } else if (tab === 'video_edited') {
+      body = (
+        <>
+          <p className="tracker-hint">Adding a video marks Audio received and Video edited. A script is required before either counts.</p>
+          <VideoAssetRow
+            card={card}
+            value={card.assets?.video_url}
+            onSave={(url) => saveAsset('video_url', url)}
+            weekContext={weekContext}
+          />
+        </>
+      )
+    } else if (tab === 'shared_with_doctor') {
+      body = (
+        <TrackerNotes
+          title="From the doctor"
+          hint="Photos or files the doctor gave us for this one."
+          section="doctor"
+          card={card}
+          languages={languages}
+          weekContext={weekContext}
+          onWeekUpdate={weekContext.onWeekUpdate}
+          showDoctorFiles
+        />
+      )
+    } else if (tab === 'posted') {
+      body = (
+        <>
+          <TrackerPublishVideo card={card} weekContext={weekContext} onChange={onChange} />
+          <TrackerDestinations
+            card={card}
+            languages={languages}
+            onChange={handleDestinationsChange}
+          />
+        </>
+      )
+    } else if (tab === COMPLETE_STAGE) {
+      const checks = videoConfirmChecks(card)
+      const complete = stageCheckpointDone(card, COMPLETE_STAGE)
+      body = (
+        <>
+          <ul className="tracker-stage-checklist">
+            {checks.map((row) => (
+              <li key={row.id} className={row.done ? 'is-done' : ''}>
+                <i className={`fa-solid ${row.done ? 'fa-check' : 'fa-circle'}`} aria-hidden="true" />
+                <span>{row.label}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="tracker-stage-confirm">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={confirmLinkShared}
+              disabled={complete}
+            >
+              {complete ? 'Completed' : 'Confirm link shared'}
+            </button>
+          </div>
+        </>
+      )
+    }
+
+    return (
+      <StagePanel title={title} done={done}>
+        {body}
+      </StagePanel>
+    )
   }
 
   const status = cardStatus(card, weekContext)
@@ -507,58 +721,42 @@ export default function TrackerCard({
           <>
             <Timeline
               card={card}
+              selectedId={useVideoTabs ? selectedTab : ''}
               onSelectStage={handleSelectStage}
             />
             <div className="tracker-next-row">
               <div>
-                <strong>Next: {nextLabel || 'Done'}</strong>
-                <p className="tracker-hint">Current stage: {card.stage.replace(/_/g, ' ')}</p>
+                <strong>Next: {(useVideoTabs ? nextVideoLabel : nextLabel) || 'Done'}</strong>
+                <p className="tracker-current-stage">Current stage: {(card.stage || 'planned').replace(/_/g, ' ')}</p>
               </div>
               <div className="tracker-next-actions">
-                <TemplateMessageButton card={card} clientName={weekContext?.clientName} toast={weekContext?.toast} />
-                {nextLabel && (
+                <TemplateMessageButton
+                  card={card}
+                  clientName={weekContext?.clientName}
+                  toast={weekContext?.toast}
+                />
+                {(useVideoTabs ? nextVideoLabel : nextLabel) && (
                   <button
                     type="button"
                     className="btn btn-primary"
                     onClick={handleNextClick}
                   >
-                    {nextLabel} →
+                    {(useVideoTabs ? nextVideoLabel : nextLabel)} →
                   </button>
                 )}
               </div>
             </div>
           </>
         )}
-        {isVideoCard(card.type) && (
+        {useVideoTabs ? renderVideoPanel() : null}
+        {isVideoCard(card.type) && !useVideoTabs && (
           <div className="tracker-asset-list">
-            {editorView ? null : (
-              <>
-                <div data-tracker-section="script">
-                  <TrackerScriptSlot
-                    card={card}
-                    scriptedItems={scriptedItems}
-                    busy={scriptBusy}
-                    onPick={onPickScript}
-                    onSaveEdit={onSaveScriptText}
-                    onSaveManual={onSaveManualScript}
-                  />
-                </div>
-                <div data-tracker-section="yt_metadata">
-                  <TrackerYtMetadata card={card} weekContext={weekContext} onChange={onChange} />
-                </div>
-              </>
-            )}
             <VideoAssetRow
               card={card}
               value={card.assets?.video_url}
               onSave={(url) => saveAsset('video_url', url)}
               weekContext={weekContext}
             />
-            {editorView ? null : (
-              <div data-tracker-section="publish">
-                <TrackerPublishVideo card={card} weekContext={weekContext} onChange={onChange} />
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -577,7 +775,33 @@ export default function TrackerCard({
         <PaidAdsSteps card={card} onChange={onChange} />
       )}
 
-      {(isVideoCard(card.type) || card.type === 'paid_ads') && (
+      {useVideoTabs ? (
+        <>
+          <CollapsedBlock title="Feedback" count={(card.feedback_notes || []).length}>
+            <TrackerNotes
+              title="Feedback"
+              hint="Type 2:30 the broll is wrong and the timecode is picked up automatically."
+              section="feedback"
+              card={card}
+              languages={languages}
+              weekContext={weekContext}
+              onWeekUpdate={weekContext.onWeekUpdate}
+            />
+          </CollapsedBlock>
+          <CollapsedBlock title="Editor notes" count={(card.editor_notes || []).length}>
+            <TrackerNotes
+              title="Editor notes"
+              hint="Simple back-and-forth between internal and the editor for this video."
+              section="editor"
+              card={card}
+              languages={languages}
+              weekContext={weekContext}
+              onWeekUpdate={weekContext.onWeekUpdate}
+            />
+          </CollapsedBlock>
+        </>
+      ) : null}
+      {!useVideoTabs && (isVideoCard(card.type) || card.type === 'paid_ads') ? (
         <TrackerNotes
           title="Feedback"
           hint={card.type === 'paid_ads'
@@ -589,8 +813,8 @@ export default function TrackerCard({
           weekContext={weekContext}
           onWeekUpdate={weekContext.onWeekUpdate}
         />
-      )}
-      {isVideoCard(card.type) ? (
+      ) : null}
+      {!useVideoTabs && isVideoCard(card.type) ? (
         <div data-tracker-section="editor">
           <TrackerNotes
             title="Editor notes"
@@ -603,7 +827,7 @@ export default function TrackerCard({
           />
         </div>
       ) : null}
-      {editorView ? null : (
+      {editorView || useVideoTabs ? null : (
         <div data-tracker-section="doctor">
           <TrackerNotes
             title="From the doctor"
@@ -618,7 +842,7 @@ export default function TrackerCard({
         </div>
       )}
 
-      {editorView || card.type === 'paid_ads' ? null : (
+      {editorView || card.type === 'paid_ads' || useVideoTabs ? null : (
         <div data-tracker-section="destinations">
           <TrackerDestinations
             card={card}
