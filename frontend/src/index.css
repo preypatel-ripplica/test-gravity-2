@@ -7286,6 +7286,69 @@ select.input {
     border-bottom-color: var(--primary);
 }
 
+.example-scripts-card {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.example-scripts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.example-script-block {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg);
+}
+
+.example-script-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px 8px 16px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.example-script-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin: 0;
+}
+
+.example-script-block .form-control {
+    border: none;
+    border-radius: 0;
+    min-height: 160px;
+    resize: vertical;
+}
+
+.example-scripts-add {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--primary-light);
+    color: var(--primary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.example-scripts-add:hover {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
 .connection-tabs {
     display: flex;
     flex-wrap: wrap;

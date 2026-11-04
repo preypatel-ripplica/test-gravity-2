@@ -667,6 +667,17 @@ def get_client_content_plan(username: str, client_id: str) -> dict:
     return {"client": client, "suggestions": suggestions}
 
 
+def _script_examples(*parts, extra=None) -> list[str]:
+    out = []
+    for part in list(parts) + list(extra or []):
+        if part is None:
+            continue
+        text = str(part).strip()
+        if text:
+            out.append(text)
+    return out
+
+
 def run_client_content_scripts(
     username: str, 
     client_id: str,
@@ -678,7 +689,10 @@ def run_client_content_scripts(
     from .services.content_plan import generate_scripts_for_plan
 
     client = _require_client_bundle(username, client_id, with_videos=False)
-    suggestions = generate_scripts_for_plan(client, example1=example1, example2=example2)
+    examples = _script_examples(example1, example2)
+    if not examples:
+        examples = _script_examples(extra=client.get("example_scripts"))
+    suggestions = generate_scripts_for_plan(client, examples=examples)
     replace_content_plan(client_id, client)
     return {"client": client, "suggestions": suggestions}
 

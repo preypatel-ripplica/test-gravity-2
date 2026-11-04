@@ -34,10 +34,6 @@ export default function ClientContentPlan() {
   const [ytVideos, setYtVideos] = useState([])
   const [selectedYTVideos, setSelectedYTVideos] = useState([])
   const [ytVideosPage, setYtVideosPage] = useState(1)
-  const [showScriptsCard, setShowScriptsCard] = useState(false)
-  const [activeScriptTab, setActiveScriptTab] = useState('1')
-  const [scriptExample1, setScriptExample1] = useState('')
-  const [scriptExample2, setScriptExample2] = useState('')
   const YT_PAGE_SIZE = 9
 
   const load = useCallback(async () => {
@@ -126,10 +122,9 @@ export default function ClientContentPlan() {
     setBusyAction('scripts')
     try {
       toast('Generating Hinglish scripts for all plan topics…', 'info')
-      const data = await api.generateContentScripts(token, clientId, scriptExample1, scriptExample2)
+      const data = await api.generateContentScripts(token, clientId)
       setSuggestions(data.suggestions || null)
       toast('Scripts ready — click a title to open', 'success')
-      setShowScriptsCard(false)
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -281,9 +276,9 @@ export default function ClientContentPlan() {
           </button>
           <button
             type="button"
-            className={`btn btn-sm btn-${showScriptsCard ? 'primary' : 'secondary'}`}
+            className="btn btn-secondary btn-sm"
             disabled={anyBusy || loading || items.length === 0}
-            onClick={() => setShowScriptsCard(!showScriptsCard)}
+            onClick={handleGenerateScripts}
             title={
               items.length === 0
                 ? 'Generate titles first'
@@ -313,58 +308,6 @@ export default function ClientContentPlan() {
           </button>
         </div>
       </header>
-
-      {showScriptsCard && (
-        <div style={{ background: 'var(--bg-light)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '24px' }}>
-          <h3 style={{ margin: '0 0 10px 0', fontSize: '1.25em' }}>Provide Reference Scripts (Optional)</h3>
-          <p className="text-muted" style={{ marginBottom: '20px', fontSize: '0.95em' }}>
-            Paste up to two example scripts to help the AI match your preferred format and tone. If you don't have any, skip this and click Generate Scripts!
-          </p>
-          
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
-            <button 
-              className={`btn ${activeScriptTab === '1' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setActiveScriptTab('1')}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px' }}
-            >
-              Example 1
-            </button>
-            <button 
-              className={`btn ${activeScriptTab === '2' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setActiveScriptTab('2')}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px' }}
-            >
-              Example 2
-            </button>
-          </div>
-
-          <div style={{ position: 'relative', marginBottom: '20px' }}>
-            <textarea
-              className="form-control"
-              rows={6}
-              placeholder="Paste your first example script here..."
-              value={scriptExample1}
-              onChange={e => setScriptExample1(e.target.value)}
-              style={{ width: '100%', resize: 'vertical', borderRadius: '8px', display: activeScriptTab === '1' ? 'block' : 'none' }}
-            />
-            <textarea
-              className="form-control"
-              rows={6}
-              placeholder="Paste your second example script here..."
-              value={scriptExample2}
-              onChange={e => setScriptExample2(e.target.value)}
-              style={{ width: '100%', resize: 'vertical', borderRadius: '8px', display: activeScriptTab === '2' ? 'block' : 'none' }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-            <button className="btn btn-secondary" onClick={() => setShowScriptsCard(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleGenerateScripts} disabled={busyAction === 'scripts'}>
-              {busyAction === 'scripts' ? <><i className="fa-solid fa-spinner fa-spin" /> Generating...</> : <><i className="fa-solid fa-bolt" /> Generate Scripts</>}
-            </button>
-          </div>
-        </div>
-      )}
 
       <section className="plan-toolbar card animate-fade-in">
         <div className="plan-toolbar-grid">

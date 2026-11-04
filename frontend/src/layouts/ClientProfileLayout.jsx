@@ -92,6 +92,9 @@ export default function ClientProfileLayout() {
             <NavItem to={`${base}/keywords`} icon={<i className="fa-solid fa-tags" />}>
               Keywords and topics
             </NavItem>
+            <NavItem to={`${base}/script-references`} icon={<i className="fa-solid fa-file-lines" />}>
+              Generated script references
+            </NavItem>
             <NavItem to={`${base}/credentials`} icon={<i className="fa-solid fa-key" />}>
               Credentials
             </NavItem>

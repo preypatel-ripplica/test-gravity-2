@@ -87,6 +87,8 @@ def generate_entry_draft(
             "notes": "Generated with OpenAI",
         }
     except Exception as exc:  # noqa: BLE001 — fall back cleanly
+        from backend.tg.openai_log import log_openai_error
+        log_openai_error("website:openai", exc)
         return {
             "entry": _fill_from_schema(schema, prompt),
             "model": None,

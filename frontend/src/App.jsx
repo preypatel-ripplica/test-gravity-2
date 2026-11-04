@@ -29,6 +29,7 @@ import ClientDoctorReference from './pages/ClientDoctorReference'
 import ClientPracticeDetails from './pages/ClientPracticeDetails'
 import ClientDeliverables from './pages/ClientDeliverables'
 import ClientCredentials from './pages/ClientCredentials'
+import ClientExampleScripts from './pages/ClientExampleScripts'
 import ClientAccess from './pages/ClientAccess'
 import ClientContentPlan from './pages/ClientContentPlan'
 import ClientReportDetail from './pages/ClientReportDetail'
@@ -325,6 +326,7 @@ export default function App() {
           <Route path="connections/facebook" element={<ClientSocialFacebook />} />
           <Route path="keywords" element={<ClientSettings />} />
           <Route path="youtube-settings" element={<RedirectToKeywords />} />
+          <Route path="script-references" element={<ClientExampleScripts />} />
           <Route path="credentials" element={<ClientCredentials />} />
           <Route path="access" element={<ClientAccess />} />
         </Route>

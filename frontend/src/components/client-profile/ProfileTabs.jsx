@@ -43,6 +43,12 @@ export default function ProfileTabs({ clientId: clientIdProp, isOwner: isOwnerPr
         Keywords and topics
       </NavLink>
       <NavLink
+        to={`${base}/script-references`}
+        className={({ isActive }) => `profile-tab ${isActive ? 'active' : ''}`}
+      >
+        Generated script references
+      </NavLink>
+      <NavLink
         to={`${base}/credentials`}
         className={({ isActive }) => `profile-tab ${isActive ? 'active' : ''}`}
       >

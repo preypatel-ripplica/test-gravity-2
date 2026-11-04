@@ -463,6 +463,16 @@ export const api = {
       token,
       body: { client_id: clientId, example1, example2 },
     }),
+  getExampleScripts: (token, clientId) =>
+    apiFetch('/client.example-scripts.get', {
+      token,
+      body: { client_id: clientId },
+    }),
+  saveExampleScripts: (token, clientId, scripts) =>
+    apiFetch('/client.example-scripts.save', {
+      token,
+      body: { client_id: clientId, scripts },
+    }),
   refineContentScript: (token, clientId, { itemId, userPrompt } = {}) =>
     apiFetch('/client.content-plan.refine-script', {
       token,

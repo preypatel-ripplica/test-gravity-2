@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from backend.tg import schemas
 from backend.tg.auth import get_current_user
 from backend.tg.config import settings
+from backend.tg.openai_log import log_openai_error
 from backend.tg.database import (
     delete_social_post,
     fetch_client_bundle,
@@ -245,33 +246,45 @@ async def _build_brief(
         
         user_prompt = custom_prompt if custom_prompt else "Generate the JSON brief."
         
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as http_client:
-                resp = await http_client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                    json={
-                        "model": "gpt-6-luna",
-                        "response_format": { "type": "json_object" },
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        "max_completion_tokens": 500,
-                        "reasoning_effort": "low",
-                    }
-                )
-                if resp.is_success:
-                    payload = resp.json()
-                    content = payload["choices"][0]["message"]["content"]
-                    parsed = json.loads(content)
-                    # Merge parsed fields with the fallback structure
-                    for key in brief:
-                        if key in parsed and isinstance(parsed[key], str):
-                            brief[key] = parsed[key].strip()
-                    brief["caption"] = fit_social_caption(brief.get("caption"))
-        except Exception as e:
-            print(f"Failed to generate brief via AI: {e}")
+        last_brief_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as http_client:
+                    resp = await http_client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                        json={
+                            "model": "gpt-6-luna",
+                            "response_format": { "type": "json_object" },
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            "max_completion_tokens": 500,
+                            "reasoning_effort": "low",
+                        }
+                    )
+                    if resp.is_success:
+                        payload = resp.json()
+                        content = payload["choices"][0]["message"]["content"]
+                        parsed = json.loads(content)
+                        # Merge parsed fields with the fallback structure
+                        for key in brief:
+                            if key in parsed and isinstance(parsed[key], str):
+                                brief[key] = parsed[key].strip()
+                        brief["caption"] = fit_social_caption(brief.get("caption"))
+                        last_brief_exc = None
+                        break
+                    log_openai_error("social:openai", response=resp)
+                    last_brief_exc = HTTPException(status_code=resp.status_code, detail=resp.text[:500])
+            except Exception as e:
+                last_brief_exc = e
+                log_openai_error("social:openai", e)
+            if attempt == 0:
+                print("[social:openai] failed. retrying...", flush=True)
+                await asyncio.sleep(1.5)
+                continue
+            print(f"Failed to generate brief via AI: {last_brief_exc}")
 
     return brief
 
@@ -546,27 +559,48 @@ async def _generate_social_image(
         "n": "1",
         "output_format": "png",
     }
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as http_client:
-            response = await http_client.post(
-                "https://api.openai.com/v1/images/edits",
-                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                data=data,
-                files=files,
-            )
-            response.raise_for_status()
-            payload = response.json()
-    except httpx.HTTPStatusError as exc:
-        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+    payload = None
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as http_client:
+                response = await http_client.post(
+                    "https://api.openai.com/v1/images/edits",
+                    headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                    data=data,
+                    files=files,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                break
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            log_openai_error("social:openai", exc, response=exc.response)
+            if attempt == 0:
+                print("[social:openai] failed. retrying...", flush=True)
+                await asyncio.sleep(1.5)
+                continue
+            detail = exc.response.text[:500] if exc.response is not None else str(exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"OpenAI image generation failed: {detail}",
+            ) from exc
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            log_openai_error("social:openai", exc)
+            if attempt == 0:
+                print("[social:openai] failed. retrying...", flush=True)
+                await asyncio.sleep(1.5)
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"OpenAI image generation failed: {exc}",
+            ) from exc
+    if payload is None:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"OpenAI image generation failed: {detail}",
-        ) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"OpenAI image generation failed: {exc}",
-        ) from exc
+            detail=f"OpenAI image generation failed: {last_exc}",
+        )
 
     image_row = (payload.get("data") or [{}])[0]
     image_bytes = None
