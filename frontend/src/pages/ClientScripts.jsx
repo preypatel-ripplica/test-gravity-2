@@ -239,7 +239,10 @@ export default function ClientScripts() {
     if (el) el.playbackRate = rate
   }
 
-  const items = suggestions?.items || []
+  const items = useMemo(
+    () => (suggestions?.items || []).filter((i) => i?.is_latest !== false),
+    [suggestions],
+  )
   const scripted = useMemo(() => items.filter((i) => i.script || i.yt_title || i.yt_thumbnail_url), [items])
   const combinedText = useMemo(() => buildCombinedScript(scripted), [scripted])
   const anyBusy = Boolean(scriptBusyId || metadataBusyId || narrateBusyKey || attachBusyId)
@@ -259,7 +262,15 @@ export default function ClientScripts() {
         userPrompt: prompt,
       })
       setSuggestions(data.suggestions || null)
-      setScriptEditPrompts((prev) => ({ ...prev, [item.id]: '' }))
+      const nextItems = (data.suggestions?.items || []).filter((row) => row?.is_latest !== false)
+      const nextId = nextItems.find((row) => row.replaced_from_id === item.id)?.id
+        || nextItems.find((row) => row.id === item.id)?.id
+      setScriptEditPrompts((prev) => {
+        const copy = { ...prev }
+        delete copy[item.id]
+        return copy
+      })
+      if (nextId) setExpandedId(nextId)
       toast('Script updated', 'success')
     } catch (err) {
       toast(err.message, 'error')

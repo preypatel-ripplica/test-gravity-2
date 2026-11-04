@@ -81,7 +81,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     }
     try {
       const data = await api.getContentPlan(token, nextClientId)
-      const items = data.suggestions?.items || []
+      const items = (data.suggestions?.items || []).filter((item) => item?.is_latest !== false)
       setScriptedItems(items.filter((item) => (item.script || '').trim()))
     } catch (err) {
       toast(err.message, 'error')

@@ -1018,6 +1018,12 @@ def hydrate_scripts_from_plan_items(client_id: str, suggestions: dict | None) ->
                 row["script"] = pi.get("script") or ""
             if pi.get("origin") in PLAN_ITEM_ORIGINS:
                 row["origin"] = pi["origin"]
+            if "replaced_from_id" in pi and pi.get("replaced_from_id"):
+                row["replaced_from_id"] = pi.get("replaced_from_id")
+            # Content-plan rows are the latest set; plan_items may still mark history.
+            row["is_latest"] = True if pi.get("is_latest") is None else bool(pi.get("is_latest"))
+        else:
+            row["is_latest"] = True if row.get("is_latest") is None else bool(row.get("is_latest"))
         hydrated.append(row)
     out["items"] = hydrated
     out["count"] = len(hydrated)
@@ -1041,7 +1047,12 @@ def fetch_content_plan(client_id: str) -> dict | None:
 
 
 def _sync_plan_items(client_id: str, suggestions: dict) -> None:
-    """Upsert plan_items from suggestions.items (scripts + script attrs)."""
+    """Upsert plan_items from suggestions.items (scripts + script attrs).
+
+    Never deletes older plan_items — trackers keep content_plan_item_id links.
+    Rows in the current content plan are marked is_latest=True; everything else
+    for this project is demoted to is_latest=False.
+    """
     items = [i for i in (suggestions.get("items") or []) if isinstance(i, dict) and i.get("id")]
     now = _iso()
     keep: list[str] = []
@@ -1060,9 +1071,13 @@ def _sync_plan_items(client_id: str, suggestions: dict) -> None:
             "title": str(title),
             "format": str(item.get("format") or item.get("video_type") or "long"),
             "sort_order": idx,
+            "is_latest": True,
             "updated_at": now,
             **_plan_item_script_patch(item),
         }
+        replaced_from = str(item.get("replaced_from_id") or "").strip()
+        if replaced_from:
+            patch["replaced_from_id"] = replaced_from
         insert_fields = {
             "created_at": now,
             "yt_metadata_id": None,
@@ -1077,7 +1092,13 @@ def _sync_plan_items(client_id: str, suggestions: dict) -> None:
             {"$set": patch, "$setOnInsert": insert_fields},
             upsert=True,
         )
-    plan_items_col().delete_many({"project_id": client_id, "id": {"$nin": keep}})
+    demote_filter: dict[str, Any] = {"project_id": client_id}
+    if keep:
+        demote_filter["id"] = {"$nin": keep}
+    plan_items_col().update_many(
+        demote_filter,
+        {"$set": {"is_latest": False, "updated_at": now}},
+    )
 
 
 def replace_content_plan(client_id: str, client: dict) -> None:

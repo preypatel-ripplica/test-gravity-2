@@ -131,11 +131,30 @@ def _rebuild_suggestions(project: dict) -> dict:
     suggestions = dict(project.get("content_plan") or {})
     items = [dict(i) for i in (suggestions.get("items") or []) if isinstance(i, dict)]
 
-    # If blob missing items, rebuild planning rows from plan_items (no script in blob)
+    # If blob missing items, rebuild from latest plan_items only (history stays for trackers)
     if not items:
-        for row in plan_items_col().find(
-            {"project_id": project["id"]}, {"_id": 0}
-        ).sort("sort_order", 1):
+        latest = list(
+            plan_items_col()
+            .find({"project_id": project["id"], "is_latest": True}, {"_id": 0})
+            .sort("sort_order", 1)
+        )
+        if not latest:
+            # Legacy rows before is_latest existed
+            latest = list(
+                plan_items_col()
+                .find(
+                    {
+                        "project_id": project["id"],
+                        "$or": [
+                            {"is_latest": {"$exists": False}},
+                            {"is_latest": None},
+                        ],
+                    },
+                    {"_id": 0},
+                )
+                .sort("sort_order", 1)
+            )
+        for row in latest:
             items.append(
                 {
                     "id": row["id"],
@@ -148,6 +167,7 @@ def _rebuild_suggestions(project: dict) -> dict:
                     "working_title": row.get("title") or "",
                     "reasoning": "",
                     "recommendation_score": 0,
+                    "is_latest": True if row.get("is_latest") is None else bool(row.get("is_latest")),
                 }
             )
         suggestions["items"] = items

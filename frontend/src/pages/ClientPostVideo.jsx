@@ -120,7 +120,10 @@ export default function ClientPostVideo() {
     )
   }, [channels, activeChannelId])
 
-  const allItems = contentPlan?.items || []
+  const allItems = useMemo(
+    () => (contentPlan?.items || []).filter((i) => i?.is_latest !== false),
+    [contentPlan],
+  )
   const scriptItems = useMemo(
     () => allItems.filter((i) => !!i.script).map(mapPlanItem),
     [allItems],
