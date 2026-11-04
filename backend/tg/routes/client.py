@@ -784,6 +784,36 @@ def _apply_locale_metadata(target: dict, language: str, locale: dict) -> None:
     _mirror_legacy_yt_fields(target)
 
 
+def _metadata_error_text(exc: Exception) -> str:
+    if isinstance(exc, HTTPException) and exc.detail:
+        text = str(exc.detail)
+    else:
+        text = str(exc or "")
+        if text.startswith("500: "):
+            text = text[5:]
+    lower = text.lower()
+    if "no credits remaining" in lower or "insufficient_quota" in lower:
+        return (
+            "OpenAI has no credits remaining. Add credits at "
+            "https://platform.openai.com/settings/organization/billing/ and try again."
+        )
+    return text.strip() or "YouTube metadata generation failed."
+
+
+def _raise_metadata_failures(failures: list[str], generated: dict) -> None:
+    if generated:
+        return
+    messages: list[str] = []
+    for row in failures:
+        msg = row.split(": ", 1)[1] if ": " in row else row
+        if msg not in messages:
+            messages.append(msg)
+    detail = messages[0] if messages else "YouTube metadata generation failed for the selected items."
+    if len(messages) > 1:
+        detail = " ".join(messages)
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+
+
 @router.post("/client.content-plan-generate-metadata", response_model=schemas.ClientContentPlanMetadataResponse)
 def client_content_plan_generate_metadata(
     body: schemas.ClientContentPlanGenerateMetadataRequest,
@@ -955,6 +985,12 @@ def client_content_plan_generate_metadata(
     # Track which topic_ids we've already processed to avoid duplicate generation
     processed_topic_ids = set()
     generated_locales: dict = {}
+    failures: list[str] = []
+
+    def _fail_language(label: str, language: str, exc: Exception) -> None:
+        msg = _metadata_error_text(exc)
+        print(f"[yt-metadata] failed language={language} {label}: {msg}", flush=True)
+        failures.append(f"{language}: {msg}")
 
     # --- Pass 1: Content Plan items (From Script) ---
     for item in items:
@@ -972,10 +1008,7 @@ def client_content_plan_generate_metadata(
                         _description_examples(item, videos, body.reference_video_ids, descriptions),
                     )
                 except Exception as exc:  # noqa: BLE001
-                    print(
-                        f"[yt-metadata] failed language={language} item={item.get('id')}: {exc}",
-                        flush=True,
-                    )
+                    _fail_language(f"item={item.get('id')}", language, exc)
                     continue
                 _persist_locale(
                     topic_id,
@@ -1020,10 +1053,7 @@ def client_content_plan_generate_metadata(
                     _description_examples(topic_for_prompt, videos, body.reference_video_ids, descriptions),
                 )
             except Exception as exc:  # noqa: BLE001
-                print(
-                    f"[yt-metadata] failed language={language} topic={kw.get('topic_id')}: {exc}",
-                    flush=True,
-                )
+                _fail_language(f"topic={kw.get('topic_id')}", language, exc)
                 continue
             _persist_locale(
                 kw.get("topic_id"),
@@ -1053,10 +1083,7 @@ def client_content_plan_generate_metadata(
                     _description_examples(standalone_topic, videos, body.reference_video_ids, descriptions),
                 )
             except Exception as exc:  # noqa: BLE001
-                print(
-                    f"[yt-metadata] failed language={language} topic={standalone_topic_id}: {exc}",
-                    flush=True,
-                )
+                _fail_language(f"topic={standalone_topic_id}", language, exc)
                 continue
             _persist_locale(
                 standalone_topic_id,
@@ -1067,6 +1094,8 @@ def client_content_plan_generate_metadata(
                 item_id=None,
             )
             generated_locales[language] = locale
+
+    _raise_metadata_failures(failures, generated_locales)
 
     client_bundle["content_suggestions"] = suggestions
     replace_content_plan(client_id, client_bundle)
@@ -1147,11 +1176,17 @@ def client_content_plan_refine_metadata(
         "yt_tags": current_locale.get("yt_tags"),
     }
     
-    metadata_res = refine_youtube_metadata(
-        current_metadata=current_meta,
-        user_prompt=body.user_prompt,
-        language=language,
-    )
+    try:
+        metadata_res = refine_youtube_metadata(
+            current_metadata=current_meta,
+            user_prompt=body.user_prompt,
+            language=language,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_metadata_error_text(exc),
+        ) from exc
     
     current_thumbnail_prompt = current_locale.get("yt_thumbnail_prompt") or ""
     thumbnail_prompt = refine_youtube_thumbnail_prompt(

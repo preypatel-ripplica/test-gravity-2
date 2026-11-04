@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import api from '../../api'
 import TrackerCardHistory from './TrackerCardHistory'
 import TrackerDestinations from './TrackerDestinations'
@@ -24,6 +24,8 @@ import {
   nextStageSection,
   sectionForStage,
   stageList,
+  templateKind,
+  templateMessage,
 } from './trackerUtils'
 
 function StatusBadge({ card, weekContext }) {
@@ -76,30 +78,6 @@ function PaidAdsSteps({ card, onChange }) {
 }
 
 const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm'
-
-function AssetRow({ label, value, onSave, section }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value || '')
-  const sectionProps = section ? { 'data-tracker-section': section } : {}
-
-  if (editing) {
-    return (
-      <div className="tracker-asset-row is-editing" {...sectionProps}>
-        <span className="tracker-kicker">{label}</span>
-        <input className="form-control" autoFocus value={draft} placeholder="Paste Drive URL" onChange={(e) => setDraft(e.target.value)} />
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => { onSave(draft.trim()); setEditing(false) }}>Save</button>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setDraft(value || ''); setEditing(false) }}>Cancel</button>
-      </div>
-    )
-  }
-
-  return (
-    <button type="button" className="tracker-asset-row" onClick={() => setEditing(true)} {...sectionProps}>
-      <span className="tracker-kicker">{label}</span>
-      <em>{value || 'Not added yet — click to add'}</em>
-    </button>
-  )
-}
 
 function VideoAssetRow({ card, value, onSave, weekContext }) {
   const [editing, setEditing] = useState(false)
@@ -283,6 +261,62 @@ function VideoEditFields({ card, weekContext, onChange, lockEditor = false }) {
   )
 }
 
+function TemplateMessageButton({ card, clientName, toast }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+  const message = templateKind(card) ? templateMessage(card, clientName) : ''
+
+  useEffect(() => {
+    if (!open) return undefined
+    function onPointerDown(event) {
+      if (!wrapRef.current?.contains(event.target)) setOpen(false)
+    }
+    function onKeyDown(event) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  if (!message) return null
+
+  async function copyMessage() {
+    try {
+      await navigator.clipboard.writeText(message)
+      toast?.('Message copied', 'success')
+    } catch {
+      toast?.('Could not copy the message', 'error')
+    }
+  }
+
+  return (
+    <div className="tracker-template" ref={wrapRef}>
+      <button
+        type="button"
+        className={`btn btn-secondary${open ? ' is-on' : ''}`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        Template message
+      </button>
+      {open ? (
+        <div className="tracker-template-card" role="dialog" aria-label="Template message">
+          <div className="tracker-template-head">
+            <strong>Template message</strong>
+            <button type="button" className="btn btn-primary btn-sm" onClick={copyMessage}>
+              Copy
+            </button>
+          </div>
+          <pre>{message}</pre>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function DeleteCardButton({ onDelete }) {
   if (!onDelete) return null
   return (
@@ -433,19 +467,22 @@ export default function TrackerCard({
                 <strong>Next: {nextLabel || 'Done'}</strong>
                 <p className="tracker-hint">Current stage: {card.stage.replace(/_/g, ' ')}</p>
               </div>
-              {nextLabel && (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => {
-                    const nextId = nextStageId(card)
-                    if (nextId) onChange({ ...card, started: true, stage: nextId })
-                    scrollToSection(nextSection)
-                  }}
-                >
-                  {nextLabel} →
-                </button>
-              )}
+              <div className="tracker-next-actions">
+                <TemplateMessageButton card={card} clientName={weekContext?.clientName} toast={weekContext?.toast} />
+                {nextLabel && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      const nextId = nextStageId(card)
+                      if (nextId) onChange({ ...card, started: true, stage: nextId })
+                      scrollToSection(nextSection)
+                    }}
+                  >
+                    {nextLabel} →
+                  </button>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -469,7 +506,6 @@ export default function TrackerCard({
                 </div>
               </>
             )}
-            <AssetRow section="audio" label="Audio file" value={card.assets?.audio_url} onSave={(url) => saveAsset('audio_url', url)} />
             <VideoAssetRow
               card={card}
               value={card.assets?.video_url}
