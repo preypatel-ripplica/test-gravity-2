@@ -1007,8 +1007,14 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
                 if not str(card.get("delay_recorded_at") or "").strip():
                     card["delay_recorded_at"] = _now_iso()
                 card["delay_recorded_by"] = actor
+    from backend.tg.database import ensure_plan_item_for_tracker_card
+
     for card in cards:
         apply_card_history(existing_by_id.get(str(card.get("id"))), card, by=actor)
+        # Keep plan_items in sync so metadata/regenerate can resolve tracker scripts.
+        assets = card.get("assets") if isinstance(card.get("assets"), dict) else {}
+        if str(assets.get("script_text") or "").strip() or card.get("content_plan_item_id"):
+            ensure_plan_item_for_tracker_card(project_id, card)
     cards.sort(key=lambda row: int(row.get("sort_order") or 0))
     doc = {
         **existing,

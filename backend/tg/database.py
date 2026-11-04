@@ -1046,6 +1046,198 @@ def fetch_content_plan(client_id: str) -> dict | None:
     return plan if len(plan) > 1 else None
 
 
+def suggestion_item_from_plan_item(pi: dict | None) -> dict | None:
+    """Shape a plan_items row like a content-plan suggestion item for AI helpers."""
+    if not isinstance(pi, dict) or not pi.get("id"):
+        return None
+    title = str(pi.get("title") or "").strip() or "Untitled"
+    fmt = str(pi.get("format") or "long")
+    return {
+        "id": pi["id"],
+        "topic_id": pi.get("topic_id") or "",
+        "topic_text": title,
+        "format": fmt,
+        "video_type": fmt,
+        "title_en": title,
+        "title_hinglish": title,
+        "working_title": title,
+        "reasoning": "",
+        "recommendation_score": 0,
+        "script": pi.get("script") or "",
+        "script_target_duration": pi.get("script_target_duration") or "",
+        "script_hook_used": pi.get("script_hook_used") or "",
+        "script_cta": pi.get("script_cta") or "",
+        "script_checklist_passed": pi.get("script_checklist_passed"),
+        "script_checklist_notes": pi.get("script_checklist_notes") or "",
+        "origin": pi.get("origin"),
+        "is_latest": True if pi.get("is_latest") is None else bool(pi.get("is_latest")),
+        "replaced_from_id": pi.get("replaced_from_id"),
+    }
+
+
+def ensure_plan_item_for_tracker_card(project_id: str, card: dict) -> dict | None:
+    """Ensure a weekly-tracker card points at a real plan_items document.
+
+    Creates a historical (is_latest=False) plan_item when the card has script text
+    and/or a missing content_plan_item_id target. Mutates card in place.
+    """
+    if not isinstance(card, dict):
+        return None
+    assets = card.get("assets") if isinstance(card.get("assets"), dict) else {}
+    script = str(assets.get("script_text") or "").strip()
+    item_id = str(card.get("content_plan_item_id") or "").strip()
+    if not script and not item_id:
+        return None
+
+    existing = None
+    if item_id:
+        existing = plan_items_col().find_one(
+            {"id": item_id, "project_id": project_id},
+            {"_id": 0},
+        )
+        if existing:
+            patch: dict[str, Any] = {}
+            if script and not str(existing.get("script") or "").strip():
+                patch["script"] = script
+                patch["status"] = "scripted"
+            if not existing.get("topic_id") and card.get("topic_id"):
+                patch["topic_id"] = card.get("topic_id")
+            if patch:
+                patch["updated_at"] = _iso()
+                plan_items_col().update_one({"id": item_id}, {"$set": patch})
+                existing = {**existing, **patch}
+            return existing
+
+    import uuid
+
+    new_id = item_id or str(uuid.uuid4())
+    title = str(card.get("title") or "").strip() or "Untitled"
+    fmt = "short" if str(card.get("type") or "") == "short" else "long"
+    now = _iso()
+    origin = (
+        PLAN_ITEM_ORIGIN_MANUAL
+        if str(assets.get("script_source") or "").strip().lower() == "manual"
+        else PLAN_ITEM_ORIGIN_GENERATED
+    )
+    doc = {
+        "id": new_id,
+        "project_id": project_id,
+        "topic_id": card.get("topic_id") or None,
+        "title": title,
+        "format": fmt,
+        "script": script,
+        "script_target_duration": "",
+        "script_hook_used": "",
+        "script_cta": "",
+        "script_checklist_passed": None,
+        "script_checklist_notes": "",
+        "status": "scripted" if script else "planned",
+        "origin": origin,
+        # Tracker history must not displace the current content-plan latest set.
+        "is_latest": False,
+        "sort_order": 0,
+        "yt_metadata_id": None,
+        "source": "weekly_tracker",
+        "source_card_id": card.get("id"),
+        "updated_at": now,
+    }
+    plan_items_col().update_one(
+        {"id": new_id},
+        {"$set": doc, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    card["content_plan_item_id"] = new_id
+    return doc
+
+
+def backfill_plan_items_from_weekly_trackers(
+    *,
+    project_id: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """Create missing plan_items for tracker scripts and link cards to those ids."""
+    from backend.main.db import weekly_trackers_col
+
+    query: dict[str, Any] = {}
+    if project_id:
+        query["project_id"] = project_id
+    scanned_docs = 0
+    scanned_cards = 0
+    created = 0
+    linked = 0
+    filled_script = 0
+    unchanged = 0
+    for doc in weekly_trackers_col().find(query, {"_id": 0}):
+        scanned_docs += 1
+        pid = str(doc.get("project_id") or "").strip()
+        if not pid:
+            continue
+        cards = list(doc.get("cards") or [])
+        dirty = False
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            assets = card.get("assets") if isinstance(card.get("assets"), dict) else {}
+            script = str(assets.get("script_text") or "").strip()
+            item_id = str(card.get("content_plan_item_id") or "").strip()
+            if not script and not item_id:
+                continue
+            scanned_cards += 1
+            before_id = item_id
+            existed = (
+                plan_items_col().find_one({"id": item_id, "project_id": pid}, {"_id": 1, "script": 1})
+                if item_id
+                else None
+            )
+            needed_create = not bool(existed)
+            needed_link = not bool(item_id)
+            needed_fill = bool(
+                existed
+                and script
+                and not str((existed or {}).get("script") or "").strip()
+            )
+            if dry_run:
+                if needed_create:
+                    created += 1
+                if needed_link:
+                    linked += 1
+                if needed_fill:
+                    filled_script += 1
+                if not (needed_create or needed_link or needed_fill):
+                    unchanged += 1
+                continue
+            result = ensure_plan_item_for_tracker_card(pid, card)
+            if not result:
+                unchanged += 1
+                continue
+            after_id = str(card.get("content_plan_item_id") or "").strip()
+            if needed_create:
+                created += 1
+            if needed_fill:
+                filled_script += 1
+            if needed_link or (after_id and after_id != before_id):
+                linked += 1
+                dirty = True
+            if not (needed_create or needed_link or needed_fill or dirty):
+                unchanged += 1
+            elif after_id != before_id:
+                dirty = True
+        if dirty and not dry_run:
+            weekly_trackers_col().update_one(
+                {"id": doc["id"]},
+                {"$set": {"cards": cards, "updated_at": _iso()}},
+            )
+    return {
+        "scanned_docs": scanned_docs,
+        "scanned_cards": scanned_cards,
+        "created": created,
+        "linked": linked,
+        "filled_script": filled_script,
+        "unchanged": unchanged,
+        "dry_run": int(bool(dry_run)),
+    }
+
+
 def _sync_plan_items(client_id: str, suggestions: dict) -> None:
     """Upsert plan_items from suggestions.items (scripts + script attrs).
 
