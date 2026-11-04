@@ -29,6 +29,7 @@ from backend.main.db import (
 )
 from backend.main.main_crudl import find_project, project_list
 from backend.main.models import Domain
+from backend.trackers.editors import VIDEO_TYPES
 from backend.trackers.models import custom_doc_id, weekly_doc_id
 from backend.trackers.tracker_card_history import apply_card_history
 from backend.trackers.tracker_settings import (
@@ -156,6 +157,8 @@ def _merge_editor_card_save(existing: dict, incoming: dict) -> dict:
     for key in _EDITOR_SAVE_TOP_KEYS:
         if key in incoming:
             merged[key] = incoming[key]
+    if str(merged.get("type") or "") not in VIDEO_TYPES:
+        merged["editor_notes"] = list(existing.get("editor_notes") or [])
     incoming_assets = incoming.get("assets") if isinstance(incoming.get("assets"), dict) else {}
     if incoming_assets:
         assets = dict(merged.get("assets") or {})
@@ -1092,6 +1095,8 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
         raise HTTPException(404, "Card not found")
     if not _editor_owns_card(auth, card):
         raise HTTPException(403, "Card is not assigned to you")
+    if key == "editor_notes" and str(card.get("type") or "") not in VIDEO_TYPES:
+        raise HTTPException(400, "Editor notes are only allowed on long and short videos")
     notes = list(card.get(key) or [])
     notes.append(
         {
