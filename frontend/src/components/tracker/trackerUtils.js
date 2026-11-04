@@ -720,6 +720,19 @@ export function isCompletedCard(card) {
   return (card?.stage || '') === stages[stages.length - 1].id
 }
 
+export function stageCheckpointDone(card, stageId) {
+  if (!card) return false
+  if (stageId === 'planned') return Boolean(card.started)
+  if (stageId === 'script_generated') return hasTrackerScript(card)
+  if (stageId === 'yt_metadata_generated') return localeHasTitle(card.yt_locales || {})
+  if (stageId === 'audio_generated') return stageReached(card, 'audio_generated')
+  if (stageId === 'video_edited') return stageReached(card, 'video_edited')
+  if (stageId === 'shared_with_doctor') return stageReached(card, 'shared_with_doctor')
+  if (stageId === 'posted') return stageReached(card, 'posted')
+  if (stageId === COMPLETE_STAGE) return isCompletedCard(card)
+  return stageReached(card, stageId)
+}
+
 export function hasDelayProof(card) {
   const reason = String(card?.delay_reason || '').trim()
   const proofs = card?.delay_proofs || []
@@ -909,7 +922,8 @@ export function templateMessage(card, clientName) {
   }
   if (kind === 'video') {
     lines.push(topic ? `Your video for "${topic}" is ready.` : 'Your video is ready.')
-    lines.push(String(card?.assets?.video_url || '').trim() || 'Video link is not added yet.')
+    const videoUrl = String(card?.assets?.video_url || '').trim()
+    if (videoUrl) lines.push(videoUrl)
     return lines.join('\n')
   }
   if (card?.type === 'blog') {
@@ -926,7 +940,6 @@ export function templateMessage(card, clientName) {
     return LANG_ORDER.indexOf(a.language) - LANG_ORDER.indexOf(b.language)
   })
   if (!links.length) {
-    lines.push('Links are not added yet.')
     return lines.join('\n')
   }
   for (const row of links) {
