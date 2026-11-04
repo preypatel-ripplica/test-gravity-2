@@ -753,6 +753,9 @@ def generate_content_plan(
         extra_keywords=extra_keywords if regenerate else None,
     )
 
+    for item in items:
+        if isinstance(item, dict):
+            item["is_latest"] = True
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "count": len(items),
@@ -856,7 +859,9 @@ def generate_scripts_for_plan(
     updated: list[dict] = []
     for item in items:
         row = dict(item)
-        match = by_id.get((row.get("id") or "").strip())
+        old_id = (row.get("id") or "").strip()
+        had_script = bool((row.get("script") or "").strip())
+        match = by_id.get(old_id)
         if match:
             row["script"] = _clean_script_text(match.get("script") or "")
             row["script_target_duration"] = (
@@ -870,6 +875,12 @@ def generate_scripts_for_plan(
             ).strip()
             if (row.get("script") or "").strip():
                 row["origin"] = "generated"
+                # Keep prior scripted plan_items for tracker links; content plan
+                # only shows the new is_latest rows after sync.
+                if had_script:
+                    row["replaced_from_id"] = old_id
+                    row["id"] = _new_id()
+        row["is_latest"] = True
         updated.append(row)
 
     missing = sum(1 for r in updated if not (r.get("script") or "").strip())
@@ -938,8 +949,11 @@ def refine_script_for_item(
         raise ValueError("OpenAI returned an empty refined script.")
 
     updated = dict(item)
+    updated["replaced_from_id"] = target_id
+    updated["id"] = _new_id()
     updated["script"] = _clean_script_text(new_script)
     updated["origin"] = "generated"
+    updated["is_latest"] = True
     if refined.get("target_duration"):
         updated["script_target_duration"] = str(refined.get("target_duration")).strip()
     if refined.get("hook_used"):

@@ -33,8 +33,10 @@ from backend.tg.database import (
     list_tracker_script_placements,
     list_videos_for_channel,
     replace_content_plan,
+    suggestion_item_from_plan_item,
     upsert_content_video,
 )
+from backend.main.db import plan_items_col
 from backend.tg.google_oauth import get_user_google_creds
 from backend.tg.services.topics import generate_auto_topics, normalize_topics
 from backend.tg.services.youtube_api import (
@@ -1042,34 +1044,54 @@ def client_content_plan_generate_metadata(
             thumbnail_reference_failed=True,
         )
 
-    # --- Pass 1: Content Plan items (From Script) ---
-    for item in items:
-        if item.get("id") in body.item_ids:
-            topic_id = item.get("topic_id")
-            processed_topic_ids.add(topic_id)
-            source = "script" if item.get("script") else "manual"
-            topic_text = item.get("topic") or item.get("topic_text") or item.get("working_title") or ""
-            for language in languages:
-                try:
-                    locale = _generate_locale(
-                        item,
-                        _script_for(item.get("script")),
-                        language,
-                        _description_examples(item, videos, body.reference_video_ids, descriptions),
-                    )
-                except _RecentThumbnailUnresolved:
-                    return _unresolved_thumbnail_response()
-                except Exception as exc:  # noqa: BLE001
-                    _fail_language(f"item={item.get('id')}", language, exc)
-                    continue
-                _remember_locale(
-                    topic_id,
-                    locale,
+    # Resolve item_ids from latest content-plan suggestions OR historical plan_items
+    # (weekly trackers often keep older content_plan_item_id values).
+    items_by_id = {
+        str(item.get("id")): item
+        for item in items
+        if isinstance(item, dict) and item.get("id")
+    }
+    requested_ids = [str(x) for x in (body.item_ids or []) if str(x or "").strip()]
+    missing_ids = [iid for iid in requested_ids if iid not in items_by_id]
+    if missing_ids:
+        for pi in plan_items_col().find(
+            {"project_id": client_id, "id": {"$in": missing_ids}},
+            {"_id": 0},
+        ):
+            shaped = suggestion_item_from_plan_item(pi)
+            if shaped:
+                items_by_id[str(shaped["id"])] = shaped
+
+    # --- Pass 1: Content Plan / plan_items (From Script) ---
+    for item_id in requested_ids:
+        item = items_by_id.get(item_id)
+        if not item:
+            continue
+        topic_id = item.get("topic_id")
+        processed_topic_ids.add(topic_id)
+        source = "script" if item.get("script") else "manual"
+        topic_text = item.get("topic") or item.get("topic_text") or item.get("working_title") or ""
+        for language in languages:
+            try:
+                locale = _generate_locale(
+                    item,
+                    _script_for(item.get("script")),
                     language,
-                    topic_text=topic_text,
-                    source=source,
-                    item_id=item.get("id"),
+                    _description_examples(item, videos, body.reference_video_ids, descriptions),
                 )
+            except _RecentThumbnailUnresolved:
+                return _unresolved_thumbnail_response()
+            except Exception as exc:  # noqa: BLE001
+                _fail_language(f"item={item.get('id')}", language, exc)
+                continue
+            _remember_locale(
+                topic_id,
+                locale,
+                language,
+                topic_text=topic_text,
+                source=source,
+                item_id=item.get("id"),
+            )
 
     # --- Pass 2: Keyword Analysis items (Manual Pick) ---
     str_item_ids = [str(x) for x in body.item_ids]
@@ -1186,8 +1208,14 @@ def client_content_plan_refine_metadata(
     items = suggestions.get("items", [])
     keyword_analysis = suggestions.get("keyword_analysis", [])
     
-    # Try to find the target in content plan items first, then keyword_analysis
+    # Try latest content-plan items, then historical plan_items, then keyword_analysis
     target_item = next((i for i in items if i.get("id") == body.item_id), None)
+    if not target_item and body.item_id:
+        pi = plan_items_col().find_one(
+            {"id": body.item_id, "project_id": client_id},
+            {"_id": 0},
+        )
+        target_item = suggestion_item_from_plan_item(pi)
     target_kw = None
     if not target_item:
         # Search keyword_analysis by topic_id

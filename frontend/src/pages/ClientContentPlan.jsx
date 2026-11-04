@@ -209,7 +209,10 @@ export default function ClientContentPlan() {
     }
   }
 
-  const items = suggestions?.items || []
+  const items = useMemo(
+    () => (suggestions?.items || []).filter((i) => i?.is_latest !== false),
+    [suggestions],
+  )
   const coverage = suggestions?.coverage
   const recentTypes = suggestions?.recent_video_types || []
   const analysis = suggestions?.keyword_analysis || []

@@ -202,6 +202,9 @@ def ensure_indexes() -> None:
 
     plan_items_col().create_index([("id", ASCENDING)], unique=True)
     plan_items_col().create_index([("project_id", ASCENDING)])
+    plan_items_col().create_index(
+        [("project_id", ASCENDING), ("is_latest", ASCENDING)]
+    )
 
     weekly_trackers_col().create_index([("id", ASCENDING)], unique=True)
     weekly_trackers_col().create_index([("project_id", ASCENDING)])
