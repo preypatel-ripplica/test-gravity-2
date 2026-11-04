@@ -617,29 +617,100 @@ export function nextStageSection(card) {
   return sectionForStage(card, stageId)
 }
 
+export const COMPLETE_STAGE = 'link_shared_with_doctor'
+
+export function hasTrackerScript(card) {
+  const assets = card?.assets || {}
+  if (String(assets.script_text || '').trim()) return true
+  const url = String(assets.script_url || '').trim()
+  return Boolean(url && !/^https?:\/\//i.test(url))
+}
+
+export function isSourceFileUrl(url) {
+  const value = String(url || '').trim().toLowerCase()
+  if (!value) return false
+  return (
+    value.includes('drive.google.com')
+    || value.includes('docs.google.com')
+    || value.includes('/uploaded_videos/')
+  )
+}
+
+export function hasLiveDestination(card) {
+  return (card?.destinations || []).some((dest) => {
+    const url = String(dest?.url || '').trim()
+    return Boolean(url) && !isSourceFileUrl(url)
+  })
+}
+
+export function hasDoctorShare(card) {
+  return Boolean((card?.doctor_notes || []).length || (card?.doctor_files || []).length)
+}
+
+export function hasVideoFile(card) {
+  return Boolean(String(card?.assets?.video_url || '').trim())
+}
+
+export function stageReached(card, stageId) {
+  const stages = stageList(card?.type).map((row) => row.id)
+  const current = Math.max(0, stages.indexOf(card?.stage || 'planned'))
+  const target = stages.indexOf(stageId)
+  return target >= 0 && current >= target
+}
+
+export function canMarkSharedWithDoctor(card) {
+  if (!isVideoCard(card?.type)) return false
+  if (!hasTrackerScript(card)) return false
+  return hasVideoFile(card) || stageReached(card, 'video_edited') || stageReached(card, 'posted')
+}
+
+export function canConfirmLinkShared(card) {
+  const stages = stageList(card?.type).map((row) => row.id)
+  if (stages[stages.length - 1] !== COMPLETE_STAGE) return false
+  if (isVideoCard(card?.type)) {
+    if (!hasTrackerScript(card)) return false
+    if (!hasDoctorShare(card)) return false
+    const posted = stageReached(card, 'posted') || hasLiveDestination(card)
+    if (!posted) return false
+    return hasVideoFile(card) || stageReached(card, 'video_edited') || stageReached(card, 'posted')
+  }
+  if (card?.type === 'static_post') return stageReached(card, 'posted') || hasLiveDestination(card)
+  if (card?.type === 'blog') return stageReached(card, 'published') || hasLiveDestination(card)
+  return false
+}
+
 export function maybeAdvanceStage(card) {
   const stages = stageList(card.type).map((s) => s.id)
+  const lastId = stages[stages.length - 1]
+  if ((card.stage || '') === lastId) return { ...card, stage: lastId }
   let idx = Math.max(0, stages.indexOf(card.stage))
   const bump = (id) => {
     const next = stages.indexOf(id)
     if (next > idx) idx = next
   }
   if (isVideoCard(card.type)) {
-    if (card.assets?.script_text || (card.assets?.script_url && !/^https?:\/\//i.test(card.assets.script_url))) {
-      bump('script_generated')
-    }
+    if (hasTrackerScript(card)) bump('script_generated')
     const locales = card.yt_locales || {}
     if (Object.values(locales).some((loc) => loc && String(loc.yt_title || '').trim())) {
       bump('yt_metadata_generated')
     }
-    if (card.assets?.audio_url || card.assets?.video_url) bump('audio_generated')
-    if (card.assets?.video_url) bump('video_edited')
+    if (hasTrackerScript(card)) {
+      if (card.assets?.audio_url || card.assets?.video_url) bump('audio_generated')
+      if (card.assets?.video_url) bump('video_edited')
+    }
+    if (hasDoctorShare(card) && idx >= stages.indexOf('video_edited')) {
+      bump('shared_with_doctor')
+    }
+    if (hasLiveDestination(card) && idx >= stages.indexOf('shared_with_doctor')) {
+      bump('posted')
+    }
   }
-  const hasLiveUrl = (card.destinations || []).some((dest) => String(dest?.url || '').trim())
+  const hasLiveUrl = hasLiveDestination(card)
   if (hasLiveUrl) {
     if (card.type === 'blog') bump('published')
     if (card.type === 'static_post') bump('posted')
   }
+  if (stages[idx] === lastId) idx = Math.max(0, stages.length - 2)
   return { ...card, stage: stages[idx] }
 }
 
