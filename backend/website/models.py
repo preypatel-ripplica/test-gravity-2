@@ -14,6 +14,10 @@ COL_CMS_COLLECTIONS = "cms_collections"
 COL_CMS_ENTRIES = "cms_entries"
 COL_CMS_MEDIA = "cms_media"
 COL_CMS_API_KEYS = "cms_api_keys"
+COL_OAUTH_CONNECTIONS = "oauth_connections"
+COL_OAUTH_STATES = "oauth_states"
+COL_WEBSITE_SETTINGS = "website_settings"
+COL_WEBSITE_MONTHLY_REPORTS = "website_monthly_reports"
 
 
 class EntryStatus(str, Enum):
@@ -79,3 +83,19 @@ class CmsApiKey(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
     last_used_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
+
+
+class WebsiteOAuthConnection(BaseModel):
+    """Encrypted Google SEO (GSC/GA4) connection for a website project."""
+
+    connection_id: str = Field(default_factory=lambda: new_id("oauth"))
+    project_id: str
+    provider: str = "google_seo"
+    scopes: list[str] = Field(default_factory=list)
+    encrypted_refresh_token: str
+    access_token: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    status: str = "connected"
+    connected_email: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

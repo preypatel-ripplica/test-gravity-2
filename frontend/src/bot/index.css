@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/* "Desktop" must mean wide AND tall enough. A phone in landscape is ~924x412,
+   which a width-only breakpoint would wrongly treat as a desktop. Overriding md
+   here applies to every existing md: utility in the app. */
+@custom-variant md (@media (width >= 48rem) and (height >= 32rem));
+
+/* Register color tokens so utilities like bg-panel / text-ink exist. Runtime
+   values are set on .bot-app below — Beacon already owns :root --bg. */
+@theme {
+  --color-bg: var(--bot-bg);
+  --color-panel: var(--bot-panel);
+  --color-panel2: var(--bot-panel2);
+  --color-line: var(--bot-line);
+  --color-ink: var(--bot-ink);
+  --color-muted: var(--bot-muted);
+  --color-accent: var(--bot-accent);
+  --color-accent-fg: var(--bot-accent-fg);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Scoped like .plug-app. Use --bot-* names so we never clash with Beacon :root. */
+.bot-app {
+  --bot-bg: #0b0e14;
+  --bot-panel: #12161f;
+  --bot-panel2: #171c26;
+  --bot-line: #232a38;
+  --bot-ink: #e7e9ef;
+  --bot-muted: #868da0;
+  --bot-accent: #6366f1;
+  --bot-accent-fg: #ffffff;
+  --tick-read: #8A97FF;
+  --tick-warn: #FDC830;
+
+  /* Tailwind utilities read --color-*; force them here so inheritance wins over
+     any :root theme layer that still sees Beacon's --bg. */
+  --color-bg: var(--bot-bg);
+  --color-panel: var(--bot-panel);
+  --color-panel2: var(--bot-panel2);
+  --color-line: var(--bot-line);
+  --color-ink: var(--bot-ink);
+  --color-muted: var(--bot-muted);
+  --color-accent: var(--bot-accent);
+  --color-accent-fg: var(--bot-accent-fg);
+
+  /* Aliases used by a few non-Tailwind rules / older classnames */
+  --bg: var(--bot-bg);
+  --panel: var(--bot-panel);
+  --panel2: var(--bot-panel2);
+  --line: var(--bot-line);
+  --ink: var(--bot-ink);
+  --muted: var(--bot-muted);
+  --accent: var(--bot-accent);
+  --accent-fg: var(--bot-accent-fg);
+
+  color-scheme: dark;
+  height: 100dvh;
+  margin: 0;
+  background: var(--bot-bg);
+  color: var(--bot-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.bot-app[data-theme="light"] {
+  --bot-bg: #f6f7f9;
+  --bot-panel: #ffffff;
+  --bot-panel2: #eef1f5;
+  --bot-line: #dde1e8;
+  --bot-ink: #0f1115;
+  --bot-muted: #4b5563;
+  --bot-accent: #4f46e5;
+  --bot-accent-fg: #ffffff;
+  --tick-read: #3748D5;
+  --tick-warn: #F58434;
+  color-scheme: light;
+}
+
+.bot-app input,
+.bot-app textarea,
+.bot-app select {
+  font-size: 16px;
+}
+
+.bot-app * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bot-line) transparent;
+}
+.bot-app *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.bot-app *::-webkit-scrollbar-thumb {
+  background: var(--bot-line);
+  border-radius: 999px;
+}
+.bot-app *::-webkit-scrollbar-thumb:hover {
+  background: var(--bot-muted);
+}
+
+@keyframes loadbar { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+.bot-app .brand-mark { filter: none; }
+.bot-app[data-theme="light"] .brand-mark { filter: invert(1) brightness(0.35); }
+
