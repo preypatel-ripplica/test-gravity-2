@@ -192,38 +192,48 @@ function DelayProofNote({ card }) {
   )
 }
 
-function VideoEditFields({ card, weekContext, onChange }) {
+function VideoEditFields({ card, weekContext, onChange, lockEditor = false }) {
   if (!isVideoCard(card.type)) return null
   const editors = weekContext?.editors || []
   const dates = weekContext?.weekDates || calendarWeekDates()
+  const editorName = editors.find((row) => row.id === card.editor_id)?.name || card.editor_id || 'Unassigned'
   return (
     <div className="tracker-edit-fields" onClick={stopToggle}>
-      <div className="tracker-assign-field">
-        <span className="tracker-kicker">Editor</span>
-        <div className="tracker-assign-strip" role="listbox" aria-label="Editor">
-          <button
-            type="button"
-            role="option"
-            aria-selected={!card.editor_id}
-            className={`tracker-assign-cell${!card.editor_id ? ' is-on' : ''}`}
-            onClick={() => onChange({ ...card, editor_id: '', editor_overridden: true })}
-          >
-            Unassigned
-          </button>
-          {editors.map((editor) => (
+      {lockEditor ? (
+        <div className="tracker-assign-field">
+          <span className="tracker-kicker">Editor</span>
+          <div className="tracker-assign-strip">
+            <span className="tracker-assign-cell is-on">{editorName}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="tracker-assign-field">
+          <span className="tracker-kicker">Editor</span>
+          <div className="tracker-assign-strip" role="listbox" aria-label="Editor">
             <button
               type="button"
               role="option"
-              key={editor.id}
-              aria-selected={card.editor_id === editor.id}
-              className={`tracker-assign-cell${card.editor_id === editor.id ? ' is-on' : ''}`}
-              onClick={() => onChange({ ...card, editor_id: editor.id, editor_overridden: true })}
+              aria-selected={!card.editor_id}
+              className={`tracker-assign-cell${!card.editor_id ? ' is-on' : ''}`}
+              onClick={() => onChange({ ...card, editor_id: '', editor_overridden: true })}
             >
-              {editor.name}
+              Unassigned
             </button>
-          ))}
+            {editors.map((editor) => (
+              <button
+                type="button"
+                role="option"
+                key={editor.id}
+                aria-selected={card.editor_id === editor.id}
+                className={`tracker-assign-cell${card.editor_id === editor.id ? ' is-on' : ''}`}
+                onClick={() => onChange({ ...card, editor_id: editor.id, editor_overridden: true })}
+              >
+                {editor.name}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <div className="tracker-assign-field">
         <span className="tracker-kicker">Edit date</span>
         <div className="tracker-day-strip" role="listbox" aria-label="Edit date">
@@ -336,7 +346,9 @@ export default function TrackerCard({
   onSaveManualScript,
   onChange,
   onDelete,
+  variant = 'full',
 }) {
+  const editorView = variant === 'editor'
   const nextLabel = nextStageLabel(card)
   const nextSection = nextStageSection(card)
   const cardRef = useRef(null)
@@ -423,80 +435,99 @@ export default function TrackerCard({
           <button type="button" className="tracker-icon-btn" data-tip="Collapse" onClick={toggleCollapsed}>
             <i className="fa-solid fa-chevron-up" />
           </button>
-          <DidNotTrackButton card={card} onChange={onChange} />
-          <DeleteCardButton onDelete={onDelete} />
+          {editorView ? null : (
+            <>
+              <DidNotTrackButton card={card} onChange={onChange} />
+              <DeleteCardButton onDelete={onDelete} />
+            </>
+          )}
         </div>
       </header>
 
-      <DelayProofNote card={card} />
+      {editorView ? null : <DelayProofNote card={card} />}
 
       <div className="tracker-stage-block">
-        <VideoEditFields card={card} weekContext={weekContext} onChange={onChange} />
-        <Timeline
+        <VideoEditFields
           card={card}
-          onSelectStage={(stageId) => {
-            onChange({ ...card, started: true, stage: stageId })
-            scrollToSection(sectionForStage({ ...card, stage: stageId }, stageId))
-          }}
+          weekContext={weekContext}
+          onChange={onChange}
+          lockEditor={editorView}
         />
-        <div className="tracker-next-row">
-          <div>
-            <strong>Next: {nextLabel || 'Done'}</strong>
-            <p className="tracker-hint">Current stage: {card.stage.replace(/_/g, ' ')}</p>
-          </div>
-          <div className="tracker-next-actions">
-            <TemplateMessageButton card={card} clientName={weekContext?.clientName} toast={weekContext?.toast} />
-            {nextLabel && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => {
-                  const nextId = nextStageId(card)
-                  if (nextId) onChange({ ...card, started: true, stage: nextId })
-                  scrollToSection(nextSection)
-                }}
-              >
-                {nextLabel} →
-              </button>
-            )}
-          </div>
-        </div>
+        {editorView ? null : (
+          <>
+            <Timeline
+              card={card}
+              onSelectStage={(stageId) => {
+                onChange({ ...card, started: true, stage: stageId })
+                scrollToSection(sectionForStage({ ...card, stage: stageId }, stageId))
+              }}
+            />
+            <div className="tracker-next-row">
+              <div>
+                <strong>Next: {nextLabel || 'Done'}</strong>
+                <p className="tracker-hint">Current stage: {card.stage.replace(/_/g, ' ')}</p>
+              </div>
+              <div className="tracker-next-actions">
+                <TemplateMessageButton card={card} clientName={weekContext?.clientName} toast={weekContext?.toast} />
+                {nextLabel && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      const nextId = nextStageId(card)
+                      if (nextId) onChange({ ...card, started: true, stage: nextId })
+                      scrollToSection(nextSection)
+                    }}
+                  >
+                    {nextLabel} →
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
         {isVideoCard(card.type) && (
           <div className="tracker-asset-list">
-            <div data-tracker-section="script">
-              <TrackerScriptSlot
-                card={card}
-                scriptedItems={scriptedItems}
-                titleOptions={titleOptions}
-                busy={scriptBusy}
-                onPick={onPickScript}
-                onSaveEdit={onSaveScriptText}
-                onSaveManual={onSaveManualScript}
-              />
-            </div>
-            <div data-tracker-section="yt_metadata">
-              <TrackerYtMetadata card={card} weekContext={weekContext} onChange={onChange} />
-            </div>
+            {editorView ? null : (
+              <>
+                <div data-tracker-section="script">
+                  <TrackerScriptSlot
+                    card={card}
+                    scriptedItems={scriptedItems}
+                    titleOptions={titleOptions}
+                    busy={scriptBusy}
+                    onPick={onPickScript}
+                    onSaveEdit={onSaveScriptText}
+                    onSaveManual={onSaveManualScript}
+                  />
+                </div>
+                <div data-tracker-section="yt_metadata">
+                  <TrackerYtMetadata card={card} weekContext={weekContext} onChange={onChange} />
+                </div>
+              </>
+            )}
             <VideoAssetRow
               card={card}
               value={card.assets?.video_url}
               onSave={(url) => saveAsset('video_url', url)}
               weekContext={weekContext}
             />
-            <div data-tracker-section="publish">
-              <TrackerPublishVideo card={card} weekContext={weekContext} onChange={onChange} />
-            </div>
+            {editorView ? null : (
+              <div data-tracker-section="publish">
+                <TrackerPublishVideo card={card} weekContext={weekContext} onChange={onChange} />
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {card.type === 'static_post' && (
+      {editorView || card.type !== 'static_post' ? null : (
         <div data-tracker-section="generate">
           <TrackerStaticGenerate card={card} weekContext={weekContext} onChange={onChange} />
         </div>
       )}
 
-      {card.type === 'paid_ads' && (
+      {editorView || card.type !== 'paid_ads' ? null : (
         <PaidAdsSteps card={card} onChange={onChange} />
       )}
 
@@ -513,20 +544,33 @@ export default function TrackerCard({
           onWeekUpdate={weekContext.onWeekUpdate}
         />
       )}
-      <div data-tracker-section="doctor">
+      <div data-tracker-section="editor">
         <TrackerNotes
-          title="From the doctor"
-          hint="Photos or files the doctor gave us for this one."
-          section="doctor"
+          title="Editor notes"
+          hint="Simple back-and-forth between internal and the editor for this video."
+          section="editor"
           card={card}
           languages={languages}
           weekContext={weekContext}
           onWeekUpdate={weekContext.onWeekUpdate}
-          showDoctorFiles
         />
       </div>
+      {editorView ? null : (
+        <div data-tracker-section="doctor">
+          <TrackerNotes
+            title="From the doctor"
+            hint="Photos or files the doctor gave us for this one."
+            section="doctor"
+            card={card}
+            languages={languages}
+            weekContext={weekContext}
+            onWeekUpdate={weekContext.onWeekUpdate}
+            showDoctorFiles
+          />
+        </div>
+      )}
 
-      {card.type !== 'paid_ads' && (
+      {editorView || card.type === 'paid_ads' ? null : (
         <div data-tracker-section="destinations">
           <TrackerDestinations
             card={card}
@@ -536,7 +580,7 @@ export default function TrackerCard({
         </div>
       )}
 
-      <TrackerCardHistory card={card} />
+      {editorView ? null : <TrackerCardHistory card={card} />}
     </article>
   )
 }

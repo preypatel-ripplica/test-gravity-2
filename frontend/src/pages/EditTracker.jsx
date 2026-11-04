@@ -83,14 +83,17 @@ function annotateItems(items, days, editors) {
 }
 
 export default function EditTracker() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const { toast, confirm } = useUI()
   const navigate = useNavigate()
+  const isEditorUser = user?.type === 'editor'
+  const scopedEditorId = user?.editor_id || ''
   const [weekOffset, setWeekOffset] = useState(0)
   const [workingWeekdays, setWorkingWeekdays] = useState(DEFAULT_WEEKDAYS)
   const [board, setBoard] = useState(null)
-  const [tab, setTab] = useState(ALL_TAB)
-  const [compact, setCompact] = useState(false)
+  const [tab, setTab] = useState(isEditorUser && scopedEditorId ? scopedEditorId : ALL_TAB)
+  const [viewMode, setViewMode] = useState('board') // board | micro
+  const compact = viewMode === 'micro'
   const [loading, setLoading] = useState(true)
   const [assigning, setAssigning] = useState(false)
   const [dropTarget, setDropTarget] = useState(null)
@@ -98,6 +101,9 @@ export default function EditTracker() {
   const ghostRef = useRef(null)
   const ghostOffsetRef = useRef({ x: 0, y: 0 })
   const seededDays = useRef(false)
+  const canAssign = !isEditorUser && board?.can_assign !== false
+  const canManageSettings = !isEditorUser && board?.can_manage_settings !== false
+  const canDrag = !isEditorUser
 
   function showGhost(item, { rect, clientX, clientY }) {
     const node = ghostRef.current
@@ -196,9 +202,13 @@ export default function EditTracker() {
   }, [days, visibleItems, weekDates])
 
   useEffect(() => {
+    if (isEditorUser && scopedEditorId) {
+      setTab(scopedEditorId)
+      return
+    }
     if (tab === ALL_TAB) return
     if (!editorTabs.some((editor) => editor.id === tab)) setTab(ALL_TAB)
-  }, [tab, editorTabs])
+  }, [tab, editorTabs, isEditorUser, scopedEditorId])
 
   const applyItemPatch = useCallback((item, patch) => {
     setBoard((prev) => {
@@ -282,6 +292,7 @@ export default function EditTracker() {
   }
 
   function handleDragStart(item, payload) {
+    if (!canDrag) return
     setDragKey(cardKey(item))
     showGhost(item, payload)
   }
@@ -305,16 +316,20 @@ export default function EditTracker() {
           <Breadcrumbs items={[{ label: 'Edit tracker' }]} />
           <h1>Edit tracker</h1>
           <p>
-            {thisWeek
-              ? 'Distribute late work and this week’s long / short videos across editors and days.'
-              : 'Plan next week’s long / short videos. Late work stays on this week.'}
+            {isEditorUser
+              ? 'Your assigned long / short videos for this week and late carry-over.'
+              : thisWeek
+                ? 'Distribute late work and this week’s long / short videos across editors and days.'
+                : 'Plan next week’s long / short videos. Late work stays on this week.'}
           </p>
         </div>
         <div className="edit-tracker-header-actions">
-          <Link to="/edit-tracker/settings" className="edit-tracker-settings-btn" title="Client settings">
-            <i className="fa-solid fa-gear" />
-            <span>Client settings</span>
-          </Link>
+          {canManageSettings ? (
+            <Link to="/edit-tracker/settings" className="edit-tracker-settings-btn" title="Client settings">
+              <i className="fa-solid fa-gear" />
+              <span>Client settings</span>
+            </Link>
+          ) : null}
           <div className="edit-tracker-week-switch" role="tablist" aria-label="Week">
             {weekOptions.map((week) => (
               <button
@@ -334,77 +349,83 @@ export default function EditTracker() {
       </header>
 
       <div className="edit-tracker-toolbar">
-        <div className="edit-tracker-days">
-          <span>Working days</span>
-          <div className="edit-day-picks" role="group" aria-label="Working days">
-            {DAY_LETTERS.map((letter, index) => {
-              const on = workingWeekdays.includes(index)
-              return (
-                <button
-                  key={`${letter}-${index}`}
-                  type="button"
-                  className={`edit-day-pick${on ? ' is-on' : ''}`}
-                  aria-pressed={on}
-                  aria-label={DAY_NAMES[index]}
-                  onClick={() => toggleWeekday(index)}
-                >
-                  {letter}
-                </button>
-              )
-            })}
+        {!isEditorUser ? (
+          <div className="edit-tracker-days">
+            <span>Working days</span>
+            <div className="edit-day-picks" role="group" aria-label="Working days">
+              {DAY_LETTERS.map((letter, index) => {
+                const on = workingWeekdays.includes(index)
+                return (
+                  <button
+                    key={`${letter}-${index}`}
+                    type="button"
+                    className={`edit-day-pick${on ? ' is-on' : ''}`}
+                    aria-pressed={on}
+                    aria-label={DAY_NAMES[index]}
+                    onClick={() => toggleWeekday(index)}
+                  >
+                    {letter}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        ) : <div />}
         <div className="edit-tracker-toolbar-actions">
           <div className="edit-view-toggle" role="tablist" aria-label="Card view">
             <button
               type="button"
               role="tab"
-              aria-selected={!compact}
-              className={!compact ? 'is-on' : ''}
-              onClick={() => setCompact(false)}
+              aria-selected={viewMode === 'board'}
+              className={viewMode === 'board' ? 'is-on' : ''}
+              onClick={() => setViewMode('board')}
             >
               Board
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={compact}
-              className={compact ? 'is-on' : ''}
-              onClick={() => setCompact(true)}
+              aria-selected={viewMode === 'micro'}
+              className={viewMode === 'micro' ? 'is-on' : ''}
+              onClick={() => setViewMode('micro')}
             >
               Micro
             </button>
           </div>
-          <button type="button" className="btn btn-primary" onClick={handleAssign} disabled={assigning}>
-            Assign
-          </button>
+          {canAssign ? (
+            <button type="button" className="btn btn-primary" onClick={handleAssign} disabled={assigning}>
+              Assign
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="edit-tracker-tabs" role="tablist" aria-label="Editors">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === ALL_TAB}
-          className={`edit-tracker-tab is-all${tab === ALL_TAB ? ' is-on' : ''}`}
-          onClick={() => setTab(ALL_TAB)}
-        >
-          All
-        </button>
-        {editorTabs.map((editor) => (
+      {!isEditorUser ? (
+        <div className="edit-tracker-tabs" role="tablist" aria-label="Editors">
           <button
-            key={editor.id}
             type="button"
             role="tab"
-            aria-selected={tab === editor.id}
-            className={`edit-tracker-tab is-${editorTone(editor.id)}${tab === editor.id ? ' is-on' : ''}`}
-            onClick={() => setTab(editor.id)}
+            aria-selected={tab === ALL_TAB}
+            className={`edit-tracker-tab is-all${tab === ALL_TAB ? ' is-on' : ''}`}
+            onClick={() => setTab(ALL_TAB)}
           >
-            {editor.name}
-            {editor.max_hours_per_day ? <em>{editor.max_hours_per_day}h / day</em> : null}
+            All
           </button>
-        ))}
-      </div>
+          {editorTabs.map((editor) => (
+            <button
+              key={editor.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === editor.id}
+              className={`edit-tracker-tab is-${editorTone(editor.id)}${tab === editor.id ? ' is-on' : ''}`}
+              onClick={() => setTab(editor.id)}
+            >
+              {editor.name}
+              {editor.max_hours_per_day ? <em>{editor.max_hours_per_day}h / day</em> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {loading && !board ? (
         <p className="text-muted">Loading edit board…</p>
@@ -439,11 +460,12 @@ export default function EditTracker() {
                     groupByEditor={tab === ALL_TAB}
                     dragKey={dragKey}
                     emptyHint={dropTarget === day.date ? 'Drop to assign' : 'No videos'}
+                    lockEditor={isEditorUser}
                     onPatch={patchCard}
                     onOpen={(item) => navigate(item.href)}
-                    onDragStart={handleDragStart}
-                    onDragHover={handleDragHover}
-                    onDragEnd={handleDragEnd}
+                    onDragStart={canDrag ? handleDragStart : undefined}
+                    onDragHover={canDrag ? handleDragHover : undefined}
+                    onDragEnd={canDrag ? handleDragEnd : undefined}
                   />
                 </section>
               )
@@ -467,11 +489,12 @@ export default function EditTracker() {
                 groupByEditor={false}
                 wide
                 dragKey={dragKey}
+                lockEditor={isEditorUser}
                 onPatch={patchCard}
                 onOpen={(item) => navigate(item.href)}
-                onDragStart={handleDragStart}
-                onDragHover={handleDragHover}
-                onDragEnd={handleDragEnd}
+                onDragStart={canDrag ? handleDragStart : undefined}
+                onDragHover={canDrag ? handleDragHover : undefined}
+                onDragEnd={canDrag ? handleDragEnd : undefined}
               />
             ) : (
               <p className="edit-tracker-drop-hint">
@@ -520,6 +543,31 @@ function groupItemsByEditor(items, editors) {
   return [...buckets.values()].filter((group) => group.items.length)
 }
 
+function latestNotePreview(item) {
+  const feedback = item.feedback_notes_preview || []
+  const editorNotes = item.editor_notes_preview || []
+  const feedbackCount = Number(item.feedback_note_count) || feedback.length || 0
+  const editorCount = Number(item.editor_note_count) || editorNotes.length || 0
+  const newest = [...editorNotes, ...feedback].find((note) => strNoteText(note))
+  return {
+    feedbackCount,
+    editorCount,
+    newest,
+  }
+}
+
+function strNoteText(note) {
+  return String(note?.text || '').trim()
+}
+
+function shortAuthor(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return 'note'
+  const at = raw.indexOf('@')
+  if (at > 0) return raw.slice(0, at)
+  return raw
+}
+
 function CardsLane({
   items,
   editors,
@@ -529,6 +577,7 @@ function CardsLane({
   wide,
   dragKey,
   emptyHint,
+  lockEditor = false,
   onPatch,
   onOpen,
   onDragStart,
@@ -539,6 +588,7 @@ function CardsLane({
     editors,
     days,
     compact,
+    lockEditor,
     onPatch,
     onOpen,
     onDragStart,
@@ -702,8 +752,21 @@ export function EditFieldMenu({ label, value, options, tone, onChange }) {
   )
 }
 
-function EditWorkCard({ item, editors, days, compact, dragging, onPatch, onOpen, onDragStart, onDragHover, onDragEnd }) {
+function EditWorkCard({
+  item,
+  editors,
+  days,
+  compact,
+  dragging,
+  lockEditor = false,
+  onPatch,
+  onOpen,
+  onDragStart,
+  onDragHover,
+  onDragEnd,
+}) {
   const cardRef = useRef(null)
+  const canDrag = typeof onDragStart === 'function'
   const overflow = item.spill && item.spill_reason === 'editor spill'
   const editorOptions = useMemo(() => ([
     { value: '', label: 'Unassigned', detail: 'No editor yet', tone: 'plain', swatch: true },
@@ -730,6 +793,10 @@ function EditWorkCard({ item, editors, days, compact, dragging, onPatch, onOpen,
   function handlePointerDown(event) {
     if (event.button !== 0) return
     if (event.target.closest('select, input, button, label, a')) return
+    if (!canDrag) {
+      onOpen()
+      return
+    }
     event.preventDefault()
     const pointerId = event.pointerId
     const originX = event.clientX
@@ -747,7 +814,7 @@ function EditWorkCard({ item, editors, days, compact, dragging, onPatch, onOpen,
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onCancel)
-      onDragEnd(item, dropId)
+      onDragEnd?.(item, dropId)
     }
 
     function onMove(ev) {
@@ -770,7 +837,7 @@ function EditWorkCard({ item, editors, days, compact, dragging, onPatch, onOpen,
       ev.preventDefault()
       const dropId = dropIdFromPoint(ev.clientX, ev.clientY)
       lastDrop = dropId
-      onDragHover(dropId, { x: ev.clientX, y: ev.clientY })
+      onDragHover?.(dropId, { x: ev.clientX, y: ev.clientY })
     }
 
     function onUp(ev) {
@@ -815,7 +882,7 @@ function EditWorkCard({ item, editors, days, compact, dragging, onPatch, onOpen,
       </div>
       <strong>{item.client_name}</strong>
       <p>{item.title || 'Untitled'}</p>
-      {compact ? null : (
+      {compact || lockEditor ? null : (
         <div className="edit-work-fields">
           <EditFieldMenu
             label="Editor"
@@ -833,6 +900,21 @@ function EditWorkCard({ item, editors, days, compact, dragging, onPatch, onOpen,
           />
         </div>
       )}
+      {compact ? null : (() => {
+        const { newest } = latestNotePreview(item)
+        if (!newest || !strNoteText(newest)) return null
+        return (
+          <div
+            className="edit-work-notes"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <p className="edit-work-note-preview">
+              <strong>{shortAuthor(newest.created_by)}</strong>
+              {strNoteText(newest)}
+            </p>
+          </div>
+        )
+      })()}
       {overflow ? <small>Over capacity</small> : null}
     </article>
   )

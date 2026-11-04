@@ -50,8 +50,11 @@ export function AuthProvider({ children }) {
         return null
       }
       console.warn('auth.me failed; keeping saved session', err)
-      setLoading(false)
-      return readCachedUser()
+      // Always clear loading even if me hung/timed out — otherwise RequireAuth
+      // stays on a blank "Loading..." forever (common during Mongo reconnects).
+      const cached = readCachedUser()
+      if (cached) setUser(cached)
+      return cached
     } finally {
       setLoading(false)
     }

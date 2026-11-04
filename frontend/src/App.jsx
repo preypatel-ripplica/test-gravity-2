@@ -80,10 +80,29 @@ function RequireAuth({ children }) {
 
 function HomeRedirect() {
   const { user } = useAuth()
+  if (user?.type === 'editor') {
+    return <Navigate to="/edit-tracker" replace />
+  }
   if (user?.active_client_id) {
     return <Navigate to={`/clients/${user.active_client_id}`} replace />
   }
   return <Navigate to="/clients" replace />
+}
+
+function EditorSettingsGuard({ children }) {
+  const { user } = useAuth()
+  if (user?.type === 'editor') {
+    return <Navigate to="/edit-tracker" replace />
+  }
+  return children
+}
+
+function InternalOnly({ children }) {
+  const { user } = useAuth()
+  if (user?.type === 'editor') {
+    return <Navigate to="/edit-tracker" replace />
+  }
+  return children
 }
 
 function OAuthSuccessHandler() {
@@ -115,6 +134,9 @@ function OAuthSuccessHandler() {
 function ClientIdGuard({ children }) {
   const { clientId } = useParams()
   const { user } = useAuth()
+  if (user?.type === 'editor') {
+    return children
+  }
   const exists = (user?.clients || []).some((c) => c.id === clientId)
   if (user?.clients && !exists) {
     return <Navigate to="/clients" replace />
@@ -125,6 +147,9 @@ function ClientIdGuard({ children }) {
 function DomainGuard({ domain, children }) {
   const { clientId } = useParams()
   const { user } = useAuth()
+  if (user?.type === 'editor') {
+    return <Navigate to="/edit-tracker" replace />
+  }
   const client = (user?.clients || []).find((c) => c.id === clientId)
   if (user?.clients && client && !hasDomainAccess(client, domain)) {
     return <Navigate to={`/clients/${clientId}`} replace />
@@ -194,10 +219,31 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route path="/clients" element={<ClientsIndex />} />
-          <Route path="/tracker" element={<PocWeeklyTracker />} />
+          <Route
+            path="/clients"
+            element={
+              <InternalOnly>
+                <ClientsIndex />
+              </InternalOnly>
+            }
+          />
+          <Route
+            path="/tracker"
+            element={
+              <InternalOnly>
+                <PocWeeklyTracker />
+              </InternalOnly>
+            }
+          />
           <Route path="/edit-tracker" element={<EditTracker />} />
-          <Route path="/edit-tracker/settings" element={<EditTrackerSettings />} />
+          <Route
+            path="/edit-tracker/settings"
+            element={
+              <EditorSettingsGuard>
+                <EditTrackerSettings />
+              </EditorSettingsGuard>
+            }
+          />
           <Route path="/tracker/:clientId" element={<Navigate to="/tracker" replace />} />
           <Route path="/tracker/:clientId/custom" element={<Navigate to="/tracker" replace />} />
         </Route>

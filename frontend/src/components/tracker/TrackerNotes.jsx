@@ -5,6 +5,14 @@ import { LANG_LABELS, parseTimecode } from './trackerUtils'
 
 const PAGE_SIZE = 8
 
+function shortAuthor(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return 'unknown'
+  const at = raw.indexOf('@')
+  if (at > 0) return raw.slice(0, at)
+  return raw
+}
+
 function NoteTrail({ notes, page, onPage }) {
   const totalPages = Math.max(1, Math.ceil(notes.length / PAGE_SIZE))
   const slice = notes.slice().reverse().slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -15,7 +23,7 @@ function NoteTrail({ notes, page, onPage }) {
         {slice.map((note) => (
           <article key={note.id} className="tracker-note-item">
             <div className="tracker-note-meta">
-              <strong>{note.created_by || 'unknown'}</strong>
+              <strong>{shortAuthor(note.created_by)}</strong>
               <span>{note.created_at ? new Date(note.created_at).toLocaleString() : ''}</span>
               {note.language && note.language !== 'all' ? <em>{LANG_LABELS[note.language] || note.language}</em> : null}
               {parseTimecode(note.text) ? <em>{parseTimecode(note.text)}</em> : null}
@@ -62,7 +70,11 @@ export default function TrackerNotes({
   const [page, setPage] = useState(1)
   const fileRef = useRef(null)
   const doctorFileRef = useRef(null)
-  const notes = section === 'feedback' ? card.feedback_notes || [] : card.doctor_notes || []
+  const notes = section === 'feedback'
+    ? card.feedback_notes || []
+    : section === 'editor'
+      ? card.editor_notes || []
+      : card.doctor_notes || []
 
   async function uploadPending(file) {
     const result = await api.uploadWeeklyTrackerFile(

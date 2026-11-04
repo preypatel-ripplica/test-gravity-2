@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 export default function AppShell() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const isEditor = user?.type === 'editor'
 
   function handleLogout() {
     logout()
@@ -15,7 +16,7 @@ export default function AppShell() {
     <div className="dashboard">
       <aside className="sidebar sidebar-compact card">
         <div className="sidebar-header">
-          <BrandLockup subtitle="Internal workspace" />
+          <BrandLockup subtitle={isEditor ? 'Editor workspace' : 'Internal workspace'} />
         </div>
 
         <div className="user-profile">
@@ -24,26 +25,30 @@ export default function AppShell() {
           </div>
           <div className="user-info">
             <h4>{user?.username || user?.email || 'User'}</h4>
-            <p className="role">Internal</p>
+            <p className="role">{isEditor ? 'Editor' : 'Internal'}</p>
           </div>
         </div>
 
         <nav className="sidebar-menu">
-          <NavLink
-            to="/clients"
-            end
-            className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
-          >
-            <i className="fa-solid fa-building" />
-            <span>Clients</span>
-          </NavLink>
-          <NavLink
-            to="/tracker"
-            className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
-          >
-            <i className="fa-solid fa-calendar-week" />
-            <span>Tracker</span>
-          </NavLink>
+          {!isEditor ? (
+            <>
+              <NavLink
+                to="/clients"
+                end
+                className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+              >
+                <i className="fa-solid fa-building" />
+                <span>Clients</span>
+              </NavLink>
+              <NavLink
+                to="/tracker"
+                className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+              >
+                <i className="fa-solid fa-calendar-week" />
+                <span>Tracker</span>
+              </NavLink>
+            </>
+          ) : null}
           <NavLink
             to="/edit-tracker"
             className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}

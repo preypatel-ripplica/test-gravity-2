@@ -25,6 +25,7 @@ import { useUI } from '../../context/UIContext'
 export default function TrackerWeekBoard({ clientId, client, year, month, week, focusCardId = '', onSummaryChange }) {
   const { token, user } = useAuth()
   const actor = user?.username || ''
+  const isEditor = user?.type === 'editor'
   const { toast } = useUI()
   const [cards, setCards] = useState([])
   const [weekSlots, setWeekSlots] = useState(null)
@@ -73,7 +74,13 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   }, [token, toast, focusCardId])
 
   const loadScripts = useCallback(async (nextClientId) => {
-    if (!token || !nextClientId) return
+    // Editors use the slim card (no script picker); content-plan requires videos domain.
+    if (!token || !nextClientId || isEditor) {
+      setPlanItems([])
+      setPlanKeywords([])
+      setScriptedItems([])
+      return
+    }
     try {
       const data = await api.getContentPlan(token, nextClientId)
       const items = data.suggestions?.items || []
@@ -83,17 +90,21 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     } catch (err) {
       toast(err.message, 'error')
     }
-  }, [token, toast])
+  }, [token, toast, isEditor])
 
   const loadChannels = useCallback(async (nextClientId) => {
-    if (!token || !nextClientId) return
+    // Editors don't need YouTube channels for slim card; channel.list requires videos domain.
+    if (!token || !nextClientId || isEditor) {
+      setChannels([])
+      return
+    }
     try {
       const data = await api.listChannels(token, nextClientId)
       setChannels(data.channels || [])
     } catch (err) {
       toast(err.message, 'error')
     }
-  }, [token, toast])
+  }, [token, toast, isEditor])
 
   useEffect(() => {
     loadWeek(clientId, year, month, week)
@@ -385,22 +396,25 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
             onSaveManualScript={(text) => handleSaveManualScript(card, text)}
             onChange={patchCard}
             onDelete={() => deleteCard(card.id)}
+            variant={user?.type === 'editor' ? 'editor' : 'full'}
           />
         ))}
       </div>
-      <div className="tracker-add-cards">
-        {ADDABLE_CARD_TYPES.map((row) => (
-          <button
-            key={row.type}
-            type="button"
-            className="tracker-add-card"
-            onClick={() => addCard(row.type)}
-          >
-            <i className="fa-solid fa-plus" />
-            {row.label}
-          </button>
-        ))}
-      </div>
+      {user?.type === 'editor' ? null : (
+        <div className="tracker-add-cards">
+          {ADDABLE_CARD_TYPES.map((row) => (
+            <button
+              key={row.type}
+              type="button"
+              className="tracker-add-card"
+              onClick={() => addCard(row.type)}
+            >
+              <i className="fa-solid fa-plus" />
+              {row.label}
+            </button>
+          ))}
+        </div>
+      )}
       {delayGate?.next ? (
         <DelayProofModal
           token={token}

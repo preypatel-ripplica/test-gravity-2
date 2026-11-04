@@ -34,7 +34,7 @@ export function isAuthExpiredError(error) {
   )
 }
 
-export async function apiFetch(path, { token, body, form, formData } = {}) {
+export async function apiFetch(path, { token, body, form, formData, timeoutMs } = {}) {
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
 
@@ -50,7 +50,26 @@ export async function apiFetch(path, { token, body, form, formData } = {}) {
     payload = JSON.stringify(body ?? {})
   }
 
-  const response = await fetch(url(path), { method: 'POST', headers, body: payload })
+  const controller = typeof timeoutMs === 'number' && timeoutMs > 0 ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  let response
+  try {
+    response = await fetch(url(path), {
+      method: 'POST',
+      headers,
+      body: payload,
+      signal: controller?.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Request timed out')
+      timeoutErr.name = 'TimeoutError'
+      throw timeoutErr
+    }
+    throw err
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
   if (!response.ok) {
     const error = new Error(await parseError(response))
     error.status = response.status
@@ -369,7 +388,7 @@ export const api = {
       access_token: data.access_token || data.token,
     }
   },
-  me: (token) => apiFetch('/auth.me', { token }),
+  me: (token) => apiFetch('/auth.me', { token, timeoutMs: 12000 }),
 
   listClients: (token) => apiFetch('/client.list', { token }),
   createClient: (token, name) => apiFetch('/client.create', { token, body: { name } }),
