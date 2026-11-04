@@ -544,17 +544,19 @@ export default function TrackerCard({
           onWeekUpdate={weekContext.onWeekUpdate}
         />
       )}
-      <div data-tracker-section="editor">
-        <TrackerNotes
-          title="Editor notes"
-          hint="Simple back-and-forth between internal and the editor for this video."
-          section="editor"
-          card={card}
-          languages={languages}
-          weekContext={weekContext}
-          onWeekUpdate={weekContext.onWeekUpdate}
-        />
-      </div>
+      {isVideoCard(card.type) ? (
+        <div data-tracker-section="editor">
+          <TrackerNotes
+            title="Editor notes"
+            hint="Simple back-and-forth between internal and the editor for this video."
+            section="editor"
+            card={card}
+            languages={languages}
+            weekContext={weekContext}
+            onWeekUpdate={weekContext.onWeekUpdate}
+          />
+        </div>
+      ) : null}
       {editorView ? null : (
         <div data-tracker-section="doctor">
           <TrackerNotes
