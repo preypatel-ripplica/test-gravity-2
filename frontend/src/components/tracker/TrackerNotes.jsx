@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import CustomSelect from '../CustomSelect'
 import api from '../../api'
-import { LANG_LABELS, parseTimecode } from './trackerUtils'
+import { LANG_LABELS, canMarkSharedWithDoctor, isVideoCard, parseTimecode } from './trackerUtils'
 
 const PAGE_SIZE = 8
 
@@ -134,6 +134,9 @@ export default function TrackerNotes({
       setText('')
       setPending([])
       setPage(1)
+      if (section === 'doctor' && isVideoCard(card.type) && !canMarkSharedWithDoctor(card)) {
+        toast('Note saved. Finish Video edited before this counts as Shared with doctor.', 'info')
+      }
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -152,6 +155,9 @@ export default function TrackerNotes({
         file,
       )
       onWeekUpdate(result)
+      if (isVideoCard(card.type) && !canMarkSharedWithDoctor(card)) {
+        toast('File saved. Finish Video edited before this counts as Shared with doctor.', 'info')
+      }
     } catch (err) {
       toast(err.message, 'error')
     }

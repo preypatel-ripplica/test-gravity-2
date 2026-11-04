@@ -8,8 +8,11 @@ import TrackerScriptSlot from './TrackerScriptSlot'
 import TrackerStaticGenerate from './TrackerStaticGenerate'
 import TrackerYtMetadata from './TrackerYtMetadata'
 import {
+  COMPLETE_STAGE,
+  canConfirmLinkShared,
   cardStatus,
   hasDelayProof,
+  hasLiveDestination,
   isDidNotTrack,
   MARKING_DID_NOT_TRACK,
   MARKING_NONE,
@@ -19,10 +22,12 @@ import {
   isoDate,
   isVideoCard,
   maybeAdvanceStage,
+  nextStageId,
   nextStageLabel,
   nextStageSection,
   sectionForStage,
   stageList,
+  stageReached,
   templateKind,
   templateMessage,
 } from './trackerUtils'
@@ -353,7 +358,54 @@ export default function TrackerCard({
 
   function saveAsset(key, url) {
     const assets = { ...(card.assets || {}), [key]: url }
-    onChange(maybeAdvanceStage({ ...card, assets }))
+    const next = maybeAdvanceStage({ ...card, assets })
+    if (
+      isVideoCard(card.type)
+      && key === 'video_url'
+      && String(url || '').trim()
+      && !stageReached(next, 'video_edited')
+    ) {
+      weekContext?.toast?.('Video saved. Add a script before this counts as Video edited.', 'info')
+    }
+    onChange(next)
+  }
+
+  function confirmLinkShared() {
+    if ((card.stage || '') === COMPLETE_STAGE) return
+    if (!canConfirmLinkShared(card)) {
+      weekContext?.toast?.('Please complete all previous steps first.', 'error')
+      return
+    }
+    onChange({ ...card, stage: COMPLETE_STAGE })
+  }
+
+  function handleSelectStage(stageId) {
+    if (stageId === COMPLETE_STAGE) {
+      confirmLinkShared()
+      return
+    }
+    scrollToSection(sectionForStage(card, stageId))
+  }
+
+  function handleNextClick() {
+    if (nextStageId(card) === COMPLETE_STAGE) {
+      confirmLinkShared()
+      return
+    }
+    scrollToSection(nextSection)
+  }
+
+  function handleDestinationsChange(nextCard) {
+    const advanced = maybeAdvanceStage(nextCard)
+    if (
+      isVideoCard(card.type)
+      && hasLiveDestination(nextCard)
+      && !stageReached(card, 'posted')
+      && !stageReached(advanced, 'posted')
+    ) {
+      weekContext?.toast?.('Link saved. Finish Shared with doctor before this counts as Posted.', 'info')
+    }
+    onChange(advanced)
   }
 
   function scrollToSection(sectionId) {
@@ -455,9 +507,7 @@ export default function TrackerCard({
           <>
             <Timeline
               card={card}
-              onSelectStage={(stageId) => {
-                scrollToSection(sectionForStage(card, stageId))
-              }}
+              onSelectStage={handleSelectStage}
             />
             <div className="tracker-next-row">
               <div>
@@ -470,7 +520,7 @@ export default function TrackerCard({
                   <button
                     type="button"
                     className="btn btn-primary"
-                    onClick={() => scrollToSection(nextSection)}
+                    onClick={handleNextClick}
                   >
                     {nextLabel} →
                   </button>
@@ -515,7 +565,11 @@ export default function TrackerCard({
 
       {editorView || card.type !== 'static_post' ? null : (
         <div data-tracker-section="generate">
-          <TrackerStaticGenerate card={card} weekContext={weekContext} onChange={onChange} />
+          <TrackerStaticGenerate
+            card={card}
+            weekContext={weekContext}
+            onChange={(next) => onChange(maybeAdvanceStage(next))}
+          />
         </div>
       )}
 
@@ -569,7 +623,7 @@ export default function TrackerCard({
           <TrackerDestinations
             card={card}
             languages={languages}
-            onChange={(next) => onChange(maybeAdvanceStage(next))}
+            onChange={handleDestinationsChange}
           />
         </div>
       )}

@@ -322,6 +322,114 @@ def _at_least_stage(card: dict, stage: str) -> None:
         card["stage"] = stage
 
 
+COMPLETE_STAGE = "link_shared_with_doctor"
+
+
+def _has_tracker_script(card: dict | None) -> bool:
+    assets = card.get("assets") if isinstance(card, dict) else None
+    if not isinstance(assets, dict):
+        return False
+    if str(assets.get("script_text") or "").strip():
+        return True
+    url = str(assets.get("script_url") or "").strip()
+    return bool(url) and not url.lower().startswith(("http://", "https://"))
+
+
+def _has_video_file(card: dict | None) -> bool:
+    assets = card.get("assets") if isinstance(card, dict) else None
+    if not isinstance(assets, dict):
+        return False
+    return bool(str(assets.get("video_url") or "").strip())
+
+
+def _has_doctor_share(card: dict | None) -> bool:
+    if not isinstance(card, dict):
+        return False
+    notes = card.get("doctor_notes") or []
+    files = card.get("doctor_files") or []
+    return bool(notes) or bool(files)
+
+
+def _has_live_destination(card: dict | None) -> bool:
+    if not isinstance(card, dict):
+        return False
+    for dest in card.get("destinations") or []:
+        if not isinstance(dest, dict):
+            continue
+        url = str(dest.get("url") or "").strip()
+        if url and not _is_source_file_url(url):
+            return True
+    return False
+
+
+def _stage_reached(card: dict | None, stage: str) -> bool:
+    if not isinstance(card, dict):
+        return False
+    card_type = str(card.get("type") or "")
+    return _stage_index(card_type, str(card.get("stage") or "planned")) >= _stage_index(
+        card_type, stage
+    )
+
+
+def _can_confirm_complete(card: dict | None) -> bool:
+    if not isinstance(card, dict):
+        return False
+    stages = STAGES.get(str(card.get("type") or "")) or []
+    if not stages or stages[-1] != COMPLETE_STAGE:
+        return False
+    card_type = str(card.get("type") or "")
+    if card_type in VIDEO_TYPES:
+        if not _has_tracker_script(card) or not _has_doctor_share(card):
+            return False
+        posted = _stage_reached(card, "posted") or _has_live_destination(card)
+        if not posted:
+            return False
+        return (
+            _has_video_file(card)
+            or _stage_reached(card, "video_edited")
+            or _stage_reached(card, "posted")
+        )
+    if card_type == "static_post":
+        return _stage_reached(card, "posted") or _has_live_destination(card)
+    if card_type == "blog":
+        return _stage_reached(card, "published") or _has_live_destination(card)
+    return False
+
+
+def _advance_tracker_stage(card: dict | None) -> None:
+    """Move stage forward from artifacts. Never auto-marks the last confirm step."""
+    if not isinstance(card, dict):
+        return
+    card_type = str(card.get("type") or "")
+    stages = STAGES.get(card_type) or []
+    if not stages:
+        return
+    last_id = stages[-1]
+    current = str(card.get("stage") or "planned")
+    if current == last_id:
+        return
+    if card_type in VIDEO_TYPES:
+        if _has_tracker_script(card):
+            _at_least_stage(card, "script_generated")
+            assets = card.get("assets") if isinstance(card.get("assets"), dict) else {}
+            if str(assets.get("audio_url") or "").strip() or str(assets.get("video_url") or "").strip():
+                _at_least_stage(card, "audio_generated")
+            if str(assets.get("video_url") or "").strip():
+                _at_least_stage(card, "video_edited")
+        if _has_doctor_share(card) and (
+            _stage_reached(card, "video_edited") or _stage_reached(card, "posted")
+        ):
+            _at_least_stage(card, "shared_with_doctor")
+        if _has_live_destination(card) and _stage_reached(card, "shared_with_doctor"):
+            _at_least_stage(card, "posted")
+    elif card_type == "static_post" and _has_live_destination(card):
+        _at_least_stage(card, "posted")
+    elif card_type == "blog" and _has_live_destination(card):
+        _at_least_stage(card, "published")
+    if str(card.get("stage") or "") == last_id and current != last_id:
+        card["stage"] = stages[-2] if len(stages) > 1 else current
+
+
 _LIVE_DEST_PLATFORMS = {"youtube", "instagram", "facebook"}
 
 
@@ -383,6 +491,7 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
                 topic = str(pkg.get("topic_text") or "").strip()
                 if topic:
                     row["template_topic"] = topic
+        _advance_tracker_stage(row)
         out.append(row)
     _attach_template_topics(project_id, out)
     return out
@@ -969,6 +1078,7 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             card = _merge_editor_card_save(previous, dict(incoming))
             card["sort_order"] = previous.get("sort_order", index)
             card["marking"] = normalize_marking(card.get("marking"))
+            _advance_tracker_stage(card)
             cards.append(card)
         # Keep untouched cards (including other editors' cards) intact.
         for row in existing.get("cards") or []:
@@ -990,6 +1100,15 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             card.pop("live_posts", None)
             card.pop("template_topic", None)
             card.pop("yt_locales", None)
+            requested_complete = _card_is_complete(card)
+            previous = existing_by_id.get(str(card.get("id")))
+            _advance_tracker_stage(card)
+            if requested_complete and (
+                _can_confirm_complete(card) or (previous and _card_is_complete(previous))
+            ):
+                stages = STAGES.get(str(card.get("type") or "")) or []
+                if stages:
+                    card["stage"] = stages[-1]
             cards.append(card)
         if week_is_before_current(body.year, body.month, body.week):
             for card in cards:
@@ -1176,6 +1295,7 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
         raise HTTPException(403, "Card is not assigned to you")
     if key == "editor_notes" and str(card.get("type") or "") not in VIDEO_TYPES:
         raise HTTPException(400, "Editor notes are only allowed on long and short videos")
+    previous = dict(card)
     notes = list(card.get(key) or [])
     notes.append(
         {
@@ -1188,6 +1308,8 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
         }
     )
     card[key] = notes
+    _advance_tracker_stage(card)
+    apply_card_history(previous, card, by=auth.get("email") or auth["user_id"])
     doc["cards"] = cards
     doc["updated_at"] = _now_iso()
     weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
@@ -1284,6 +1406,7 @@ async def weekly_tracker_file_upload(
         card["assets"] = assets
         changed = True
     if changed:
+        _advance_tracker_stage(card)
         apply_card_history(previous, card, by=actor)
         doc["cards"] = cards
         doc["updated_at"] = _now_iso()
