@@ -1082,6 +1082,82 @@ export const api = {
       token,
       body: { client_id: clientId, api_key_id: apiKeyId },
     }),
+
+  getWebsiteReportsSettings: (token, clientId) =>
+    apiFetch('/website.reports.settings.get', {
+      token,
+      body: { client_id: clientId },
+    }),
+  updateWebsiteReportsSettings: (token, clientId, trackerConfig) =>
+    apiFetch('/website.reports.settings.update', {
+      token,
+      body: { client_id: clientId, tracker_config: trackerConfig },
+    }),
+  startWebsiteGoogleConnect: (token, clientId) =>
+    apiFetch('/website.reports.google.connect.start', {
+      token,
+      body: { client_id: clientId },
+    }),
+  disconnectWebsiteGoogle: (token, clientId) =>
+    apiFetch('/website.reports.google.disconnect', {
+      token,
+      body: { client_id: clientId },
+    }),
+  listWebsiteReportsProperties: (token, clientId) =>
+    apiFetch('/website.reports.properties.list', {
+      token,
+      body: { client_id: clientId },
+    }),
+  getWebsiteGscPerformance: (token, clientId, { months = 3, rowLimit = 25 } = {}) =>
+    apiFetch('/website.reports.gsc.performance', {
+      token,
+      body: { client_id: clientId, months, row_limit: rowLimit },
+    }),
+
+  listWebsiteMonthlyReports: (token, clientId) =>
+    apiFetch('/website.reports.monthly.list', {
+      token,
+      body: { client_id: clientId },
+    }),
+  getWebsiteMonthlyReport: (token, clientId, reportId) =>
+    apiFetch('/website.reports.monthly.get', {
+      token,
+      body: { client_id: clientId, report_id: reportId },
+    }),
+  generateWebsiteMonthlyReport: (token, clientId, reportMonth) =>
+    apiFetch('/website.reports.monthly.generate', {
+      token,
+      body: { client_id: clientId, report_month: reportMonth },
+    }),
+  refineWebsiteMonthlyReport: (token, clientId, reportId, prompt) =>
+    apiFetch('/website.reports.monthly.refine', {
+      token,
+      body: { client_id: clientId, report_id: reportId, prompt },
+    }),
+  finalizeWebsiteMonthlyReport: (token, clientId, reportId) =>
+    apiFetch('/website.reports.monthly.finalize', {
+      token,
+      body: { client_id: clientId, report_id: reportId },
+    }),
+  reviseWebsiteMonthlyReport: (token, clientId, reportId) =>
+    apiFetch('/website.reports.monthly.revise', {
+      token,
+      body: { client_id: clientId, report_id: reportId },
+    }),
+  fetchWebsiteMonthlyReportHtml: async (token, reportId) => {
+    const response = await fetch(url(`/website.reports.monthly.html/${reportId}`), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) throw new Error(await parseError(response))
+    return response.text()
+  },
+  fetchWebsiteMonthlyReportPdfBlob: async (token, reportId) => {
+    const response = await fetch(url(`/website.reports.monthly.pdf/${reportId}`), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) throw new Error(await parseError(response))
+    return response.blob()
+  },
 }
 
 export default api

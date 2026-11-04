@@ -371,8 +371,13 @@ export default function ClientPostVideo() {
         const message = data.errors.join(' ')
         setPageError(message)
         toast(message, 'error')
-      } else {
+      }
+      if (data?.warnings?.length) {
+        toast(data.warnings.join(' '), 'success')
+      } else if (!data?.errors?.length) {
         toast('Video posted successfully!', 'success')
+      }
+      if (!data?.errors?.length) {
         setVideoUrlsByChannel({})
         setSocialVideoLink('')
       }

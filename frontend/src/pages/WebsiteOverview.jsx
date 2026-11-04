@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import WebsiteDataSourcesPanel from '../components/WebsiteDataSourcesPanel'
+import WebsiteGscPerformancePanel from '../components/WebsiteGscPerformancePanel'
+import useWebsiteGscWorkspace from '../hooks/useWebsiteGscWorkspace'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -15,6 +18,7 @@ export default function WebsiteOverview() {
   const [mediaCount, setMediaCount] = useState(null)
   const [entryCount, setEntryCount] = useState(null)
   const [loading, setLoading] = useState(true)
+  const gsc = useWebsiteGscWorkspace(clientId)
 
   const base = `/clients/${clientId}/website`
 
@@ -96,7 +100,10 @@ export default function WebsiteOverview() {
             ]}
           />
           <h1>Overview</h1>
-          <p>Content workspace for this client’s website — collections, entries, media, and API access.</p>
+          <p>
+            Content workspace plus Search Console performance and tracker settings for this client’s
+            website.
+          </p>
         </div>
         <div className="header-actions">
           <button type="button" className="btn btn-primary" onClick={createToken}>
@@ -104,6 +111,40 @@ export default function WebsiteOverview() {
           </button>
         </div>
       </header>
+
+      <WebsiteGscPerformancePanel
+        connected={gsc.connected}
+        loading={gsc.loading}
+        perfLoading={gsc.perfLoading}
+        performance={gsc.performance}
+        googleConnection={gsc.googleConnection}
+        connecting={gsc.connecting}
+        onConnect={gsc.connectGoogle}
+        onDisconnect={gsc.disconnectGoogle}
+        onRefreshProperties={() =>
+          gsc
+            .refreshProperties(gsc.settings)
+            .then(() => gsc.toast('Properties refreshed', 'success'))
+            .catch((err) => gsc.toast(err.message, 'error'))
+        }
+        onRefreshPerformance={() =>
+          gsc
+            .loadPerformance()
+            .then(() => gsc.toast('Performance refreshed', 'success'))
+            .catch(() => {})
+        }
+      />
+
+      <WebsiteDataSourcesPanel
+        loading={gsc.loading}
+        saving={gsc.saving}
+        settings={gsc.settings}
+        properties={gsc.properties}
+        connected={gsc.connected}
+        onSave={gsc.saveSettings}
+        onUpdateSetting={gsc.updateSetting}
+        onUpdateConversionEvent={gsc.updateConversionEvent}
+      />
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         <div className="stat-card card">
@@ -165,11 +206,11 @@ export default function WebsiteOverview() {
         </Link>
         <Link to={`${base}/reports`} className="workspace-card card">
           <div className="workspace-card-icon website">
-            <i className="fa-solid fa-chart-line" />
+            <i className="fa-solid fa-file-pdf" />
           </div>
           <div className="workspace-card-body">
             <h2>Reports</h2>
-            <p>SEO and site-health snapshots — coming soon.</p>
+            <p>Generate and download monthly website performance PDFs.</p>
           </div>
           <span className="btn btn-secondary btn-sm">View</span>
         </Link>

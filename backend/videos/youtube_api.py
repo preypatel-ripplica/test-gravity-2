@@ -500,7 +500,7 @@ def _wait_youtube_ready(youtube, video_id: str, on_status=None) -> None:
     """Poll until YouTube finishes processing. Upload success alone is not enough."""
     import time
 
-    deadline = time.time() + 30 * 60
+    deadline = time.time() + 60 * 60
     last = ""
     while time.time() < deadline:
         response = youtube.videos().list(

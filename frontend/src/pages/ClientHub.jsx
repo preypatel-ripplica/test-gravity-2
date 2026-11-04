@@ -87,6 +87,17 @@ export default function ClientHub() {
           <span className="btn btn-primary btn-sm">Open Website</span>
         </Link>
         ) : null}
+
+        <Link to="/bot" className="workspace-card card">
+          <div className="workspace-card-icon whatsapp">
+            <i className="fa-brands fa-whatsapp" />
+          </div>
+          <div className="workspace-card-body">
+            <h2>WhatsApp</h2>
+            <p>Inbox, leads, templates, broadcasts, and calls.</p>
+          </div>
+          <span className="btn btn-primary btn-sm">Open WhatsApp</span>
+        </Link>
       </div>
     </>
   )

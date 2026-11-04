@@ -25,9 +25,6 @@ export function UIProvider({ children }) {
   const toast = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random().toString(36).substr(2, 5)
     setToasts((prev) => [...prev, { id, message, type }])
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id))
-    }, 4000)
   }, [])
 
   const removeToast = useCallback((id) => {
@@ -82,14 +79,14 @@ export function UIProvider({ children }) {
       {/* Toasts Container */}
       <div className="toast-container">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.type}`} onClick={() => removeToast(t.id)}>
+          <div key={t.id} className={`toast toast-${t.type}`} role="status">
             <div className="toast-icon">
               {t.type === 'success' && <i className="fa-solid fa-circle-check" />}
               {t.type === 'error' && <i className="fa-solid fa-circle-exclamation" />}
               {t.type === 'info' && <i className="fa-solid fa-circle-info" />}
             </div>
             <div className="toast-message">{t.message}</div>
-            <button className="toast-close" onClick={(e) => { e.stopPropagation(); removeToast(t.id); }}>
+            <button type="button" className="toast-close" aria-label="Close" onClick={() => removeToast(t.id)}>
               <i className="fa-solid fa-xmark" />
             </button>
           </div>

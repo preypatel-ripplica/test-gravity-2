@@ -114,7 +114,15 @@ def upload_file(folder: str, local_path: Path | str, content_type: str = "applic
                 ) from exc
             raise
     else:
+        # Avoid CDN/browser serving a stale PDF after re-finalize overwrites the same object key.
+        if content_type == "application/pdf":
+            blob.cache_control = "no-cache, max-age=0"
         blob.upload_from_filename(str(path), content_type=content_type)
+        if content_type == "application/pdf":
+            try:
+                blob.patch()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[gcs] could not patch cache_control on {blob_path}: {exc}", flush=True)
 
     if content_type.startswith("video/"):
         try:
@@ -130,7 +138,16 @@ def upload_file(folder: str, local_path: Path | str, content_type: str = "applic
             else:
                 print(f"[gcs] could not set a public ACL on {blob_path}: {exc}", flush=True)
 
-    return f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_path}"
+    # Generation query forces clients/CDN to fetch the just-uploaded object version.
+    try:
+        blob.reload()
+        generation = getattr(blob, "generation", None)
+    except Exception:
+        generation = None
+    url = f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_path}"
+    if generation:
+        return f"{url}?generation={generation}"
+    return url
 
 
 def delete_file(blob_path: str) -> None:

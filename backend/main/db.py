@@ -22,6 +22,10 @@ from backend.website.models import (
     COL_CMS_COLLECTIONS,
     COL_CMS_ENTRIES,
     COL_CMS_MEDIA,
+    COL_OAUTH_CONNECTIONS,
+    COL_OAUTH_STATES,
+    COL_WEBSITE_MONTHLY_REPORTS,
+    COL_WEBSITE_SETTINGS,
 )
 
 from .config import MONGODB_DB_NAME, MONGODB_URI
@@ -154,6 +158,22 @@ def cms_api_keys_col() -> Collection:
     return get_db()[COL_CMS_API_KEYS]
 
 
+def oauth_connections_col() -> Collection:
+    return get_db()[COL_OAUTH_CONNECTIONS]
+
+
+def oauth_states_col() -> Collection:
+    return get_db()[COL_OAUTH_STATES]
+
+
+def website_settings_col() -> Collection:
+    return get_db()[COL_WEBSITE_SETTINGS]
+
+
+def website_monthly_reports_col() -> Collection:
+    return get_db()[COL_WEBSITE_MONTHLY_REPORTS]
+
+
 def ensure_indexes() -> None:
     """Create indexes once per process. Safe to call on every startup."""
     global _indexes_ready
@@ -246,6 +266,27 @@ def ensure_indexes() -> None:
     cms_api_keys_col().create_index([("id", ASCENDING)], unique=True)
     cms_api_keys_col().create_index([("project_id", ASCENDING)])
     cms_api_keys_col().create_index([("key_hash", ASCENDING)], unique=True)
+
+    oauth_connections_col().create_index([("connection_id", ASCENDING)], unique=True)
+    oauth_connections_col().create_index(
+        [("project_id", ASCENDING), ("provider", ASCENDING)], unique=True
+    )
+    oauth_connections_col().create_index([("status", ASCENDING)])
+
+    # Shared with Instagram/Facebook OAuth; SEO rows use provider=google_seo
+    oauth_states_col().create_index([("state", ASCENDING)])
+    oauth_states_col().create_index([("provider", ASCENDING)])
+    oauth_states_col().create_index(
+        [("expires_at", ASCENDING)], expireAfterSeconds=0
+    )
+
+    website_settings_col().create_index([("project_id", ASCENDING)], unique=True)
+
+    website_monthly_reports_col().create_index([("id", ASCENDING)], unique=True)
+    website_monthly_reports_col().create_index(
+        [("project_id", ASCENDING), ("report_month", ASCENDING)],
+        unique=True,
+    )
 
     _indexes_ready = True
 

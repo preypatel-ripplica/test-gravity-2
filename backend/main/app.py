@@ -11,9 +11,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
 
+from backend.bot.lifecycle import start_bot_workers, stop_bot_workers
+from backend.bot.routes import router as bot_router
 from backend.trackers.crudl import router as trackers_router
 from backend.trackers.edit_tracker import router as edit_tracker_router
 from backend.website.crudl import router as website_router
+from backend.website.reports import router as website_reports_router
 
 from backend.tg.google_oauth import router as google_oauth_router
 from backend.tg.routes.channel import router as tg_channel_router
@@ -39,8 +42,17 @@ async def lifespan(_app: FastAPI):
     backend_root = Path(__file__).resolve().parents[1]
     for name in ("social_assets", "narration_cache", "reports"):
         (backend_root / name).mkdir(parents=True, exist_ok=True)
-    yield
-    close()
+    # Must not block PORT bind — bot mongo init runs in a background task.
+    bot_tasks: list = []
+    try:
+        bot_tasks = start_bot_workers()
+    except Exception as error:  # noqa: BLE001 — Beacon must boot even if bot fails
+        print(f"BOT: failed to schedule workers: {error}", flush=True)
+    try:
+        yield
+    finally:
+        await stop_bot_workers(bot_tasks)
+        close()
 
 
 app = FastAPI(title="Beacon", lifespan=lifespan)
@@ -78,11 +90,15 @@ app.include_router(tg_report_router)
 app.include_router(tg_social_router)
 app.include_router(tg_tracker_sheet_router)
 app.include_router(plug_router)
+app.include_router(website_reports_router)
 
 # Beacon-native domains
 app.include_router(website_router)
 app.include_router(trackers_router)
 app.include_router(edit_tracker_router)
+
+# WhatsApp bot (Botify) — same logic/UI/DB under /bot/api/*
+app.include_router(bot_router, prefix="/bot/api")
 
 # Compat leftovers (doctor-ref / credentials / select aliases) — after TG so
 # TG handlers win on overlapping client.* / social.* paths.
