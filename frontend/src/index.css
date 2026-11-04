@@ -3590,8 +3590,19 @@ body:not(:has(.bot-app, .plug-app)) tbody tr {
 .plan-header-actions {
     display: flex;
     align-items: flex-end;
-    gap: 12px;
-    flex-wrap: wrap;
+    gap: 8px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.plan-header-actions .btn {
+    padding: 7px 10px;
+    font-size: 12px;
+    gap: 5px;
+}
+
+.plan-header-actions .plan-count-field .control-label {
+    font-size: 10px;
 }
 
 .plan-count-field {

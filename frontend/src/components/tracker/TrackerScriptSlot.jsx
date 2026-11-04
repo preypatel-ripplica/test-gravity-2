@@ -5,24 +5,6 @@ function itemLabel(item) {
   return item.title_hinglish || item.working_title || item.title_en || item.topic_text || 'Untitled'
 }
 
-function fuzzyScore(query, text) {
-  const q = query.trim().toLowerCase()
-  const value = String(text || '').toLowerCase()
-  if (!q) return 1
-  const at = value.indexOf(q)
-  if (at >= 0) return 200 - at
-  let qi = 0
-  let streak = 0
-  for (const ch of value) {
-    if (ch === q[qi]) {
-      qi += 1
-      streak += 1
-      if (qi === q.length) return 40 + streak
-    }
-  }
-  return 0
-}
-
 function ScriptSwitch({ value, onChange }) {
   return (
     <div className="tracker-script-switch" role="tablist">
@@ -39,7 +21,6 @@ function ScriptSwitch({ value, onChange }) {
 export default function TrackerScriptSlot({
   card,
   scriptedItems = [],
-  titleOptions = [],
   onPick,
   onSaveEdit,
   onSaveManual,
@@ -48,8 +29,7 @@ export default function TrackerScriptSlot({
   const [mode, setMode] = useState(null)
   const [scriptOpen, setScriptOpen] = useState(true)
   const [draft, setDraft] = useState('')
-  const [query, setQuery] = useState('')
-  const [pickedTitle, setPickedTitle] = useState(null)
+  const [titleDraft, setTitleDraft] = useState('')
   const value = scriptTextValue(card.assets)
   const title = card.title || ''
   const source = card.assets?.script_source === 'manual' ? 'custom' : 'existing'
@@ -57,16 +37,6 @@ export default function TrackerScriptSlot({
     () => scriptedItems.filter((item) => item.id && (item.script || '').trim()),
     [scriptedItems],
   )
-  const titles = useMemo(() => {
-    const ranked = titleOptions
-      .map((row) => ({
-        ...row,
-        score: Math.max(fuzzyScore(query, row.title), fuzzyScore(query, row.keyword)),
-      }))
-      .filter((row) => row.score > 0)
-    ranked.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
-    return ranked
-  }, [titleOptions, query])
 
   function openExisting() {
     setScriptOpen(true)
@@ -74,16 +44,19 @@ export default function TrackerScriptSlot({
   }
 
   function openCustom() {
+    const manual = card.assets?.script_source === 'manual'
     setScriptOpen(true)
-    setQuery('')
-    setPickedTitle(null)
-    setDraft('')
-    setMode('title')
+    setTitleDraft(manual ? title : '')
+    setDraft(manual ? value : '')
+    setMode('custom')
   }
 
   function startEdit() {
     setScriptOpen(true)
     setDraft(value)
+    if (card.assets?.script_source === 'manual') {
+      setTitleDraft(title)
+    }
     setMode('edit')
   }
 
@@ -94,7 +67,7 @@ export default function TrackerScriptSlot({
 
   const switchValue = mode === 'pick'
     ? 'existing'
-    : (mode === 'title' || mode === 'write')
+    : mode === 'custom'
       ? 'custom'
       : source
 
@@ -129,23 +102,51 @@ export default function TrackerScriptSlot({
   }
 
   if (mode === 'edit') {
+    const manual = card.assets?.script_source === 'manual'
+    const titleId = `tracker-script-title-edit-${card.id}`
+    const scriptId = `tracker-script-body-edit-${card.id}`
     return (
       <div className="tracker-script-slot is-editing">
         {header}
+        {manual ? (
+          <>
+            <label className="tracker-kicker" htmlFor={titleId}>Title</label>
+            <input
+              id={titleId}
+              className="form-control"
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              placeholder="Title"
+            />
+            <label className="tracker-kicker" htmlFor={scriptId}>Script</label>
+          </>
+        ) : null}
         <textarea
+          id={manual ? scriptId : undefined}
           className="form-control"
-          autoFocus
+          autoFocus={!manual}
           rows={8}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          placeholder={manual ? 'Paste or write the script' : undefined}
         />
         <div className="tracker-script-slot-actions">
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={busy || !draft.trim()}
+            disabled={busy || !draft.trim() || (manual && !titleDraft.trim())}
             onClick={() => {
-              onSaveEdit(draft)
+              if (manual) {
+                onSaveManual({
+                  text: draft,
+                  title: titleDraft.trim(),
+                  topicId: card.topic_id || null,
+                  itemId: card.content_plan_item_id || null,
+                })
+              } else {
+                onSaveEdit(draft)
+              }
               setMode(null)
             }}
           >
@@ -159,70 +160,53 @@ export default function TrackerScriptSlot({
     )
   }
 
-  if (mode === 'title' || mode === 'write') {
+  if (mode === 'custom') {
+    const titleId = `tracker-script-title-${card.id}`
+    const scriptId = `tracker-script-body-${card.id}`
     return (
       <div className="tracker-script-slot">
         {header}
         <div className="tracker-script-choose">
-          <p className="tracker-hint">Every keyword is listed, including ones that do not have a script yet. This script stays on the card.</p>
+          <p className="tracker-hint">Type a title and script for this card. This stays on the card.</p>
+          <label className="tracker-kicker" htmlFor={titleId}>Title</label>
           <input
+            id={titleId}
             className="form-control"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search titles"
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            placeholder="Title"
           />
-          <div className="tracker-script-keyword-list tracker-title-results">
-            {titles.length === 0 ? (
-              <p className="tracker-hint">No titles match that search.</p>
-            ) : titles.map((row) => (
-              <button
-                key={row.key}
-                type="button"
-                className={`tracker-script-keyword${pickedTitle?.key === row.key ? ' is-current' : ''}`}
-                onClick={() => {
-                  setPickedTitle(row)
-                  setMode('write')
-                }}
-              >
-                <strong>{row.title}</strong>
-                {row.keyword && row.keyword !== row.title ? <small>Keyword · {row.keyword}</small> : <small>Keyword</small>}
-              </button>
-            ))}
+          <label className="tracker-kicker" htmlFor={scriptId}>Script</label>
+          <textarea
+            id={scriptId}
+            className="form-control"
+            rows={8}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Paste or write the script"
+          />
+          <div className="tracker-script-slot-actions">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy || !titleDraft.trim() || !draft.trim()}
+              onClick={() => {
+                onSaveManual({
+                  text: draft,
+                  title: titleDraft.trim(),
+                  topicId: null,
+                  itemId: null,
+                })
+                setMode(null)
+              }}
+            >
+              Save
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setMode(null)}>
+              Cancel
+            </button>
           </div>
-          {mode === 'write' && pickedTitle ? (
-            <>
-              <p className="tracker-hint">Writing for <strong>{pickedTitle.title}</strong></p>
-              <textarea
-                className="form-control"
-                autoFocus
-                rows={8}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Paste or write the script"
-              />
-              <div className="tracker-script-slot-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={busy || !draft.trim()}
-                  onClick={() => {
-                    onSaveManual({
-                      text: draft,
-                      title: pickedTitle.title,
-                      topicId: pickedTitle.topicId,
-                      itemId: pickedTitle.itemId,
-                    })
-                    setMode(null)
-                  }}
-                >
-                  Save
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setMode(value ? null : 'title')}>
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : null}
         </div>
       </div>
     )

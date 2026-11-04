@@ -196,6 +196,10 @@ export default function ClientContentPlan() {
         itemIds,
         referenceVideoIds: selectedYTVideos
       })
+      if (data?.thumbnail_reference_failed) {
+        toast('Thumbnail generation from the recent 3 failed, so nothing was saved.', 'error')
+        return
+      }
       setSuggestions(data.suggestions || null)
       toast('Metadata generated — open items to view', 'success')
     } catch (err) {
@@ -248,7 +252,7 @@ export default function ClientContentPlan() {
           </label>
           <button
             type="button"
-            className="btn btn-secondary"
+            className="btn btn-secondary btn-sm"
             disabled={anyBusy || loading}
             onClick={handleMap}
           >
@@ -257,11 +261,11 @@ export default function ClientContentPlan() {
                 busyAction === 'map' ? 'fa-spinner fa-spin' : 'fa-diagram-project'
               }`}
             />
-            1. Map
+            Generate map
           </button>
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-primary btn-sm"
             disabled={anyBusy || loading}
             onClick={handleGenerate}
           >
@@ -270,11 +274,11 @@ export default function ClientContentPlan() {
                 busyAction === 'generate' ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'
               }`}
             />
-            2. Titles
+            Generate titles
           </button>
           <button
             type="button"
-            className={`btn btn-${showScriptsCard ? 'primary' : 'secondary'}`}
+            className={`btn btn-sm btn-${showScriptsCard ? 'primary' : 'secondary'}`}
             disabled={anyBusy || loading || items.length === 0}
             onClick={() => setShowScriptsCard(!showScriptsCard)}
             title={
@@ -288,11 +292,11 @@ export default function ClientContentPlan() {
                 busyAction === 'scripts' ? 'fa-spinner fa-spin' : 'fa-file-pen'
               }`}
             />
-            3. Scripts
+            Generate scripts
           </button>
           <button
             type="button"
-            className="btn btn-secondary"
+            className="btn btn-secondary btn-sm"
             disabled={anyBusy || loading || items.length === 0}
             onClick={handleOpenYTModal}
             title={items.length === 0 ? 'Generate titles first' : 'Generate YT Metadata'}
@@ -302,7 +306,7 @@ export default function ClientContentPlan() {
                 busyAction === 'ytmetadata' ? 'fa-spinner fa-spin' : 'fa-youtube'
               }`}
             />
-            4. YT Metadata
+            Generate YT metadata
           </button>
         </div>
       </header>

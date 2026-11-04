@@ -481,7 +481,7 @@ export const api = {
         script,
       },
     }),
-  generateYouTubeMetadata: (token, clientId, { itemIds, userPrompt, referenceVideoIds, languages, scriptOverride, topicId, topicTitle, format } = {}) =>
+  generateYouTubeMetadata: (token, clientId, { itemIds, userPrompt, referenceVideoIds, languages, scriptOverride, topicId, topicTitle, format, allowUnreferencedThumbnail } = {}) =>
     apiFetch('/client.content-plan-generate-metadata', {
       token,
       body: {
@@ -490,6 +490,7 @@ export const api = {
         user_prompt: userPrompt,
         reference_video_ids: referenceVideoIds || [],
         languages: languages || ['hinglish'],
+        allow_unreferenced_thumbnail: Boolean(allowUnreferencedThumbnail),
         ...(scriptOverride ? { script_override: scriptOverride } : {}),
         ...(format ? { format } : {}),
         ...(topicId ? { topic_id: topicId, topic_title: topicTitle || '' } : {}),

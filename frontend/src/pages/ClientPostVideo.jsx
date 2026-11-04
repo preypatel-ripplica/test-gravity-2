@@ -227,13 +227,19 @@ export default function ClientPostVideo() {
     setMetadataBusy(true)
     toast(`Generating metadata (${languages.join(', ')})…`, 'info')
     try {
-      await api.generateYouTubeMetadata(token, clientId, {
+      const data = await api.generateYouTubeMetadata(token, clientId, {
         itemIds,
         referenceVideoIds: selectedRefVideoIds,
         languages,
       })
-      toast(`Metadata generated for ${itemIds.length} item(s)!`, 'success')
-      setShowLangModal(false)
+      if (data?.thumbnail_reference_failed) {
+        const message = 'Thumbnail generation from the recent 3 failed, so nothing was saved.'
+        setPageError(message)
+        toast(message, 'error')
+      } else {
+        toast(`Metadata generated for ${itemIds.length} item(s)!`, 'success')
+        setShowLangModal(false)
+      }
     } catch (err) {
       const message = `Failed to generate metadata: ${err.message}`
       setPageError(message)

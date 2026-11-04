@@ -19,7 +19,6 @@ import {
   isoDate,
   isVideoCard,
   maybeAdvanceStage,
-  nextStageId,
   nextStageLabel,
   nextStageSection,
   sectionForStage,
@@ -339,7 +338,6 @@ export default function TrackerCard({
   languages,
   weekContext,
   scriptedItems = [],
-  titleOptions = [],
   scriptBusy = false,
   onPickScript,
   onSaveScriptText,
@@ -458,8 +456,7 @@ export default function TrackerCard({
             <Timeline
               card={card}
               onSelectStage={(stageId) => {
-                onChange({ ...card, started: true, stage: stageId })
-                scrollToSection(sectionForStage({ ...card, stage: stageId }, stageId))
+                scrollToSection(sectionForStage(card, stageId))
               }}
             />
             <div className="tracker-next-row">
@@ -473,11 +470,7 @@ export default function TrackerCard({
                   <button
                     type="button"
                     className="btn btn-primary"
-                    onClick={() => {
-                      const nextId = nextStageId(card)
-                      if (nextId) onChange({ ...card, started: true, stage: nextId })
-                      scrollToSection(nextSection)
-                    }}
+                    onClick={() => scrollToSection(nextSection)}
                   >
                     {nextLabel} →
                   </button>
@@ -494,7 +487,6 @@ export default function TrackerCard({
                   <TrackerScriptSlot
                     card={card}
                     scriptedItems={scriptedItems}
-                    titleOptions={titleOptions}
                     busy={scriptBusy}
                     onPick={onPickScript}
                     onSaveEdit={onSaveScriptText}

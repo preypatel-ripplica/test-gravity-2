@@ -35,6 +35,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [tagsDraft, setTagsDraft] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
+  const [refThumbFailed, setRefThumbFailed] = useState(false)
   const locales = card.yt_locales || {}
   const generated = generatedKeys(locales)
   const hasMeta = localeHasTitle(locales)
@@ -102,7 +103,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
     return card.type === 'short' ? 'Short' : 'Long'
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(allowUnreferenced = false) {
     if (!linked) {
       toast('Add a script first.', 'error')
       return
@@ -112,28 +113,39 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
       return
     }
     const topicId = card.topic_id || (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : '')
+    const continueWithoutReference = allowUnreferenced === true
     setGenerating(true)
     let nextLocales = null
+    let unresolved = false
     try {
       const manualScript = card.assets?.script_source === 'manual' ? scriptText : ''
       const data = await api.generateYouTubeMetadata(token, clientId, {
         itemIds: card.content_plan_item_id ? [card.content_plan_item_id] : [],
-        referenceVideoIds: selectedRefIds,
+        referenceVideoIds: continueWithoutReference ? [] : selectedRefIds,
         languages: generateLanguages,
         scriptOverride: manualScript || undefined,
         topicId: card.content_plan_item_id ? undefined : topicId,
         topicTitle: card.title,
         format: cardFormat(),
+        allowUnreferencedThumbnail: continueWithoutReference,
       })
-      const item = (data.suggestions?.items || []).find((row) => row.id === card.content_plan_item_id)
-      const keyword = (data.suggestions?.keyword_analysis || []).find((row) => row.topic_id === topicId)
-      nextLocales = data.yt_locales || item?.yt_locales || keyword?.yt_locales || null
-      setPickingLang(false)
-      toast('YouTube metadata generated.', 'success')
+      if (data?.thumbnail_reference_failed) {
+        unresolved = true
+        setRefThumbFailed(true)
+      } else {
+        const item = (data.suggestions?.items || []).find((row) => row.id === card.content_plan_item_id)
+        const keyword = (data.suggestions?.keyword_analysis || []).find((row) => row.topic_id === topicId)
+        nextLocales = data.yt_locales || item?.yt_locales || keyword?.yt_locales || null
+        setRefThumbFailed(false)
+        setPickingLang(false)
+        toast('YouTube metadata generated.', 'success')
+      }
     } catch (err) {
       toast(err.message, 'error')
     }
-    await refreshCardLocales(nextLocales, card.content_plan_item_id ? card.topic_id : topicId)
+    if (!unresolved) {
+      await refreshCardLocales(nextLocales, card.content_plan_item_id ? card.topic_id : topicId)
+    }
     setGenerating(false)
   }
 
@@ -312,7 +324,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
             })}
           </div>
           <div className="tracker-script-slot-actions">
-            <button type="button" className="btn btn-primary btn-sm" disabled={busy || generateLanguages.length === 0} onClick={handleGenerate}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy || generateLanguages.length === 0} onClick={() => handleGenerate(false)}>
               {generating ? (
                 <>
                   <i className="fa-solid fa-spinner fa-spin" /> Generating…
@@ -321,6 +333,20 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
             </button>
             <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setPickingLang(false)}>
               Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {refThumbFailed && (
+        <div className="tracker-script-choose">
+          <p className="tracker-hint">Thumbnail generation from the recent 3 failed. Continue without any reference? Nothing has been saved.</p>
+          <div className="tracker-script-slot-actions">
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => handleGenerate(true)}>
+              {generating ? 'Generating…' : 'Yes'}
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setRefThumbFailed(false)}>
+              No
             </button>
           </div>
         </div>

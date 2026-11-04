@@ -379,7 +379,12 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
             if pkg.get("posted_urls") or pkg.get("youtube_urls"):
                 _at_least_stage(row, "posted")
             row["live_posts"] = _live_posts_from_package(pkg)
+            if not str(row.get("title") or "").strip():
+                topic = str(pkg.get("topic_text") or "").strip()
+                if topic:
+                    row["template_topic"] = topic
         out.append(row)
+    _attach_template_topics(project_id, out)
     return out
 
 
@@ -419,6 +424,71 @@ def _live_posts_from_package(pkg: dict) -> list[dict]:
         if isinstance(entry, dict):
             add(str(entry.get("platform") or ""), entry)
     return list(by_key.values())
+
+
+def _topic_label(row: dict | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("topic_text", "title_en", "working_title", "title_hinglish", "title"):
+        text = str(row.get(key) or "").strip()
+        if text and text.lower() != "untitled":
+            return text
+    return ""
+
+
+def _attach_template_topics(project_id: str, cards: list[dict]) -> None:
+    """Keyword/topic for the WhatsApp line when the card title is blank. Not saved."""
+    pending = [card for card in cards if not str(card.get("title") or "").strip() and not card.get("template_topic")]
+    if not pending:
+        return
+    post_ids: list[str] = []
+    for card in pending:
+        post_ids.extend(str(item) for item in (card.get("generated_post_ids") or []) if item)
+        for value in (card.get("destination_post_ids") or {}).values():
+            if value:
+                post_ids.append(str(value))
+    posts: dict[str, dict] = {}
+    if post_ids:
+        from backend.main.db import social_posts_col
+
+        for doc in social_posts_col().find(
+            {"id": {"$in": list(set(post_ids))}},
+            {"_id": 0, "id": 1, "topic_text": 1, "topic_id": 1, "content_plan_item_id": 1, "plan_item_id": 1},
+        ):
+            posts[str(doc.get("id"))] = doc
+    project = projects_col().find_one({"id": project_id}, {"_id": 0, "content_plan": 1}) or {}
+    plan = project.get("content_plan") or {}
+    items = {str(row.get("id")): row for row in (plan.get("items") or []) if isinstance(row, dict) and row.get("id")}
+    keywords = {
+        str(row.get("topic_id")): row
+        for row in (plan.get("keyword_analysis") or [])
+        if isinstance(row, dict) and row.get("topic_id")
+    }
+
+    def from_post(post: dict) -> str:
+        text = _topic_label(post)
+        if text:
+            return text
+        item_id = str(post.get("content_plan_item_id") or post.get("plan_item_id") or "")
+        text = _topic_label(items.get(item_id))
+        if text:
+            return text
+        return _topic_label(keywords.get(str(post.get("topic_id") or "")))
+
+    for card in pending:
+        topic = ""
+        ids = [str(item) for item in (card.get("generated_post_ids") or []) if item]
+        ids.extend(str(value) for value in (card.get("destination_post_ids") or {}).values() if value)
+        for post_id in ids:
+            topic = from_post(posts.get(post_id) or {})
+            if topic:
+                break
+        if not topic:
+            topic = _topic_label(items.get(str(card.get("content_plan_item_id") or "")))
+        if not topic:
+            topic = _topic_label(keywords.get(str(card.get("topic_id") or "")))
+        if topic:
+            card["template_topic"] = topic
 
 
 def _ensure_dest_url(card: dict, platform: str, url: str, language: str | None = None) -> None:
@@ -917,6 +987,9 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             if card.get("started") and not card.get("destinations"):
                 seed_destinations_for_card(card, languages)
             card.pop("generated_posts", None)
+            card.pop("live_posts", None)
+            card.pop("template_topic", None)
+            card.pop("yt_locales", None)
             cards.append(card)
         if week_is_before_current(body.year, body.month, body.week):
             for card in cards:

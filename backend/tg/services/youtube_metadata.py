@@ -574,8 +574,8 @@ def _download_reference_files(references: List[dict]) -> list[tuple[str, tuple[s
 def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrait: bool = False) -> Optional[str]:
     """Send reference photos to the image edit, the same call Instagram posts use.
 
-    Returns None when the images cannot be downloaded or the edit fails, so the
-    caller can fall back to text-only generation.
+    Returns None when the images cannot be downloaded or the edit fails.
+    Callers should use text-only generation only when the channel has no thumbnails.
     """
     if not settings.OPENAI_API_KEY or not references:
         return None
@@ -602,7 +602,7 @@ def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrai
             response.raise_for_status()
             payload = response.json()
     except Exception as exc:
-        print(f"[yt-thumbnail] reference edit failed, falling back to text generate: {exc}", flush=True)
+        print(f"[yt-thumbnail] reference edit failed: {exc}", flush=True)
         return None
     image_row = (payload.get("data") or [{}])[0]
     image_bytes = None
