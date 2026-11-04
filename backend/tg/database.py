@@ -92,6 +92,7 @@ CLIENT_PROFILE_KEYS = (
     "tracker_deliverables_period",
     "tracker_deliverable_history",
     "tracker_week_slot_plan",
+    "example_scripts",
     "status",
     "deleted_at",
 )
@@ -334,6 +335,11 @@ def _client_from_project(doc: dict, *, topics: list[dict] | None = None) -> dict
         "tracker_deliverables_period": doc.get("tracker_deliverables_period") or "",
         "tracker_deliverable_history": doc.get("tracker_deliverable_history"),
         "tracker_week_slot_plan": doc.get("tracker_week_slot_plan"),
+        "example_scripts": [
+            str(s).strip()
+            for s in (doc.get("example_scripts") or [])
+            if s is not None and str(s).strip()
+        ],
         "status": status,
         "is_active": status != ProjectStatus.ARCHIVED.value,
         "deleted_at": doc.get("deleted_at"),
@@ -484,7 +490,7 @@ def list_clients_for_user(username: str, *, with_topics: bool = True) -> list[di
         out.append(
             {
                 "id": doc["id"],
-                **{k: doc.get(k) for k in CLIENT_PROFILE_KEYS},
+                **{k: doc.get(k) for k in CLIENT_PROFILE_KEYS if k != "example_scripts"},
                 "status": status,
                 "is_active": status != ProjectStatus.ARCHIVED.value,
                 "tracker_deliverables": stored_monthly_slots(doc),
@@ -501,7 +507,10 @@ def fetch_all_clients() -> list[dict]:
     """Every active project, TG client-ish (used by cron jobs)."""
     out = []
     for doc in projects_col().find({"status": {"$ne": ProjectStatus.ARCHIVED.value}}, {"_id": 0}):
-        out.append({"id": doc["id"], **{k: doc.get(k) for k in CLIENT_PROFILE_KEYS}})
+        out.append({
+            "id": doc["id"],
+            **{k: doc.get(k) for k in CLIENT_PROFILE_KEYS if k != "example_scripts"},
+        })
     return out
 
 

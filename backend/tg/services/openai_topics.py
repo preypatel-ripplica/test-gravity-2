@@ -14,6 +14,7 @@ from typing import Any
 from openai import OpenAI
 
 from backend.tg.config import settings
+from backend.tg.openai_log import log_openai_error
 from backend.tg.services.topics import WEIGHTS, make_topic, normalize_topics
 
 # ---------------------------------------------------------------------------
@@ -295,6 +296,7 @@ def _call_chat_completions(client: OpenAI, model: str, messages: list[dict]) -> 
         try:
             completion = client.chat.completions.create(**kwargs)
         except Exception as first_exc:
+            log_openai_error("topics:openai", first_exc)
             print(
                 f"[topics:openai] chat.completions schema failed "
                 f"({type(first_exc).__name__}: {first_exc}); retry json_object …",
@@ -303,6 +305,7 @@ def _call_chat_completions(client: OpenAI, model: str, messages: list[dict]) -> 
             kwargs["response_format"] = {"type": "json_object"}
             completion = client.chat.completions.create(**kwargs)
     except Exception as exc:
+        log_openai_error("topics:openai", exc)
         print(
             f"[topics:openai] ← chat.completions FAILED after "
             f"{time.perf_counter() - t0:.1f}s: {type(exc).__name__}: {exc}",
@@ -342,6 +345,7 @@ def _call_responses_api(client: OpenAI, model: str, messages: list[dict]) -> tup
             reasoning={"effort": effort},
         )
     except Exception as exc:
+        log_openai_error("topics:openai", exc)
         print(
             f"[topics:openai] ← responses.create FAILED after "
             f"{time.perf_counter() - t0:.1f}s: {type(exc).__name__}: {exc}",
@@ -409,6 +413,7 @@ def _run_stage(
                 flush=True,
             )
         except Exception as resp_exc:
+            log_openai_error("topics:openai", resp_exc)
             print(
                 f"[topics:openai] stage={stage} responses API failed "
                 f"({type(resp_exc).__name__}: {resp_exc}); falling back to chat.completions …",
@@ -420,6 +425,7 @@ def _run_stage(
                 flush=True,
             )
     except Exception as exc:
+        log_openai_error("topics:openai", exc)
         print(
             f"[topics:openai] stage={stage} FAILED {type(exc).__name__}: {exc}",
             flush=True,

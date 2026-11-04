@@ -365,6 +365,19 @@ class ClientContentPlanScriptsRequest(BaseModel):
     example2: Optional[str] = None
 
 
+class ClientExampleScriptsGetRequest(BaseModel):
+    client_id: str
+
+
+class ClientExampleScriptsSaveRequest(BaseModel):
+    client_id: str
+    scripts: List[str] = []
+
+
+class ClientExampleScriptsResponse(BaseModel):
+    scripts: List[str] = []
+
+
 class ClientContentPlanRefineScriptRequest(BaseModel):
     client_id: str
     item_id: str

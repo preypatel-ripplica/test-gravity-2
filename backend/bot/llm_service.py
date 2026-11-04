@@ -358,11 +358,16 @@ def _openai_chat(system_prompt, history, model, timeout) -> str:
 
     client = OpenAI(api_key=api_key, timeout=timeout)
     messages = [{"role": "system", "content": system_prompt}, *history]
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format={"type": "json_object"},
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:
+        from backend.tg.openai_log import log_openai_error
+        log_openai_error("bot:openai", exc)
+        raise
     u = getattr(response, "usage", None)
     cached = getattr(getattr(u, "prompt_tokens_details", None), "cached_tokens", 0) or 0
     usage = {

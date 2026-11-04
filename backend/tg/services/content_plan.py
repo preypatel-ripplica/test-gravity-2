@@ -827,6 +827,7 @@ def _clean_script_text(text: str) -> str:
 def generate_scripts_for_plan(
     client: dict,
     *,
+    examples: list[str] | None = None,
     example1: str | None = None,
     example2: str | None = None,
 ) -> dict[str, Any]:
@@ -838,6 +839,9 @@ def generate_scripts_for_plan(
             "No content-plan titles yet. Generate titles first, then scripts."
         )
 
+    refs = [str(s).strip() for s in (examples or []) if s is not None and str(s).strip()]
+    if not refs:
+        refs = [s for s in (str(example1 or "").strip(), str(example2 or "").strip()) if s]
     profile = _doctor_profile(client)
     scripted = generate_scripts_batch(
         items=items,
@@ -847,8 +851,7 @@ def generate_scripts_for_plan(
         specialty=client.get("specialty"),
         description=client.get("description"),
         client_id=client.get("id"),
-        example1=example1,
-        example2=example2,
+        examples=refs,
     )
     by_id = {
         (row.get("id") or "").strip(): row

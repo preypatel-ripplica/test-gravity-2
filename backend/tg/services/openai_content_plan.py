@@ -10,6 +10,7 @@ from typing import Any
 from openai import OpenAI
 
 from backend.tg.config import settings
+from backend.tg.openai_log import call_with_openai_retry, log_openai_error
 from backend.tg.services.content_formats import VIDEO_TYPE_NAMES, catalog_for_prompt
 from backend.tg.services.script_templates import catalog_for_script_prompt, template_for
 
@@ -169,18 +170,21 @@ def _call_openai(
 
     try:
         try:
-            response = client.responses.create(
-                model=model,
-                input=messages,
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": schema_name,
-                        "strict": True,
-                        "schema": schema,
-                    }
-                },
-                reasoning={"effort": effort},
+            response = call_with_openai_retry(
+                lambda: client.responses.create(
+                    model=model,
+                    input=messages,
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": schema_name,
+                            "strict": True,
+                            "schema": schema,
+                        }
+                    },
+                    reasoning={"effort": effort},
+                ),
+                tag="content-plan:openai",
             )
             raw_text = getattr(response, "output_text", None) or ""
             if not raw_text:
@@ -197,6 +201,7 @@ def _call_openai(
                 flush=True,
             )
         except Exception as resp_exc:
+            log_openai_error("content-plan:openai", resp_exc)
             print(
                 f"[content-plan:openai] stage={stage} responses failed "
                 f"({type(resp_exc).__name__}: {resp_exc}); chat.completions …",
@@ -218,7 +223,8 @@ def _call_openai(
             }
             try:
                 completion = client.chat.completions.create(**kwargs)
-            except Exception:
+            except Exception as chat_exc:
+                log_openai_error("content-plan:openai", chat_exc)
                 kwargs["response_format"] = {"type": "json_object"}
                 completion = client.chat.completions.create(**kwargs)
             raw_text = completion.choices[0].message.content or ""
@@ -228,6 +234,7 @@ def _call_openai(
                 flush=True,
             )
     except Exception as exc:
+        log_openai_error("content-plan:openai", exc)
         print(
             f"[content-plan:openai] stage={stage} FAILED after "
             f"{time.perf_counter() - t0:.1f}s: {type(exc).__name__}: {exc}",
@@ -471,21 +478,23 @@ def generate_scripts_batch(
     specialty: str | None = None,
     description: str | None = None,
     client_id: str | None = None,
+    examples: list[str] | None = None,
     example1: str | None = None,
     example2: str | None = None,
 ) -> list[dict]:
     """Generate Hinglish spoken scripts for all content-plan items."""
     system = _load_prompt("content_plan_generate_scripts.txt")
-    
-    if example1 or example2:
+    refs = [str(s).strip() for s in (examples or []) if s is not None and str(s).strip()]
+    if not refs:
+        refs = [s for s in (str(example1 or "").strip(), str(example2 or "").strip()) if s]
+
+    if refs:
         system += "\n\n═══════════════════════════════════════════════════════════════════\n"
         system += "REFERENCE EXAMPLES FOR STYLE AND TONE\n"
         system += "═══════════════════════════════════════════════════════════════════\n"
         system += "The user has provided the following reference scripts. Analyze their formatting, tone, and clinical depth. You MUST match this exact style in your generated scripts.\n"
-        if example1:
-            system += f"\n--- EXAMPLE 1 ---\n{example1}\n"
-        if example2:
-            system += f"\n--- EXAMPLE 2 ---\n{example2}\n"
+        for index, script in enumerate(refs, start=1):
+            system += f"\n--- EXAMPLE {index} ---\n{script}\n"
 
     slots: list[dict] = []
     for item in items:
@@ -706,12 +715,16 @@ def stream_narrate_script_audio(*, text: str, force: bool = False):
         create_kwargs["instructions"] = instructions
 
     accumulated = bytearray()
-    with client.audio.speech.with_streaming_response.create(**create_kwargs) as response:
-        for chunk in response.iter_bytes(chunk_size=2048):
-            if not chunk:
-                continue
-            accumulated.extend(chunk)
-            yield bytes(chunk), False
+    try:
+        with client.audio.speech.with_streaming_response.create(**create_kwargs) as response:
+            for chunk in response.iter_bytes(chunk_size=2048):
+                if not chunk:
+                    continue
+                accumulated.extend(chunk)
+                yield bytes(chunk), False
+    except Exception as exc:
+        log_openai_error("content-plan:tts", exc)
+        raise
     if not accumulated:
         raise ValueError("TTS returned empty audio.")
     save_cached(key, bytes(accumulated))

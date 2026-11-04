@@ -25,6 +25,7 @@ from backend.tg.clients import (
     update_client_content_script,
 )
 from backend.tg.database import (
+    fetch_client_doc,
     fetch_content_video,
     fetch_user,
     hydrate_suggestions_from_content_videos,
@@ -34,6 +35,7 @@ from backend.tg.database import (
     list_videos_for_channel,
     replace_content_plan,
     suggestion_item_from_plan_item,
+    update_client_fields,
     upsert_content_video,
 )
 from backend.main.db import plan_items_col
@@ -580,6 +582,43 @@ def client_content_plan_generate_scripts(
             detail=str(exc),
         ) from exc
     return _content_plan_response(current_user["username"], result)
+
+
+def _clean_example_scripts(raw) -> list[str]:
+    out = []
+    for row in raw or []:
+        if row is None:
+            continue
+        text = str(row).strip()
+        if text:
+            out.append(text)
+    return out
+
+
+@router.post("/client.example-scripts.get", response_model=schemas.ClientExampleScriptsResponse)
+def get_client_example_scripts(
+    body: schemas.ClientExampleScriptsGetRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    client = fetch_client_doc(body.client_id, username=current_user["username"])
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return schemas.ClientExampleScriptsResponse(scripts=_clean_example_scripts(client.get("example_scripts")))
+
+
+@router.post("/client.example-scripts.save", response_model=schemas.ClientExampleScriptsResponse)
+def save_client_example_scripts(
+    body: schemas.ClientExampleScriptsSaveRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    username = current_user["username"]
+    if not fetch_client_doc(body.client_id, username=username):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    scripts = _clean_example_scripts(body.scripts)
+    saved = update_client_fields(body.client_id, username, {"example_scripts": scripts})
+    if not saved:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return schemas.ClientExampleScriptsResponse(scripts=_clean_example_scripts(saved.get("example_scripts")))
 
 
 @router.post(

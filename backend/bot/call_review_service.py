@@ -202,13 +202,18 @@ def _record_chat_cost(client_id: str, usage: Any) -> None:
 
 
 def _json_chat(client_id: str, system: str, user: str) -> dict:
-    response = _client().chat.completions.create(
-        model=CALL_REVIEW_MODEL,
-        response_format={"type": "json_object"},
-        # gpt-5-mini rejects temperature; seed is the only stability lever it takes.
-        seed=CALL_REVIEW_SEED,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-    )
+    try:
+        response = _client().chat.completions.create(
+            model=CALL_REVIEW_MODEL,
+            response_format={"type": "json_object"},
+            # gpt-5-mini rejects temperature; seed is the only stability lever it takes.
+            seed=CALL_REVIEW_SEED,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        )
+    except Exception as exc:
+        from backend.tg.openai_log import log_openai_error
+        log_openai_error("bot:call-review", exc)
+        raise
     _record_chat_cost(client_id, getattr(response, "usage", None))
     content = response.choices[0].message.content or "{}"
     try:

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from openai import OpenAI
 from backend.tg.config import settings
+from backend.tg.openai_log import call_with_openai_retry, log_openai_error, _skip_openai_retry
 from backend.tg.services.topics import make_topic
 import httpx
 from pathlib import Path
@@ -95,9 +96,16 @@ def _chat_json(
             print(f"[yt-metadata] invalid JSON (attempt {attempt + 1}/{retries}): {exc}", flush=True)
         except Exception as exc:
             last_exc = exc
-            if not _is_retryable_openai_error(exc) or attempt == retries - 1:
+            log_openai_error("yt-metadata", exc)
+            if _skip_openai_retry(exc):
+                raise
+            # 5xx/rate limits keep the existing extra attempts. Any other
+            # OpenAI or network error gets exactly one more try.
+            extra_try = attempt == 0 and not _is_retryable_openai_error(exc)
+            if attempt == retries - 1 or not (_is_retryable_openai_error(exc) or extra_try):
                 raise
             wait = 1.5 * (attempt + 1)
+            print("[yt-metadata] failed. retrying...", flush=True)
             print(
                 f"[yt-metadata] OpenAI error (attempt {attempt + 1}/{retries}), "
                 f"retrying in {wait:.1f}s: {exc}",
@@ -283,14 +291,18 @@ def generate_social_caption(
     openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
     
     try:
-        response = openai_client.chat.completions.create(
-            model=settings.OPENAI_MODEL,  # Use same model as scripts
-            messages=messages,
-            reasoning_effort="low",
+        response = call_with_openai_retry(
+            lambda: openai_client.chat.completions.create(
+                model=settings.OPENAI_MODEL,  # Use same model as scripts
+                messages=messages,
+                reasoning_effort="low",
+            ),
+            tag="yt-caption",
         )
         from backend.tg.services.youtube_api import fit_social_caption
         return fit_social_caption(response.choices[0].message.content.strip())
     except Exception as e:
+        log_openai_error("yt-caption", e)
         print(f"Failed to generate social caption: {e}")
         from backend.tg.services.youtube_api import fit_social_caption
         return fit_social_caption(f"{yt_title}\n\n{yt_description[:1000]}")
@@ -583,15 +595,22 @@ def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrai
     if not files:
         print("[yt-thumbnail] reference images could not be downloaded", flush=True)
         return None
+    size = "1024x1536" if portrait else "1536x1024"
     data = {
         "model": settings.THUMBNAIL_MODEL,
         "prompt": prompt,
-        "size": "1024x1536" if portrait else "1536x1024",
+        "size": size,
         "quality": "medium",
         "n": "1",
         "output_format": "png",
     }
-    try:
+    print(
+        f"[yt-thumbnail] reference edit start model={settings.THUMBNAIL_MODEL} "
+        f"size={size} portrait={portrait} refs={len(files)} prompt_chars={len(prompt or '')}",
+        flush=True,
+    )
+
+    def _edit_once():
         with httpx.Client(timeout=180.0) as http_client:
             response = http_client.post(
                 "https://api.openai.com/v1/images/edits",
@@ -600,7 +619,10 @@ def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrai
                 files=files,
             )
             response.raise_for_status()
-            payload = response.json()
+            return response.json()
+
+    try:
+        payload = call_with_openai_retry(_edit_once, tag="yt-thumbnail")
     except Exception as exc:
         print(f"[yt-thumbnail] reference edit failed: {exc}", flush=True)
         return None
@@ -634,11 +656,14 @@ def generate_youtube_thumbnail(prompt: str, *, portrait: bool = False) -> str:
     openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
     
     try:
-        response = openai_client.images.generate(
-            model=settings.THUMBNAIL_MODEL,
-            prompt=prompt,
-            size="1024x1536" if portrait else "1792x1024",
-            n=1,
+        response = call_with_openai_retry(
+            lambda: openai_client.images.generate(
+                model=settings.THUMBNAIL_MODEL,
+                prompt=prompt,
+                size="1024x1536" if portrait else "1792x1024",
+                n=1,
+            ),
+            tag="yt-thumbnail",
         )
         
         image_data = response.data[0]
@@ -655,6 +680,7 @@ def generate_youtube_thumbnail(prompt: str, *, portrait: bool = False) -> str:
         cropped = _crop_portrait(image_bytes) if portrait else _crop_widescreen(image_bytes)
         return _store_thumbnail_bytes(cropped)
     except Exception as e:
+        log_openai_error("yt-thumbnail", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate YouTube thumbnail: {str(e)}"

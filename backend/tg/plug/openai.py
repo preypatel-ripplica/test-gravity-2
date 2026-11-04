@@ -12,6 +12,7 @@ from uuid import uuid4
 from openai import OpenAI
 
 from backend.tg.config import settings
+from backend.tg.openai_log import log_openai_error
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
@@ -176,6 +177,7 @@ def _responses_create(
     try:
         return client.responses.create(**kwargs)
     except Exception as first:
+        log_openai_error("plug:openai", first)
         if not use_search:
             raise
         print(
@@ -187,13 +189,14 @@ def _responses_create(
         kwargs["tool_choice"] = "required"
         try:
             return client.responses.create(**kwargs)
-        except Exception:
-            pass
+        except Exception as retry_exc:
+            log_openai_error("plug:openai", retry_exc)
         kwargs["tools"] = [{"type": "web_search_preview"}]
         kwargs["tool_choice"] = "required"
         try:
             return client.responses.create(**kwargs)
         except Exception as second:
+            log_openai_error("plug:openai", second)
             print(
                 f"[plug:openai] preview search failed ({type(second).__name__}: {second}); "
                 "retrying without json_schema …",
@@ -239,6 +242,7 @@ def _call(
         )
         return parsed, sources
     except Exception as exc:
+        log_openai_error("plug:openai", exc)
         print(
             f"[plug:openai] stage={stage} FAILED after {time.perf_counter() - t0:.1f}s: "
             f"{type(exc).__name__}: {exc}",
