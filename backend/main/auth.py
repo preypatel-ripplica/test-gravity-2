@@ -22,14 +22,18 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_token(user: dict[str, Any]) -> str:
     expiry = datetime.now(timezone.utc) + timedelta(seconds=TOKEN_EXPIRY_SECONDS)
+    payload = {
+        "user_id": user["id"],
+        "email": user["email"],
+        "name": user["name"],
+        "type": user["type"],
+        "exp": expiry.timestamp(),
+    }
+    editor_id = str(user.get("editor_id") or "").strip()
+    if editor_id:
+        payload["editor_id"] = editor_id
     return jwt.encode(
-        {
-            "user_id": user["id"],
-            "email": user["email"],
-            "name": user["name"],
-            "type": user["type"],
-            "exp": expiry.timestamp(),
-        },
+        payload,
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )

@@ -47,6 +47,7 @@ class UserCreateBody(BaseModel):
     name: str = Field(min_length=1)
     password: str = Field(min_length=8)
     type: UserType
+    editor_id: Optional[str] = None
 
 
 class UserGetBody(BaseModel):
@@ -61,8 +62,24 @@ class UserUpdateBody(BaseModel):
     user_id: str
     name: Optional[str] = Field(default=None, min_length=1)
     type: Optional[UserType] = None
+    editor_id: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = Field(default=None, min_length=8)
+
+
+def _normalized_editor_id(user_type: UserType | str | None, editor_id: Optional[str]) -> Optional[str]:
+    """Editors must link to a roster id; other types clear editor_id."""
+    type_value = user_type.value if isinstance(user_type, UserType) else str(user_type or "")
+    raw = str(editor_id or "").strip()
+    if type_value != UserType.EDITOR.value:
+        return None
+    if not raw:
+        raise HTTPException(400, "editor_id is required for editor users")
+    from backend.trackers.editors import editor_by_id
+
+    if not editor_by_id(raw):
+        raise HTTPException(400, f"Unknown editor_id '{raw}'")
+    return raw
 
 
 class ProjectCreateBody(BaseModel):
@@ -172,6 +189,23 @@ def auth_me(auth: dict = Depends(current_user)):
     if not user.get("is_active", True):
         raise HTTPException(403, "User is inactive")
 
+    out = public_user(user)
+    out.update(
+        {
+            # TG UI still reads username in a few places
+            "username": user.get("email"),
+            "has_clients": False,
+            "active_client_id": None,
+            "active_channel_id": None,
+            "clients": [],
+            "channels": [],
+        }
+    )
+
+    # Editors only need edit-tracker; skip project/channel fan-out (slow + unused).
+    if str(user.get("type") or "") == UserType.EDITOR.value:
+        return out
+
     from backend.trackers.tracker_settings import stored_monthly_slots
 
     data = project_list(auth)
@@ -209,18 +243,8 @@ def auth_me(auth: dict = Depends(current_user)):
             }
         )
 
-    out = public_user(user)
-    out.update(
-        {
-            # TG UI still reads username in a few places
-            "username": user.get("email"),
-            "has_clients": len(clients) > 0,
-            "active_client_id": None,
-            "active_channel_id": None,
-            "clients": clients,
-            "channels": [],
-        }
-    )
+    out["has_clients"] = len(clients) > 0
+    out["clients"] = clients
     return out
 
 
@@ -236,11 +260,13 @@ def user_create(request: Request, body: UserCreateBody):
             raise HTTPException(401, "Token is invalid or expired")
         require_internal(payload)
 
+    editor_id = _normalized_editor_id(body.type, body.editor_id)
     doc = User(
         email=body.email.lower(),
         name=body.name.strip(),
         password_hash=hash_password(body.password),
         type=body.type,
+        editor_id=editor_id,
     ).model_dump(mode="json")
     try:
         users_col().insert_one(doc)
@@ -267,7 +293,7 @@ def user_list(
 @router.post("/user.update")
 def user_update(body: UserUpdateBody, auth: dict = Depends(current_user)):
     require_internal(auth)
-    find_user(body.user_id)
+    existing = find_user(body.user_id)
     updates = {"updated_at": utc_now()}
     if body.name is not None:
         updates["name"] = body.name.strip()
@@ -277,6 +303,12 @@ def user_update(body: UserUpdateBody, auth: dict = Depends(current_user)):
         updates["is_active"] = body.is_active
     if body.password is not None:
         updates["password_hash"] = hash_password(body.password)
+    next_type = body.type if body.type is not None else existing.get("type")
+    if body.editor_id is not None or body.type is not None:
+        updates["editor_id"] = _normalized_editor_id(
+            next_type,
+            body.editor_id if body.editor_id is not None else existing.get("editor_id"),
+        )
     if len(updates) == 1:
         raise HTTPException(400, "No fields to update")
     users_col().update_one({"id": body.user_id}, {"$set": updates})

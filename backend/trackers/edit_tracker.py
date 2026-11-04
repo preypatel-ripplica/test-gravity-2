@@ -9,7 +9,12 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.main.access_guards import require_internal
+from backend.main.access_guards import (
+    editor_id_from_auth,
+    is_editor,
+    require_editor_roster,
+    require_internal,
+)
 from backend.main.auth import current_user
 from backend.main.db import projects_col, weekly_trackers_col
 from backend.main.models import ProjectStatus
@@ -251,8 +256,31 @@ def _collect_items(actor: str, week_offset: int = 0, *, create_missing: bool = F
     return items
 
 
+def _note_preview(notes: list | None, *, limit: int = 2) -> list[dict]:
+    out = []
+    for note in notes or []:
+        if not isinstance(note, dict):
+            continue
+        text = str(note.get("text") or "").strip()
+        if not text and not (note.get("attachments") or []):
+            continue
+        out.append(
+            {
+                "id": note.get("id") or "",
+                "text": text[:240],
+                "created_by": note.get("created_by") or "",
+                "created_at": note.get("created_at") or "",
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _item_from_card(project: dict, doc: dict, card: dict, late: bool) -> dict:
     editor = editor_by_id(card.get("editor_id")) or {}
+    feedback = list(card.get("feedback_notes") or [])
+    editor_notes = list(card.get("editor_notes") or [])
     return {
         "client_id": project.get("id"),
         "client_name": project.get("name") or "Untitled",
@@ -268,12 +296,23 @@ def _item_from_card(project: dict, doc: dict, card: dict, late: bool) -> dict:
         "editor_name": editor.get("name") or card.get("editor_id") or "",
         "edit_hours": float(card.get("edit_hours") or edit_hours_for(project, card.get("type"))),
         "planned_edit_date": str(card.get("planned_edit_date") or "").strip()[:10],
+        "feedback_note_count": len(feedback),
+        "editor_note_count": len(editor_notes),
+        "feedback_notes_preview": _note_preview(feedback[-2:]),
+        "editor_notes_preview": _note_preview(editor_notes[-2:]),
         "href": (
             f"/clients/{project.get('id')}/tracker"
             f"?year={doc.get('year')}&month={doc.get('month')}"
             f"&week={doc.get('week')}&card={card.get('id')}"
         ),
     }
+
+
+def _filter_items_for_auth(items: list[dict], auth: dict) -> list[dict]:
+    if not is_editor(auth):
+        return items
+    editor_id = editor_id_from_auth(auth)
+    return [item for item in items if str(item.get("editor_id") or "").strip() == editor_id]
 
 
 def _day_hours(items: list[dict], week_dates: list[str]) -> dict[str, dict[str, int]]:
@@ -465,15 +504,21 @@ def _board_payload(items: list[dict], *, week_offset: int, working_weekdays: lis
 
 @router.post("/edit.tracker.meta")
 def edit_tracker_meta(auth: dict = Depends(current_user)):
-    require_internal(auth)
+    scoped_editor_id = require_editor_roster(auth)
     today = date.today()
+    editors = editor_list()
+    if scoped_editor_id:
+        editors = [row for row in editors if row.get("id") == scoped_editor_id]
     return {
-        "editors": editor_list(),
+        "editors": editors,
         "late_editor_id": late_editor_id(),
         "default_working_days": default_working_days(),
         "default_working_weekdays": default_working_weekdays(),
         "weeks": [_week_meta(0, today), _week_meta(1, today)],
         "edit_hours": load_hours(),
+        "scoped_editor_id": scoped_editor_id or None,
+        "can_assign": not bool(scoped_editor_id),
+        "can_manage_settings": not bool(scoped_editor_id),
     }
 
 
@@ -484,12 +529,17 @@ def load_hours() -> dict:
 
 @router.post("/edit.tracker.board")
 def edit_tracker_board(body: EditBoardBody | None = None, auth: dict = Depends(current_user)):
-    require_internal(auth)
+    scoped_editor_id = require_editor_roster(auth)
     actor = auth.get("email") or auth["user_id"]
     week_offset = _clamp_week_offset(body.week_offset if body else 0)
     weekdays = _resolve_weekdays(body)
     items = _collect_items(actor, week_offset, create_missing=False)
-    return _board_payload(items, week_offset=week_offset, working_weekdays=weekdays)
+    items = _filter_items_for_auth(items, auth)
+    payload = _board_payload(items, week_offset=week_offset, working_weekdays=weekdays)
+    payload["scoped_editor_id"] = scoped_editor_id or None
+    payload["can_assign"] = not bool(scoped_editor_id)
+    payload["can_manage_settings"] = not bool(scoped_editor_id)
+    return payload
 
 
 @router.post("/edit.tracker.assign")
@@ -631,24 +681,41 @@ def edit_tracker_settings_patch(body: EditClientPrefsBody, auth: dict = Depends(
 
 @router.post("/edit.tracker.card.patch")
 def edit_tracker_card_patch(body: EditCardPatchBody, auth: dict = Depends(current_user)):
-    require_internal(auth)
+    scoped_editor_id = require_editor_roster(auth)
     actor = auth.get("email") or auth["user_id"]
     project = projects_col().find_one({"id": body.client_id}, {"_id": 0}) or {}
     if not project:
         raise HTTPException(404, "Client not found")
     patch: dict[str, Any] = {}
     if body.editor_id is not None:
+        if scoped_editor_id:
+            raise HTTPException(403, "Editors cannot reassign cards")
         if body.editor_id and not editor_by_id(body.editor_id):
             raise HTTPException(400, "Unknown editor")
         patch["editor_id"] = body.editor_id
         patch["editor_overridden"] = True
     if body.planned_edit_date is not None:
+        if scoped_editor_id:
+            raise HTTPException(403, "Editors cannot change edit day")
         raw = str(body.planned_edit_date or "").strip()
         if raw and _parse_iso(raw) is None:
             raise HTTPException(400, "planned_edit_date must be YYYY-MM-DD")
         patch["planned_edit_date"] = raw[:10] if raw else ""
     if not patch:
         raise HTTPException(400, "Nothing to update")
+    if scoped_editor_id:
+        doc_id = weekly_doc_id(body.client_id, body.year, body.month, body.week)
+        existing = weekly_trackers_col().find_one({"id": doc_id}, {"_id": 0, "cards": 1}) or {}
+        card = next(
+            (
+                row
+                for row in (existing.get("cards") or [])
+                if str(row.get("id")) == str(body.card_id)
+            ),
+            None,
+        )
+        if not card or str(card.get("editor_id") or "").strip() != scoped_editor_id:
+            raise HTTPException(403, "Card is not assigned to you")
     item = {
         "client_id": body.client_id,
         "year": body.year,

@@ -21,6 +21,7 @@ def new_id(prefix: str) -> str:
 class UserType(str, Enum):
     INTERNAL = "internal"
     CLIENT = "client"
+    EDITOR = "editor"
 
 
 class ProjectStatus(str, Enum):
@@ -91,6 +92,8 @@ class User(BaseModel):
     name: str
     password_hash: Optional[str] = None
     type: UserType
+    # Links login accounts with type=editor to editors.json roster ids (yash, roshan, …).
+    editor_id: Optional[str] = None
     is_active: bool = True
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

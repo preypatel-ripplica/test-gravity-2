@@ -10609,3 +10609,101 @@ a:hover .all-tracker-open-tab {
         grid-template-columns: 1fr;
     }
 }
+
+/* Edit tracker — Notes view */
+.edit-notes-lane {
+    display: grid;
+    gap: 12px;
+}
+.edit-notes-card {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 14px 16px;
+    cursor: pointer;
+}
+.edit-notes-card header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: baseline;
+    margin-bottom: 10px;
+}
+.edit-notes-card header strong {
+    font-size: 1rem;
+}
+.edit-notes-card header em,
+.edit-notes-card header span {
+    color: var(--text-muted);
+    font-style: normal;
+    font-size: 0.85rem;
+}
+.edit-notes-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.edit-notes-columns h3 {
+    margin: 0 0 6px;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.edit-notes-columns p {
+    margin: 0 0 6px;
+    font-size: 0.9rem;
+}
+.edit-notes-columns p strong {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+@media (max-width: 800px) {
+    .edit-notes-columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+.edit-work-notes {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-light, #e0ded8);
+    display: grid;
+    gap: 4px;
+}
+.edit-work-note-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.edit-work-note-counts span {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+.edit-work-note-preview {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.edit-work-note-preview strong {
+    display: inline;
+    margin-right: 6px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.edit-field.is-readonly .edit-field-trigger.is-static {
+    cursor: default;
+    pointer-events: none;
+}
+.edit-work-card.is-micro .edit-work-notes {
+    margin-top: 6px;
+    padding-top: 6px;
+}

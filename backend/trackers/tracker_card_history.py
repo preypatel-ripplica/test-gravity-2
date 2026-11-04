@@ -185,6 +185,7 @@ def _empty_snapshot(card_type: str) -> dict:
         "generated_post_ids": [],
         "feedback_notes": [],
         "doctor_notes": [],
+        "editor_notes": [],
         "doctor_files": [],
         "content_plan_item_id": None,
         "delay_reason": "",
@@ -268,6 +269,7 @@ def diff_card_history(previous: dict | None, incoming: dict) -> list[dict]:
     for key, added_label in (
         ("feedback_notes", "Feedback note added"),
         ("doctor_notes", "Doctor note added"),
+        ("editor_notes", "Editor note added"),
     ):
         added = _note_ids(incoming, key) - _note_ids(before, key)
         for _ in added:

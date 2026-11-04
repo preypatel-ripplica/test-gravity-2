@@ -11,9 +11,14 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  function homeFor(me) {
+    if (me?.type === 'editor') return '/edit-tracker'
+    if (me?.active_client_id) return `/clients/${me.active_client_id}`
+    return '/clients'
+  }
+
   if (!loading && token && user) {
-    const dest = user.active_client_id ? `/clients/${user.active_client_id}` : '/clients'
-    return <Navigate to={dest} replace />
+    return <Navigate to={homeFor(user)} replace />
   }
 
   async function handleSubmit(e) {
@@ -22,8 +27,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       const me = await login(username, password)
-      const dest = me?.active_client_id ? `/clients/${me.active_client_id}` : '/clients'
-      navigate(dest, { replace: true })
+      navigate(homeFor(me), { replace: true })
     } catch (err) {
       setError(err.message || 'Invalid email or password')
     } finally {

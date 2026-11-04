@@ -11,14 +11,19 @@ export default function ClientTrackerLayout() {
   const { token, user, logout, patchUser } = useAuth()
   const { toast } = useUI()
   const navigate = useNavigate()
+  const isEditor = user?.type === 'editor'
 
-  const client = useMemo(
-    () => (user?.clients || []).find((c) => c.id === clientId) || null,
-    [user?.clients, clientId],
-  )
+  const client = useMemo(() => {
+    const found = (user?.clients || []).find((c) => c.id === clientId) || null
+    if (found) return found
+    if (isEditor && clientId) {
+      return { id: clientId, name: 'Assigned work' }
+    }
+    return null
+  }, [user?.clients, clientId, isEditor])
 
   useEffect(() => {
-    if (!token || !clientId) return
+    if (!token || !clientId || isEditor) return
     let cancelled = false
 
     ;(async () => {
@@ -43,7 +48,7 @@ export default function ClientTrackerLayout() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only when client changes
-  }, [token, clientId])
+  }, [token, clientId, isEditor])
 
   function handleLogout() {
     logout()
@@ -65,25 +70,30 @@ export default function ClientTrackerLayout() {
           </div>
           <div className="user-info">
             <h4>{user?.username || user?.email || 'User'}</h4>
-            <p className="role">{client?.name || 'Client'}</p>
+            <p className="role">{isEditor ? 'Editor' : client?.name || 'Client'}</p>
           </div>
         </div>
 
         <nav className="sidebar-menu">
           <NavSection>
-            <NavItem to={`/clients/${clientId}`} icon={<i className="fa-solid fa-arrow-left" />}>
-              Client Home
+            <NavItem
+              to={isEditor ? '/edit-tracker' : `/clients/${clientId}`}
+              icon={<i className="fa-solid fa-arrow-left" />}
+            >
+              {isEditor ? 'Edit tracker' : 'Client Home'}
             </NavItem>
           </NavSection>
 
-          <NavSection title="Tracker">
-            <NavItem to={base} end icon={<i className="fa-solid fa-layer-group" />}>
-              Default trackers
-            </NavItem>
-            <NavItem to={`${base}/custom`} icon={<i className="fa-solid fa-list-check" />}>
-              Custom trackers
-            </NavItem>
-          </NavSection>
+          {!isEditor ? (
+            <NavSection title="Tracker">
+              <NavItem to={base} end icon={<i className="fa-solid fa-layer-group" />}>
+                Default trackers
+              </NavItem>
+              <NavItem to={`${base}/custom`} icon={<i className="fa-solid fa-list-check" />}>
+                Custom trackers
+              </NavItem>
+            </NavSection>
+          ) : null}
         </nav>
 
         <div className="sidebar-footer">
@@ -94,7 +104,7 @@ export default function ClientTrackerLayout() {
       </aside>
 
       <main className="main-content">
-        <Outlet context={{ client, clientId }} />
+        <Outlet context={{ client, clientId, isEditor }} />
       </main>
     </div>
   )

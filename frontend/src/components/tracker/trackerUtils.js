@@ -294,6 +294,7 @@ export function emptyCard(type, sortOrder, isDefault = false) {
     destination_post_ids: {},
     feedback_notes: [],
     doctor_notes: [],
+    editor_notes: [],
     doctor_files: [],
     content_plan_item_id: null,
     topic_id: null,
@@ -515,6 +516,8 @@ export function diffCardHistory(previous, incoming) {
   addedFeedback.forEach(() => events.push(historyEvent('note', 'Feedback note added')))
   const addedDoctor = [...noteIds(incoming, 'doctor_notes')].filter((id) => !noteIds(before, 'doctor_notes').has(id))
   addedDoctor.forEach(() => events.push(historyEvent('note', 'Doctor note added')))
+  const addedEditor = [...noteIds(incoming, 'editor_notes')].filter((id) => !noteIds(before, 'editor_notes').has(id))
+  addedEditor.forEach(() => events.push(historyEvent('note', 'Editor note added')))
 
   const beforeFiles = fileMap(before, 'doctor_files')
   const nextFiles = fileMap(incoming, 'doctor_files')

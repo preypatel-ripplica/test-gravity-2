@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
 export default function ClientWeeklyTracker() {
-  const { client, clientId } = useOutletContext()
+  const { client, clientId, isEditor } = useOutletContext()
   const { token } = useAuth()
   const { toast } = useUI()
   const { today, year, month, week, setYear, setMonth, setWeek, focusCardId } = useSnapCurrentWeek()
@@ -86,13 +86,18 @@ export default function ClientWeeklyTracker() {
       <header className="content-header">
         <div className="greeting">
           <Breadcrumbs
-            items={[
-              { label: 'Clients', to: '/clients' },
-              { label: client?.name || 'Client', to: `/clients/${clientId}` },
-              { label: 'Default trackers' },
-            ]}
+            items={isEditor
+              ? [
+                  { label: 'Edit tracker', to: '/edit-tracker' },
+                  { label: client?.name || 'Assigned work' },
+                ]
+              : [
+                  { label: 'Clients', to: '/clients' },
+                  { label: client?.name || 'Client', to: `/clients/${clientId}` },
+                  { label: 'Default trackers' },
+                ]}
           />
-          <TrackerViewSwitch clientId={clientId} />
+          {isEditor ? null : <TrackerViewSwitch clientId={clientId} />}
           <div className="tracker-month-nav">
             <h1>{monthLabel(year, month)}</h1>
             <div className="tracker-month-switch">

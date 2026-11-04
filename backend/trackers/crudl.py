@@ -12,7 +12,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from backend.main.access_guards import require_domain_access, require_internal
+from backend.main.access_guards import (
+    editor_id_from_auth,
+    is_editor,
+    is_internal,
+    require_domain_access,
+    require_internal,
+)
 from backend.main.auth import current_user
 from backend.main.db import (
     channels_col,
@@ -102,6 +108,72 @@ def _require_project(auth: dict, project_id: str) -> dict:
     return find_project(project_id)
 
 
+_EDITOR_NOTE_KEYS = {"feedback": "feedback_notes", "doctor": "doctor_notes", "editor": "editor_notes"}
+_EDITOR_SAVE_TOP_KEYS = {
+    "collapsed",
+    "started",
+    "title",
+    "planned_edit_date",
+    "feedback_notes",
+    "editor_notes",
+}
+_EDITOR_ASSET_KEYS = {"audio_url", "video_url"}
+
+
+def _require_tracker_project(auth: dict, project_id: str) -> dict:
+    """Internal/client via domain access; editors by roster assignment later."""
+    if is_editor(auth):
+        project = find_project(project_id)
+        if not editor_id_from_auth(auth):
+            raise HTTPException(403, "Editor account is missing editor_id")
+        return project
+    return _require_project(auth, project_id)
+
+
+def _editor_owns_card(auth: dict, card: dict | None) -> bool:
+    if not is_editor(auth):
+        return True
+    if not isinstance(card, dict):
+        return False
+    return str(card.get("editor_id") or "").strip() == editor_id_from_auth(auth)
+
+
+def _filter_week_for_editor(doc: dict, auth: dict) -> dict:
+    if not is_editor(auth):
+        return doc
+    editor_id = editor_id_from_auth(auth)
+    filtered = [
+        card
+        for card in (doc.get("cards") or [])
+        if isinstance(card, dict) and str(card.get("editor_id") or "").strip() == editor_id
+    ]
+    return {**doc, "cards": filtered}
+
+
+def _merge_editor_card_save(existing: dict, incoming: dict) -> dict:
+    """Editors may only touch a small allowlist; preserve everything else."""
+    merged = dict(existing)
+    for key in _EDITOR_SAVE_TOP_KEYS:
+        if key in incoming:
+            merged[key] = incoming[key]
+    incoming_assets = incoming.get("assets") if isinstance(incoming.get("assets"), dict) else {}
+    if incoming_assets:
+        assets = dict(merged.get("assets") or {})
+        for key in _EDITOR_ASSET_KEYS:
+            if key in incoming_assets:
+                assets[key] = incoming_assets[key]
+        merged["assets"] = assets
+    return merged
+
+
+def _note_array_key(body: dict | None) -> str:
+    raw = str((body or {}).get("note_type") or (body or {}).get("section") or "feedback").strip().lower()
+    key = _EDITOR_NOTE_KEYS.get(raw)
+    if not key:
+        raise HTTPException(400, "section must be feedback, doctor, or editor")
+    return key
+
+
 def _assigned_languages(project_id: str) -> list[str]:
     seen: set[str] = set()
     for ch in channels_col().find({"project_id": project_id}, {"language": 1}):
@@ -143,6 +215,7 @@ def default_card(card_type: str, sort_order: int, *, is_default: bool = False) -
         "destination_post_ids": {},
         "feedback_notes": [],
         "doctor_notes": [],
+        "editor_notes": [],
         "doctor_files": [],
         "content_plan_item_id": None,
         "topic_id": None,
@@ -373,7 +446,7 @@ def _card_has_work(card: dict) -> bool:
             return True
     if card.get("content_plan_item_id") or card.get("topic_id"):
         return True
-    if card.get("generated_post_ids") or card.get("feedback_notes") or card.get("doctor_notes") or card.get("doctor_files"):
+    if card.get("generated_post_ids") or card.get("feedback_notes") or card.get("doctor_notes") or card.get("editor_notes") or card.get("doctor_files"):
         return True
     for dest in card.get("destinations") or []:
         if isinstance(dest, dict) and str(dest.get("url") or "").strip():
@@ -551,12 +624,15 @@ def sync_weeks_from_deliverable_change(project_id: str, actor: str, from_week: t
 
 
 def _weekly_response(doc: dict, languages: list[str]) -> dict:
-    cards = _hydrate_cards(doc["project_id"], list(doc.get("cards") or []))
+    project_id = doc.get("project_id") or doc.get("client_id")
+    cards = _hydrate_cards(project_id, list(doc.get("cards") or []))
     slots = doc.get("deliverable_slots")
+    project = projects_col().find_one({"id": project_id}, {"_id": 0, "name": 1}) or {}
     return {
         "tracker": {
             "id": doc.get("id"),
-            "client_id": doc.get("project_id") or doc.get("client_id"),
+            "client_id": project_id,
+            "client_name": project.get("name") or "",
             "year": doc.get("year"),
             "month": doc.get("month"),
             "week": doc.get("week"),
@@ -625,11 +701,12 @@ class CustomSaveBody(BaseModel):
 def weekly_tracker_get(body: WeeklyGetBody, auth: dict = Depends(current_user)):
     project_id = _pid(body)
     _validate_week(body.year, body.month, body.week)
-    _require_project(auth, project_id)
+    _require_tracker_project(auth, project_id)
     languages = _assigned_languages(project_id)
     doc = _ensure_week(
         project_id, body.year, body.month, body.week, auth.get("email") or auth["user_id"]
     )
+    doc = _filter_week_for_editor(doc, auth)
     return _weekly_response(doc, languages)
 
 
@@ -639,7 +716,7 @@ def weekly_tracker_month_summary(
 ):
     project_id = _pid(body)
     _validate_month(body.year, body.month)
-    _require_project(auth, project_id)
+    _require_tracker_project(auth, project_id)
     docs = {
         int(d.get("week") or 0): d
         for d in weekly_trackers_col().find(
@@ -755,56 +832,83 @@ def weekly_tracker_mark_missed(body: WeeklyClientBody, auth: dict = Depends(curr
 
 @router.post("/weekly.tracker.save")
 def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)):
-    require_internal(auth)
+    if not (is_internal(auth) or is_editor(auth)):
+        raise HTTPException(403, "Internal or editor users only")
     project_id = _pid(body)
     _validate_week(body.year, body.month, body.week)
-    _require_project(auth, project_id)
+    _require_tracker_project(auth, project_id)
     languages = _assigned_languages(project_id)
     actor = auth.get("email") or auth["user_id"]
     existing = _ensure_week(project_id, body.year, body.month, body.week, actor)
-    cards = []
     existing_by_id = {
         str(row.get("id")): row
         for row in (existing.get("cards") or [])
         if isinstance(row, dict) and row.get("id")
     }
-    for index, incoming in enumerate(body.cards or []):
-        card = dict(incoming)
-        card["sort_order"] = index if card.get("sort_order") is None else card["sort_order"]
-        card["marking"] = normalize_marking(card.get("marking"))
-        if card.get("started") and not card.get("destinations"):
-            seed_destinations_for_card(card, languages)
-        card.pop("generated_posts", None)
-        cards.append(card)
-    if week_is_before_current(body.year, body.month, body.week):
-        for card in cards:
-            if not _card_is_complete(card):
+    if is_editor(auth):
+        cards = []
+        touched = {str(row.get("id")) for row in (body.cards or []) if isinstance(row, dict) and row.get("id")}
+        for index, incoming in enumerate(body.cards or []):
+            if not isinstance(incoming, dict) or not incoming.get("id"):
                 continue
-            previous = existing_by_id.get(str(card.get("id")))
-            if previous and _card_is_complete(previous):
+            previous = existing_by_id.get(str(incoming.get("id")))
+            if not previous or not _editor_owns_card(auth, previous):
+                raise HTTPException(403, "Card is not assigned to you")
+            card = _merge_editor_card_save(previous, dict(incoming))
+            card["sort_order"] = previous.get("sort_order", index)
+            card["marking"] = normalize_marking(card.get("marking"))
+            cards.append(card)
+        # Keep untouched cards (including other editors' cards) intact.
+        for row in existing.get("cards") or []:
+            if not isinstance(row, dict) or not row.get("id"):
                 continue
-            if not has_delay_proof(card):
-                raise HTTPException(
-                    400,
-                    "This task is from an earlier week. Add a reason for the delay and "
-                    "upload proof (voice, chat screenshot, or call history) before marking it completed.",
-                )
-            if not str(card.get("delay_recorded_at") or "").strip():
-                card["delay_recorded_at"] = _now_iso()
-            card["delay_recorded_by"] = actor
+            if str(row.get("id")) in touched:
+                continue
+            cards.append(row)
+    else:
+        require_internal(auth)
+        cards = []
+        for index, incoming in enumerate(body.cards or []):
+            card = dict(incoming)
+            card["sort_order"] = index if card.get("sort_order") is None else card["sort_order"]
+            card["marking"] = normalize_marking(card.get("marking"))
+            if card.get("started") and not card.get("destinations"):
+                seed_destinations_for_card(card, languages)
+            card.pop("generated_posts", None)
+            cards.append(card)
+        if week_is_before_current(body.year, body.month, body.week):
+            for card in cards:
+                if not _card_is_complete(card):
+                    continue
+                previous = existing_by_id.get(str(card.get("id")))
+                if previous and _card_is_complete(previous):
+                    continue
+                if not has_delay_proof(card):
+                    raise HTTPException(
+                        400,
+                        "This task is from an earlier week. Add a reason for the delay and "
+                        "upload proof (voice, chat screenshot, or call history) before marking it completed.",
+                    )
+                if not str(card.get("delay_recorded_at") or "").strip():
+                    card["delay_recorded_at"] = _now_iso()
+                card["delay_recorded_by"] = actor
     for card in cards:
         apply_card_history(existing_by_id.get(str(card.get("id"))), card, by=actor)
     cards.sort(key=lambda row: int(row.get("sort_order") or 0))
     doc = {
         **existing,
         "cards": cards,
-        "deliverable_slots": slots_from_card_types(card.get("type") for card in cards),
+        "deliverable_slots": (
+            existing.get("deliverable_slots")
+            if is_editor(auth)
+            else slots_from_card_types(card.get("type") for card in cards)
+        ),
         "languages": languages,
         "updated_at": _now_iso(),
         "updated_by": actor,
     }
     weekly_trackers_col().replace_one({"id": existing["id"]}, {**doc}, upsert=True)
-    return _weekly_response(doc, languages)
+    return _weekly_response(_filter_week_for_editor(doc, auth), languages)
 
 
 @router.post("/weekly.tracker.script-links.get")
@@ -928,23 +1032,27 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
 
 @router.post("/weekly.tracker.note.add")
 def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
-    require_internal(auth)
+    if not (is_internal(auth) or is_editor(auth)):
+        raise HTTPException(403, "Internal or editor users only")
     project_id = (body or {}).get("project_id") or (body or {}).get("client_id")
     year = int((body or {}).get("year"))
     month = int((body or {}).get("month"))
     week = int((body or {}).get("week"))
     card_id = (body or {}).get("card_id")
-    note_type = (body or {}).get("note_type") or "feedback"
+    key = _note_array_key(body)
+    if is_editor(auth) and key == "doctor_notes":
+        raise HTTPException(403, "Editors cannot add doctor notes")
     text = str((body or {}).get("text") or "")
     _validate_week(year, month, week)
-    _require_project(auth, project_id)
+    _require_tracker_project(auth, project_id)
     languages = _assigned_languages(project_id)
     doc = _ensure_week(project_id, year, month, week, auth.get("email") or auth["user_id"])
     cards = list(doc.get("cards") or [])
     card = next((c for c in cards if c.get("id") == card_id), None)
     if not card:
         raise HTTPException(404, "Card not found")
-    key = "doctor_notes" if note_type == "doctor" else "feedback_notes"
+    if not _editor_owns_card(auth, card):
+        raise HTTPException(403, "Card is not assigned to you")
     notes = list(card.get(key) or [])
     notes.append(
         {
@@ -960,7 +1068,7 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
     doc["cards"] = cards
     doc["updated_at"] = _now_iso()
     weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
-    return _weekly_response(doc, languages)
+    return _weekly_response(_filter_week_for_editor(doc, auth), languages)
 
 
 _TRACKER_FILES_DIR = Path(__file__).resolve().parents[1] / "social_assets" / "tracker_files"
@@ -996,9 +1104,10 @@ async def weekly_tracker_file_upload(
     text: str = Form(""),
     auth: dict = Depends(current_user),
 ):
-    require_internal(auth)
+    if not (is_internal(auth) or is_editor(auth)):
+        raise HTTPException(403, "Internal or editor users only")
     _validate_week(year, month, week)
-    _require_project(auth, client_id)
+    _require_tracker_project(auth, client_id)
     actor = auth.get("email") or auth["user_id"]
     languages = _assigned_languages(client_id)
     doc = _ensure_week(client_id, year, month, week, actor)
@@ -1006,6 +1115,10 @@ async def weekly_tracker_file_upload(
     card = next((row for row in cards if str(row.get("id")) == str(card_id)), None)
     if not card:
         raise HTTPException(404, "Card not found")
+    if not _editor_owns_card(auth, card):
+        raise HTTPException(403, "Card is not assigned to you")
+    if is_editor(auth) and target not in {"pending", "video_url", "audio_url"}:
+        raise HTTPException(403, "Editors can only upload video/audio or note attachments")
     previous = dict(card)
 
     original_name = Path(file.filename or "proof").name or "proof"
@@ -1042,6 +1155,11 @@ async def weekly_tracker_file_upload(
         assets["video_url"] = public_url
         card["assets"] = assets
         changed = True
+    elif target == "audio_url":
+        assets = dict(card.get("assets") or {})
+        assets["audio_url"] = public_url
+        card["assets"] = assets
+        changed = True
     if changed:
         apply_card_history(previous, card, by=actor)
         doc["cards"] = cards
@@ -1049,7 +1167,7 @@ async def weekly_tracker_file_upload(
         doc["updated_by"] = actor
         weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
 
-    response = _weekly_response(doc, languages)
+    response = _weekly_response(_filter_week_for_editor(doc, auth), languages)
     response["file"] = record
     return response
 

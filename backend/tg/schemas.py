@@ -975,6 +975,7 @@ class WeeklyTrackerCard(BaseModel):
     destination_post_ids: Dict[str, str] = {}
     feedback_notes: List[WeeklyTrackerNote] = []
     doctor_notes: List[WeeklyTrackerNote] = []
+    editor_notes: List[WeeklyTrackerNote] = []
     doctor_files: List[WeeklyTrackerDoctorFile] = []
     content_plan_item_id: Optional[str] = None
     topic_id: Optional[str] = None
@@ -1007,7 +1008,7 @@ class WeeklyTrackerNoteAddRequest(BaseModel):
     month: int
     week: int
     card_id: str
-    section: str  # feedback | doctor
+    section: str  # feedback | doctor | editor
     text: str = ""
     language: str = "all"
     attachments: List[WeeklyTrackerAttachment] = []

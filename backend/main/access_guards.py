@@ -13,6 +13,41 @@ def require_internal(auth: dict) -> None:
         raise HTTPException(403, "Internal users only")
 
 
+def is_editor(auth: dict) -> bool:
+    return auth.get("type") == UserType.EDITOR.value
+
+
+def is_internal(auth: dict) -> bool:
+    return auth.get("type") == UserType.INTERNAL.value
+
+
+def require_internal_or_editor(auth: dict) -> None:
+    if not (is_internal(auth) or is_editor(auth)):
+        raise HTTPException(403, "Internal or editor users only")
+
+
+def editor_id_from_auth(auth: dict) -> str:
+    """Roster id for an editor user; empty for non-editors."""
+    if not is_editor(auth):
+        return ""
+    return str(auth.get("editor_id") or "").strip()
+
+
+def require_editor_roster(auth: dict) -> str:
+    """Editors must have a valid roster editor_id; returns it."""
+    require_internal_or_editor(auth)
+    if is_internal(auth):
+        return ""
+    editor_id = editor_id_from_auth(auth)
+    if not editor_id:
+        raise HTTPException(403, "Editor account is missing editor_id")
+    from backend.trackers.editors import editor_by_id
+
+    if not editor_by_id(editor_id):
+        raise HTTPException(403, "Editor account is linked to an unknown roster id")
+    return editor_id
+
+
 def require_project_access(user_id: str, project_id: str) -> dict:
     """Any domain grant on this project (owner counts). Returns the project doc."""
     project = projects_col().find_one({"id": project_id}, {"_id": 0})
