@@ -348,6 +348,10 @@ export default function ClientScripts() {
         userPrompt: '',
         referenceVideoIds: selectedYTVideos,
       })
+      if (data?.thumbnail_reference_failed) {
+        toast('Thumbnail generation from the recent 3 failed, so nothing was saved.', 'error')
+        return
+      }
       setSuggestions(data.suggestions || null)
       setCardTab((prev) => ({ ...prev, [item.id]: 'metadata' }))
       toast('YouTube metadata generated!', 'success')

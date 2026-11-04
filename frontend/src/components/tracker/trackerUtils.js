@@ -768,8 +768,12 @@ export function cardsSummary(cards) {
 }
 
 export function serializableCard(card) {
-  const { generated_posts, yt_locales, live_posts, ...rest } = card
+  const { generated_posts, yt_locales, live_posts, template_topic, ...rest } = card
   return rest
+}
+
+export function templateTopic(card) {
+  return String(card?.title || card?.template_topic || '').trim()
 }
 
 function postDay(value) {
@@ -826,20 +830,24 @@ export function templateMessage(card, clientName) {
   const kind = templateKind(card)
   if (!kind) return ''
   const who = String(clientName || '').trim()
-  const topic = String(card?.title || '').trim() || 'this topic'
+  const topic = templateTopic(card)
   const lines = [who ? `Hi ${who},` : 'Hi,', '']
   if (kind === 'script') {
-    lines.push(`Your script is ready for "${topic}".`)
+    lines.push(topic ? `Your script is ready for "${topic}".` : 'Your script is ready.')
     return lines.join('\n')
   }
   if (kind === 'video') {
-    lines.push(`Your video for "${topic}" is ready.`)
+    lines.push(topic ? `Your video for "${topic}" is ready.` : 'Your video is ready.')
     lines.push(String(card?.assets?.video_url || '').trim() || 'Video link is not added yet.')
     return lines.join('\n')
   }
-  if (card?.type === 'blog') lines.push(`Your blog "${topic}" is live.`)
-  else if (card?.type === 'static_post') lines.push(`Your static post for "${topic}" is live.`)
-  else lines.push(`Your video for "${topic}" is posted.`)
+  if (card?.type === 'blog') {
+    lines.push(topic ? `Your blog "${topic}" is live.` : 'Your blog is live.')
+  } else if (card?.type === 'static_post') {
+    lines.push(topic ? `Your static post for "${topic}" is live.` : 'Your static post is live.')
+  } else {
+    lines.push(topic ? `Your video for "${topic}" is posted.` : 'Your video is posted.')
+  }
   const platformOrder = ['youtube', 'instagram', 'facebook', 'website']
   const links = latestPostLinks(card).sort((a, b) => {
     const platformDiff = platformOrder.indexOf(a.platform) - platformOrder.indexOf(b.platform)

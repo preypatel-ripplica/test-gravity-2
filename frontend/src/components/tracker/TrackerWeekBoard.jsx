@@ -32,8 +32,6 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   const [languages, setLanguages] = useState([])
   const [loading, setLoading] = useState(true)
   const [scriptedItems, setScriptedItems] = useState([])
-  const [planItems, setPlanItems] = useState([])
-  const [planKeywords, setPlanKeywords] = useState([])
   const [scriptBusyId, setScriptBusyId] = useState(null)
   const [channels, setChannels] = useState([])
   const [editors, setEditors] = useState([])
@@ -84,8 +82,6 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     try {
       const data = await api.getContentPlan(token, nextClientId)
       const items = data.suggestions?.items || []
-      setPlanItems(items)
-      setPlanKeywords(data.suggestions?.keyword_analysis || [])
       setScriptedItems(items.filter((item) => (item.script || '').trim()))
     } catch (err) {
       toast(err.message, 'error')
@@ -342,30 +338,6 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     toast('Script saved on this card', 'success')
   }
 
-  function titlesForCard(card) {
-    const wantShort = card.type === 'short'
-    const matches = (format) => (wantShort ? format === 'Short' : format !== 'Short')
-    const rows = planItems.filter((item) => item?.id && matches(item.format)).map((item) => ({
-      key: item.id,
-      title: item.title_hinglish || item.working_title || item.title_en || item.topic_text || 'Untitled',
-      keyword: item.topic_text || '',
-      itemId: item.id,
-      topicId: item.topic_id || null,
-    }))
-    const covered = new Set(rows.map((row) => row.topicId).filter(Boolean))
-    planKeywords.forEach((keyword) => {
-      if (!keyword?.topic_id || covered.has(keyword.topic_id)) return
-      rows.push({
-        key: `kw:${keyword.topic_id}`,
-        title: keyword.topic_text || 'Untitled',
-        keyword: keyword.topic_text || '',
-        itemId: null,
-        topicId: keyword.topic_id,
-      })
-    })
-    return rows
-  }
-
   if (loading) {
     return <p className="text-muted" style={{ padding: '16px 0' }}>Loading week…</p>
   }
@@ -389,7 +361,6 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
             scriptedItems={scriptedItems.filter((item) => (
               card.type === 'short' ? item.format === 'Short' : item.format !== 'Short'
             ))}
-            titleOptions={titlesForCard(card)}
             scriptBusy={scriptBusyId === card.id}
             onPickScript={(item) => handlePickScript(card, item)}
             onSaveScriptText={(text) => handleSaveScriptText(card, text)}

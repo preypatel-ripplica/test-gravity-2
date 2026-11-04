@@ -800,6 +800,17 @@ def _metadata_error_text(exc: Exception) -> str:
     return text.strip() or "YouTube metadata generation failed."
 
 
+class _RecentThumbnailUnresolved(Exception):
+    """Newest-3 reference edit failed before a text-only thumbnail was allowed."""
+
+
+def _thumbnail_strategy(*, has_refs: bool, user_picked: bool, allow_unreferenced: bool) -> str:
+    """reference: edit channel thumbs. text: generate with no reference photo."""
+    if has_refs and not (allow_unreferenced and not user_picked):
+        return "reference"
+    return "text"
+
+
 def _raise_metadata_failures(failures: list[str], generated: dict) -> None:
     if generated:
         return
@@ -948,8 +959,12 @@ def client_content_plan_generate_metadata(
         thumbnail_prompt = ""
         thumbnail_url = None
         refs = _refs_for(portrait)
-        ref_urls = [v.get("thumbnail_url") for v in refs if v.get("thumbnail_url")]
-        if refs:
+        strategy = _thumbnail_strategy(
+            has_refs=bool(refs),
+            user_picked=bool(picked_refs),
+            allow_unreferenced=bool(body.allow_unreferenced_thumbnail),
+        )
+        if strategy == "reference":
             thumbnail_prompt = reference_thumbnail_prompt(
                 client_summary=client_summary,
                 topic=topic,
@@ -963,13 +978,24 @@ def client_content_plan_generate_metadata(
             thumbnail_url = generate_reference_thumbnail(
                 thumbnail_prompt, refs, portrait=portrait
             )
-        if not thumbnail_url:
+            if not thumbnail_url and not picked_refs:
+                print(
+                    f"[yt-thumbnail] newest 3 reference edit failed for language={language}",
+                    flush=True,
+                )
+                raise _RecentThumbnailUnresolved()
+            if not thumbnail_url:
+                print(
+                    f"[yt-thumbnail] chosen reference edit produced no image for language={language}",
+                    flush=True,
+                )
+        else:
             thumbnail_prompt = generate_youtube_thumbnail_prompt(
                 client_summary=client_summary,
                 topic=topic,
                 script=script,
                 user_prompt=body.user_prompt,
-                reference_image_urls=ref_urls,
+                reference_image_urls=[],
                 language=language,
                 headline=headline,
                 description=description,
@@ -986,11 +1012,35 @@ def client_content_plan_generate_metadata(
     processed_topic_ids = set()
     generated_locales: dict = {}
     failures: list[str] = []
+    pending_locales: list[dict] = []
 
     def _fail_language(label: str, language: str, exc: Exception) -> None:
         msg = _metadata_error_text(exc)
         print(f"[yt-metadata] failed language={language} {label}: {msg}", flush=True)
         failures.append(f"{language}: {msg}")
+
+    def _remember_locale(topic_id, locale, language, *, topic_text, source, item_id):
+        pending_locales.append({
+            "topic_id": topic_id,
+            "locale": locale,
+            "language": language,
+            "topic_text": topic_text,
+            "source": source,
+            "item_id": item_id,
+        })
+        generated_locales[language] = locale
+
+    def _unresolved_thumbnail_response():
+        print("[yt-thumbnail] newest 3 reference edit failed; metadata was not saved", flush=True)
+        plan = client_content_plan_get(
+            schemas.ClientContentPlanGetRequest(client_id=client_id),
+            current_user=current_user,
+        )
+        return schemas.ClientContentPlanMetadataResponse(
+            **plan.model_dump(),
+            yt_locales=None,
+            thumbnail_reference_failed=True,
+        )
 
     # --- Pass 1: Content Plan items (From Script) ---
     for item in items:
@@ -1007,10 +1057,12 @@ def client_content_plan_generate_metadata(
                         language,
                         _description_examples(item, videos, body.reference_video_ids, descriptions),
                     )
+                except _RecentThumbnailUnresolved:
+                    return _unresolved_thumbnail_response()
                 except Exception as exc:  # noqa: BLE001
                     _fail_language(f"item={item.get('id')}", language, exc)
                     continue
-                _persist_locale(
+                _remember_locale(
                     topic_id,
                     locale,
                     language,
@@ -1018,7 +1070,6 @@ def client_content_plan_generate_metadata(
                     source=source,
                     item_id=item.get("id"),
                 )
-                generated_locales[language] = locale
 
     # --- Pass 2: Keyword Analysis items (Manual Pick) ---
     str_item_ids = [str(x) for x in body.item_ids]
@@ -1052,10 +1103,12 @@ def client_content_plan_generate_metadata(
                     language,
                     _description_examples(topic_for_prompt, videos, body.reference_video_ids, descriptions),
                 )
+            except _RecentThumbnailUnresolved:
+                return _unresolved_thumbnail_response()
             except Exception as exc:  # noqa: BLE001
                 _fail_language(f"topic={kw.get('topic_id')}", language, exc)
                 continue
-            _persist_locale(
+            _remember_locale(
                 kw.get("topic_id"),
                 locale,
                 language,
@@ -1063,7 +1116,6 @@ def client_content_plan_generate_metadata(
                 source=source,
                 item_id=item_id,
             )
-            generated_locales[language] = locale
 
     standalone_topic_id = str(body.topic_id or "").strip()
     if standalone_topic_id and standalone_topic_id not in {str(tid) for tid in processed_topic_ids}:
@@ -1082,10 +1134,12 @@ def client_content_plan_generate_metadata(
                     language,
                     _description_examples(standalone_topic, videos, body.reference_video_ids, descriptions),
                 )
+            except _RecentThumbnailUnresolved:
+                return _unresolved_thumbnail_response()
             except Exception as exc:  # noqa: BLE001
                 _fail_language(f"topic={standalone_topic_id}", language, exc)
                 continue
-            _persist_locale(
+            _remember_locale(
                 standalone_topic_id,
                 locale,
                 language,
@@ -1093,9 +1147,17 @@ def client_content_plan_generate_metadata(
                 source="manual",
                 item_id=None,
             )
-            generated_locales[language] = locale
 
     _raise_metadata_failures(failures, generated_locales)
+    for row in pending_locales:
+        _persist_locale(
+            row["topic_id"],
+            row["locale"],
+            row["language"],
+            topic_text=row["topic_text"],
+            source=row["source"],
+            item_id=row["item_id"],
+        )
 
     client_bundle["content_suggestions"] = suggestions
     replace_content_plan(client_id, client_bundle)
@@ -1153,11 +1215,16 @@ def client_content_plan_refine_metadata(
     )
     package = fetch_content_video(client_id, topic_id) if topic_id else None
         
+    portrait = str(body.format or (matching_item or {}).get("format") or "").strip().lower() == "short"
     reference_rows = []
-    if channel_id and body.reference_video_ids:
+    if channel_id:
         videos = list_videos_for_channel(channel_id, client_id)
-        selected = [v for v in videos if v.get("id") in body.reference_video_ids]
-        reference_rows = [v for v in selected if v.get("thumbnail_url") or v.get("id")][:3]
+        if body.reference_video_ids:
+            selected = [v for v in videos if v.get("id") in body.reference_video_ids]
+            reference_rows = [v for v in selected if v.get("thumbnail_url") or v.get("id")][:3]
+        else:
+            preferred = _newest_videos(videos, 3, shorts=portrait)
+            reference_rows = [v for v in preferred if v.get("thumbnail_url") or v.get("id")][:3]
 
     locales = dict((package or {}).get("yt_locales") or target.get("yt_locales") or {})
     current_locale = locales.get(language) if isinstance(locales.get(language), dict) else {}
@@ -1196,14 +1263,19 @@ def client_content_plan_refine_metadata(
     )
     
     locale = _locale_payload(metadata_res, thumbnail_prompt, None)
-    portrait = str(body.format or (matching_item or {}).get("format") or "").strip().lower() == "short"
     if thumbnail_prompt and thumbnail_prompt != current_thumbnail_prompt:
         thumbnail_url = None
         if reference_rows:
             thumbnail_url = generate_reference_thumbnail(
                 thumbnail_prompt, reference_rows, portrait=portrait
             )
-        if not thumbnail_url:
+            if not thumbnail_url:
+                print(
+                    "[yt-thumbnail] reference edit produced no image during refine; "
+                    "skipping text-only generation so the doctor is not replaced",
+                    flush=True,
+                )
+        else:
             try:
                 thumbnail_url = generate_youtube_thumbnail(thumbnail_prompt, portrait=portrait)
             except Exception as e:

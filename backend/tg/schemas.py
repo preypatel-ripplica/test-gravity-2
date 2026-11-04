@@ -394,6 +394,7 @@ class ClientContentPlanGenerateMetadataRequest(BaseModel):
     topic_id: Optional[str] = None
     topic_title: Optional[str] = None
     format: Optional[str] = None
+    allow_unreferenced_thumbnail: bool = False
 
 
 class ContentVideoUpdateDescriptionRequest(BaseModel):
@@ -425,6 +426,7 @@ class ClientContentPlanResponse(BaseModel):
 
 class ClientContentPlanMetadataResponse(ClientContentPlanResponse):
     yt_locales: Optional[dict] = None
+    thumbnail_reference_failed: bool = False
 
 
 # Social Media Schemas
