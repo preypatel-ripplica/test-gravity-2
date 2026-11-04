@@ -59,10 +59,12 @@ def _fill_prompt(name: str, **replacements: str) -> str:
 
 
 def _is_retryable_openai_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    if "no credits remaining" in text or "insufficient_quota" in text:
+        return False
     status_code = getattr(exc, "status_code", None)
     if status_code in (408, 409, 429, 500, 502, 503, 504):
         return True
-    text = str(exc).lower()
     return "server_error" in text or "server had an error" in text
 
 
