@@ -1063,19 +1063,18 @@ def _sync_plan_items(client_id: str, suggestions: dict) -> None:
             "updated_at": now,
             **_plan_item_script_patch(item),
         }
+        insert_fields = {
+            "created_at": now,
+            "yt_metadata_id": None,
+        }
         origin = item.get("origin")
         if origin in PLAN_ITEM_ORIGINS:
             patch["origin"] = origin
+        else:
+            insert_fields["origin"] = PLAN_ITEM_ORIGIN_GENERATED
         plan_items_col().update_one(
             {"id": item["id"]},
-            {
-                "$set": patch,
-                "$setOnInsert": {
-                    "created_at": now,
-                    "yt_metadata_id": None,
-                    "origin": PLAN_ITEM_ORIGIN_GENERATED,
-                },
-            },
+            {"$set": patch, "$setOnInsert": insert_fields},
             upsert=True,
         )
     plan_items_col().delete_many({"project_id": client_id, "id": {"$nin": keep}})

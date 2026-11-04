@@ -207,7 +207,7 @@ export const STAGES = {
     { id: 'planned', label: 'Planned' },
     { id: 'script_generated', label: 'Script generated' },
     { id: 'yt_metadata_generated', label: 'Metadata generated' },
-    { id: 'audio_generated', label: 'Audio generated' },
+    { id: 'audio_generated', label: 'Audio received' },
     { id: 'video_edited', label: 'Video edited' },
     { id: 'shared_with_doctor', label: 'Shared with doctor' },
     { id: 'posted', label: 'Posted' },
@@ -217,7 +217,7 @@ export const STAGES = {
     { id: 'planned', label: 'Planned' },
     { id: 'script_generated', label: 'Script generated' },
     { id: 'yt_metadata_generated', label: 'Metadata generated' },
-    { id: 'audio_generated', label: 'Audio generated' },
+    { id: 'audio_generated', label: 'Audio received' },
     { id: 'video_edited', label: 'Video edited' },
     { id: 'shared_with_doctor', label: 'Shared with doctor' },
     { id: 'posted', label: 'Posted' },
@@ -600,7 +600,7 @@ export function sectionForStage(card, stageId) {
   if (!stageId || stageId === 'planned') return 'script'
   if (stageId === 'script_generated') return 'script'
   if (stageId === 'yt_metadata_generated') return 'yt_metadata'
-  if (stageId === 'audio_generated') return 'audio'
+  if (stageId === 'audio_generated') return 'video'
   if (stageId === 'video_edited') return 'video'
   if (stageId === 'shared_with_doctor') return 'doctor'
   if (stageId === 'posted') return 'publish'
@@ -629,7 +629,7 @@ export function maybeAdvanceStage(card) {
     if (Object.values(locales).some((loc) => loc && String(loc.yt_title || '').trim())) {
       bump('yt_metadata_generated')
     }
-    if (card.assets?.audio_url) bump('audio_generated')
+    if (card.assets?.audio_url || card.assets?.video_url) bump('audio_generated')
     if (card.assets?.video_url) bump('video_edited')
   }
   const hasLiveUrl = (card.destinations || []).some((dest) => String(dest?.url || '').trim())
@@ -765,8 +765,96 @@ export function cardsSummary(cards) {
 }
 
 export function serializableCard(card) {
-  const { generated_posts, yt_locales, ...rest } = card
+  const { generated_posts, yt_locales, live_posts, ...rest } = card
   return rest
+}
+
+function postDay(value) {
+  const raw = String(value || '').trim()
+  return raw.length >= 10 ? raw.slice(0, 10) : ''
+}
+
+export function templateKind(card) {
+  const stage = card?.stage || ''
+  if (isVideoCard(card?.type)) {
+    if (stage === 'script_generated' || stage === 'yt_metadata_generated' || stage === 'audio_generated') return 'script'
+    if (stage === 'video_edited' || stage === 'shared_with_doctor') return 'video'
+    if (stage === 'posted' || stage === 'link_shared_with_doctor') return 'posted'
+    return null
+  }
+  if (card?.type === 'static_post' && (stage === 'posted' || stage === 'link_shared_with_doctor')) return 'posted'
+  if (card?.type === 'blog' && (stage === 'published' || stage === 'link_shared_with_doctor')) return 'posted'
+  return null
+}
+
+export function latestPostLinks(card) {
+  const dated = (card?.live_posts || []).filter((row) => String(row?.url || '').trim() && postDay(row?.posted_at))
+  if (dated.length) {
+    const latestDay = dated.reduce((max, row) => {
+      const day = postDay(row.posted_at)
+      return day > max ? day : max
+    }, '')
+    const best = new Map()
+    for (const row of dated) {
+      if (postDay(row.posted_at) !== latestDay) continue
+      const platform = String(row.platform || '').toLowerCase()
+      const language = String(row.language || '').toLowerCase()
+      const key = platform === 'youtube' ? `youtube:${language}` : platform
+      const prev = best.get(key)
+      if (!prev || String(row.posted_at) > String(prev.posted_at)) {
+        best.set(key, { platform, language, url: String(row.url).trim(), posted_at: row.posted_at })
+      }
+    }
+    return [...best.values()]
+  }
+  const best = new Map()
+  for (const dest of card?.destinations || []) {
+    const url = String(dest?.url || '').trim()
+    if (!url) continue
+    const platform = String(dest.platform || '').toLowerCase()
+    const language = String(dest.language || '').toLowerCase()
+    const key = language ? `${platform}:${language}` : platform
+    best.set(key, { platform, language, url, posted_at: '' })
+  }
+  return [...best.values()]
+}
+
+export function templateMessage(card, clientName) {
+  const kind = templateKind(card)
+  if (!kind) return ''
+  const who = String(clientName || '').trim()
+  const topic = String(card?.title || '').trim() || 'this topic'
+  const lines = [who ? `Hi ${who},` : 'Hi,', '']
+  if (kind === 'script') {
+    lines.push(`Your script is ready for "${topic}".`)
+    return lines.join('\n')
+  }
+  if (kind === 'video') {
+    lines.push(`Your video for "${topic}" is ready.`)
+    lines.push(String(card?.assets?.video_url || '').trim() || 'Video link is not added yet.')
+    return lines.join('\n')
+  }
+  if (card?.type === 'blog') lines.push(`Your blog "${topic}" is live.`)
+  else if (card?.type === 'static_post') lines.push(`Your static post for "${topic}" is live.`)
+  else lines.push(`Your video for "${topic}" is posted.`)
+  const platformOrder = ['youtube', 'instagram', 'facebook', 'website']
+  const links = latestPostLinks(card).sort((a, b) => {
+    const platformDiff = platformOrder.indexOf(a.platform) - platformOrder.indexOf(b.platform)
+    if (platformDiff) return platformDiff
+    return LANG_ORDER.indexOf(a.language) - LANG_ORDER.indexOf(b.language)
+  })
+  if (!links.length) {
+    lines.push('Links are not added yet.')
+    return lines.join('\n')
+  }
+  for (const row of links) {
+    const platform = PLATFORM_LABELS[row.platform] || row.platform || 'Link'
+    const language = row.platform === 'youtube' && row.language
+      ? ` (${LANG_LABELS[row.language] || row.language})`
+      : ''
+    lines.push(`${platform}${language}: ${row.url}`)
+  }
+  return lines.join('\n')
 }
 
 export const YT_LANGUAGE_OPTIONS = [

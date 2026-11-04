@@ -15,7 +15,7 @@ STAGE_LABELS = {
     "planned": "Planned",
     "script_generated": "Script generated",
     "yt_metadata_generated": "Metadata generated",
-    "audio_generated": "Audio generated",
+    "audio_generated": "Audio received",
     "video_edited": "Video edited",
     "shared_with_doctor": "Shared with doctor",
     "posted": "Posted",

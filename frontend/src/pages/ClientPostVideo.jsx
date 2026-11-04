@@ -235,7 +235,9 @@ export default function ClientPostVideo() {
       toast(`Metadata generated for ${itemIds.length} item(s)!`, 'success')
       setShowLangModal(false)
     } catch (err) {
-      setPageError(`Failed to generate metadata: ${err.message}`)
+      const message = `Failed to generate metadata: ${err.message}`
+      setPageError(message)
+      toast(message, 'error')
     }
     try {
       await loadPlan()
@@ -264,7 +266,9 @@ export default function ClientPostVideo() {
       toast('Metadata refined successfully!', 'success')
       setRefinePrompt('')
     } catch (err) {
-      setPageError(`Failed to refine metadata: ${err.message}`)
+      const message = `Failed to refine metadata: ${err.message}`
+      setPageError(message)
+      toast(message, 'error')
     }
     try {
       await loadPlan()
@@ -382,7 +386,9 @@ export default function ClientPostVideo() {
         setSocialVideoLink('')
       }
     } catch (err) {
-      setPageError(`Failed to post video: ${err.message}`)
+      const message = `Failed to post video: ${err.message}`
+      setPageError(message)
+      toast(message, 'error')
     } finally {
       setPostingBusy(false)
     }

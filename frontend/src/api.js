@@ -7,7 +7,19 @@ function url(path) {
 
 async function parseError(response) {
   const err = await response.json().catch(() => ({}))
-  return err.detail || `HTTP ${response.status}`
+  const detail = err.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const joined = detail
+      .map((item) => item?.msg || item?.message || (typeof item === 'string' ? item : ''))
+      .filter(Boolean)
+      .join(' ')
+    if (joined) return joined
+  }
+  if (detail && typeof detail === 'object' && (detail.msg || detail.message)) {
+    return detail.msg || detail.message
+  }
+  return err.message || `HTTP ${response.status}`
 }
 
 export function isAuthExpiredError(error) {

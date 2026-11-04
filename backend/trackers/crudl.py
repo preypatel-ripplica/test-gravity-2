@@ -302,8 +302,47 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
                 _ensure_dest_url(row, platform, entry["url"], entry.get("language"))
             if pkg.get("posted_urls") or pkg.get("youtube_urls"):
                 _at_least_stage(row, "posted")
+            row["live_posts"] = _live_posts_from_package(pkg)
         out.append(row)
     return out
+
+
+def _live_posts_from_package(pkg: dict) -> list[dict]:
+    """Publish history for the template message. Not written back onto the tracker."""
+    by_key: dict[tuple[str, str], dict] = {}
+
+    def add(platform: str, entry: dict) -> None:
+        url = str(entry.get("url") or "").strip()
+        platform = str(platform or "").strip().lower()
+        if not url or platform not in _LIVE_DEST_PLATFORMS or _is_source_file_url(url):
+            return
+        posted_at = str(entry.get("posted_at") or "").strip()
+        language = str(entry.get("language") or "").strip().lower() or None
+        key = (platform, url)
+        current = by_key.get(key)
+        if current and (current.get("posted_at") or not posted_at):
+            if not current.get("language") and language:
+                current["language"] = language
+            return
+        by_key[key] = {
+            "platform": platform,
+            "url": url,
+            "language": language,
+            "posted_at": posted_at,
+        }
+
+    for platform, key in (
+        ("youtube", "youtube_urls"),
+        ("instagram", "instagram_urls"),
+        ("facebook", "facebook_urls"),
+    ):
+        for entry in pkg.get(key) or []:
+            if isinstance(entry, dict):
+                add(platform, entry)
+    for entry in pkg.get("posted_urls") or []:
+        if isinstance(entry, dict):
+            add(str(entry.get("platform") or ""), entry)
+    return list(by_key.values())
 
 
 def _ensure_dest_url(card: dict, platform: str, url: str, language: str | None = None) -> None:

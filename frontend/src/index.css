@@ -5226,6 +5226,47 @@ a.plan-item-link {
     gap: 16px;
 }
 
+.tracker-next-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.tracker-template {
+    position: relative;
+}
+
+.tracker-template-card {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 80;
+    width: min(420px, 70vw);
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+}
+
+.tracker-template-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.tracker-template-card pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--text);
+}
+
 @keyframes tracker-section-flash {
     0% { box-shadow: 0 0 0 0 rgba(255, 77, 0, 0.4); }
     100% { box-shadow: 0 0 0 10px rgba(255, 77, 0, 0); }
