@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useStore } from "../store";
+import InstallApp from "../components/InstallApp";
 import wordmark from "../assets/ripplica-wordmark-white.png";
 
 /** Sign-in screen. Layout and wording follow the original Ripplica inbox; the
@@ -41,6 +42,8 @@ export default function Login() {
         <button type="submit" disabled={busy || !username.trim() || !password} className="w-full rounded-lg bg-accent px-3 py-2.5 text-[14px] font-semibold text-accent-fg disabled:opacity-40">
           {busy ? "Signing in…" : "Sign in"}
         </button>
+
+        <InstallApp className="mt-3" />
       </form>
     </div>
   );
