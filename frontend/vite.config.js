@@ -13,6 +13,9 @@ export default defineConfig({
     // home-screen installs open the Ripplica inbox, not the whole Plug site.
     VitePWA({
       registerType: 'autoUpdate',
+      // SW file stays at /sw.js ( /bot/* is SPA-only), but claim only /bot so
+      // Chrome's installability check lines up with the manifest scope.
+      scope: BOT_BASE,
       includeAssets: [
         'bot-assets/apple-touch-icon.png',
         'bot-assets/favicon.png',
@@ -44,6 +47,16 @@ export default defineConfig({
               expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
+          {
+            // Icons + apple-touch must never stick as grayscale/stale copies on
+            // a phone that installed before the RGB re-encode.
+            urlPattern: /\/bot-assets\/.*\.png$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'bot-icons',
+              expiration: { maxEntries: 12, maxAgeSeconds: 60 * 60 * 24 * 7 },
+            },
+          },
         ],
       },
       manifest: {
@@ -57,6 +70,14 @@ export default defineConfig({
         orientation: 'portrait',
         background_color: '#f6f7f9',
         theme_color: '#f6f7f9',
+        // Same dark-scheme paint as bot.ripplica.com so Android status bar
+        // matches when the phone itself is in dark mode.
+        user_preferences: {
+          color_scheme_dark: {
+            theme_color: '#0b0e14',
+            background_color: '#0b0e14',
+          },
+        },
         icons: [
           { src: '/bot-assets/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/bot-assets/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
