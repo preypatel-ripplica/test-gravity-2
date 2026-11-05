@@ -25,7 +25,8 @@
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
     "typescript": "^7.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vite-plugin-pwa": "^2.0.0"
   },
   "optionalDependencies": {
     "@rolldown/binding-darwin-arm64": "^1.1.5"
