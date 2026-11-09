@@ -36,6 +36,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   const [channels, setChannels] = useState([])
   const [editors, setEditors] = useState([])
   const [delayGate, setDelayGate] = useState(null)
+  const [delayProofRequired, setDelayProofRequired] = useState(false)
   const saveTimer = useRef(null)
   const skipNextSave = useRef(true)
   const loadedKey = useRef('')
@@ -64,6 +65,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
       setCards(nextCards)
       setWeekSlots(result.tracker?.deliverable_slots || null)
       setLanguages(langs)
+      setDelayProofRequired(Boolean(result.delay_proof_required))
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -176,7 +178,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     const nextCards = result.tracker?.cards || []
     const newlyComplete = nextCards.find((next) => {
       const previous = cards.find((card) => card.id === next.id)
-      return needsDelayProof(previous, next, year, month, week)
+      return needsDelayProof(previous, next, year, month, week, delayProofRequired)
     })
     skipNextSave.current = true
     setCards(nextCards)
@@ -187,7 +189,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
 
   function patchCard(nextCard) {
     const current = cards.find((card) => card.id === nextCard.id)
-    if (needsDelayProof(current, nextCard, year, month, week)) {
+    if (needsDelayProof(current, nextCard, year, month, week, delayProofRequired)) {
       setDelayGate({ next: nextCard })
       return
     }
@@ -243,6 +245,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     month,
     week,
     toast,
+    delayProofRequired,
     clientName: client?.name || '',
     channels,
     editors,
@@ -389,6 +392,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
       {delayGate?.next ? (
         <DelayProofModal
           token={token}
+          proofRequired={delayProofRequired}
           uploadFields={{
             clientId,
             year,

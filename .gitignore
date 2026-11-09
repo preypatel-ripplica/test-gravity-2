@@ -32,6 +32,7 @@ htmlcov/
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
+frontend/dev-dist/
 *.local
 
 # Runtime / local artifacts

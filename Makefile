@@ -10,9 +10,13 @@ start-backend:
 		--host 127.0.0.1 --port 8000
 
 # Frontend: React (Vite) on http://localhost:5173 (future: https://app.xyz)
-# Vite HMR is enabled by default via npm run dev
+# Vite 8 needs Node ^20.19 or >=22.12; prefer Homebrew node@22 when installed.
 start-frontend:
-	cd frontend && npm run dev
+	@if [ -x /opt/homebrew/opt/node@22/bin/node ]; then \
+		PATH="/opt/homebrew/opt/node@22/bin:$$PATH" cd frontend && npm run dev; \
+	else \
+		cd frontend && npm run dev; \
+	fi
 
 setup: setup-backend setup-frontend
 

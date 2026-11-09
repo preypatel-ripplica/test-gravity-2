@@ -9,10 +9,9 @@ import TrackerStaticGenerate from './TrackerStaticGenerate'
 import TrackerYtMetadata from './TrackerYtMetadata'
 import {
   COMPLETE_STAGE,
-  canConfirmLinkShared,
   cardStatus,
+  confirmChecklist,
   hasDelayProof,
-  hasLiveDestination,
   isDidNotTrack,
   MARKING_DID_NOT_TRACK,
   MARKING_NONE,
@@ -28,7 +27,6 @@ import {
   sectionForStage,
   stageCheckpointDone,
   stageList,
-  stageReached,
   templateKind,
   templateMessage,
 } from './trackerUtils'
@@ -221,21 +219,27 @@ function defaultVideoTab(card) {
   return stage
 }
 
-function videoConfirmChecks(card) {
-  return [
-    { id: 'script_generated', label: 'Script generated' },
-    { id: 'video_edited', label: 'Video edited' },
-    { id: 'shared_with_doctor', label: 'Shared with doctor' },
-    { id: 'posted', label: 'Posted' },
-  ].map((row) => ({ ...row, done: stageCheckpointDone(card, row.id) }))
+function ConfirmChecklist({ card }) {
+  const checks = confirmChecklist(card)
+  if (!checks.length) return null
+  return (
+    <ul className="tracker-stage-checklist">
+      {checks.map((row) => (
+        <li key={row.id} className={row.done ? 'is-done' : 'is-missing'}>
+          <i className={`fa-solid ${row.done ? 'fa-check' : 'fa-xmark'}`} aria-hidden="true" />
+          <span>{row.label}</span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function stopToggle(event) {
   event.stopPropagation()
 }
 
-function DelayProofNote({ card }) {
-  if (!hasDelayProof(card)) return null
+function DelayProofNote({ card, proofRequired = false }) {
+  if (!hasDelayProof(card, proofRequired)) return null
   const proofs = card.delay_proofs || []
   return (
     <div className="delay-proof-note">
@@ -462,24 +466,11 @@ export default function TrackerCard({
 
   function saveAsset(key, url) {
     const assets = { ...(card.assets || {}), [key]: url }
-    const next = maybeAdvanceStage({ ...card, assets })
-    if (
-      isVideoCard(card.type)
-      && key === 'video_url'
-      && String(url || '').trim()
-      && !stageReached(next, 'video_edited')
-    ) {
-      weekContext?.toast?.('Video saved. Add a script before this counts as Video edited.', 'info')
-    }
-    onChange(next)
+    onChange(maybeAdvanceStage({ ...card, assets }))
   }
 
   function confirmLinkShared() {
     if ((card.stage || '') === COMPLETE_STAGE) return
-    if (!canConfirmLinkShared(card)) {
-      weekContext?.toast?.('Please complete all previous steps first.', 'error')
-      return
-    }
     onChange({ ...card, stage: COMPLETE_STAGE })
   }
 
@@ -515,16 +506,7 @@ export default function TrackerCard({
   }
 
   function handleDestinationsChange(nextCard) {
-    const advanced = maybeAdvanceStage(nextCard)
-    if (
-      isVideoCard(card.type)
-      && hasLiveDestination(nextCard)
-      && !stageReached(card, 'posted')
-      && !stageReached(advanced, 'posted')
-    ) {
-      weekContext?.toast?.('Link saved. Finish Shared with doctor before this counts as Posted.', 'info')
-    }
-    onChange(advanced)
+    onChange(maybeAdvanceStage(nextCard))
   }
 
   function scrollToSection(sectionId) {
@@ -566,7 +548,7 @@ export default function TrackerCard({
     } else if (tab === 'video_edited') {
       body = (
         <>
-          <p className="tracker-hint">Adding a video marks Audio received and Video edited. A script is required before either counts.</p>
+          <p className="tracker-hint">Adding a video marks Audio received and Video edited.</p>
           <VideoAssetRow
             card={card}
             value={card.assets?.video_url}
@@ -600,18 +582,10 @@ export default function TrackerCard({
         </>
       )
     } else if (tab === COMPLETE_STAGE) {
-      const checks = videoConfirmChecks(card)
       const complete = stageCheckpointDone(card, COMPLETE_STAGE)
       body = (
         <>
-          <ul className="tracker-stage-checklist">
-            {checks.map((row) => (
-              <li key={row.id} className={row.done ? 'is-done' : ''}>
-                <i className={`fa-solid ${row.done ? 'fa-check' : 'fa-circle'}`} aria-hidden="true" />
-                <span>{row.label}</span>
-              </li>
-            ))}
-          </ul>
+          <ConfirmChecklist card={card} />
           <div className="tracker-stage-confirm">
             <button
               type="button"
@@ -666,7 +640,7 @@ export default function TrackerCard({
           <span className={`tracker-pill ${TYPE_PILL[card.type]}`}>{TYPE_LABELS[card.type]}</span>
           <strong className="tracker-collapsed-title">{card.title || 'Untitled'}</strong>
           <StatusBadge card={card} weekContext={weekContext} />
-          {hasDelayProof(card) ? <span className="tracker-pill tracker-pill-delay">Delay noted</span> : null}
+          {hasDelayProof(card, weekContext?.delayProofRequired) ? <span className="tracker-pill tracker-pill-delay">Delay noted</span> : null}
           <span className="tracker-icon-btn" data-tip="Expand" aria-hidden="true">
             <i className="fa-solid fa-chevron-down" />
           </span>
@@ -708,7 +682,7 @@ export default function TrackerCard({
         </div>
       </header>
 
-      {editorView ? null : <DelayProofNote card={card} />}
+      {editorView ? null : <DelayProofNote card={card} proofRequired={weekContext?.delayProofRequired} />}
 
       <div className="tracker-stage-block">
         <VideoEditFields
@@ -849,6 +823,21 @@ export default function TrackerCard({
             languages={languages}
             onChange={handleDestinationsChange}
           />
+          {card.type === 'static_post' || card.type === 'blog' ? (
+            <div className="tracker-stage-confirm-block">
+              <ConfirmChecklist card={card} />
+              <div className="tracker-stage-confirm">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={confirmLinkShared}
+                  disabled={stageCheckpointDone(card, COMPLETE_STAGE)}
+                >
+                  {stageCheckpointDone(card, COMPLETE_STAGE) ? 'Completed' : 'Confirm link shared'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
