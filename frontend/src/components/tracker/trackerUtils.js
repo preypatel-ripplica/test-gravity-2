@@ -206,20 +206,20 @@ export const STAGES = {
   long_video: [
     { id: 'planned', label: 'Planned' },
     { id: 'script_generated', label: 'Script generated' },
-    { id: 'yt_metadata_generated', label: 'Metadata generated' },
     { id: 'audio_generated', label: 'Audio received' },
     { id: 'video_edited', label: 'Video edited' },
     { id: 'shared_with_doctor', label: 'Shared with doctor' },
+    { id: 'yt_metadata_generated', label: 'Metadata generated' },
     { id: 'posted', label: 'Posted' },
     { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
   short: [
     { id: 'planned', label: 'Planned' },
     { id: 'script_generated', label: 'Script generated' },
-    { id: 'yt_metadata_generated', label: 'Metadata generated' },
     { id: 'audio_generated', label: 'Audio received' },
     { id: 'video_edited', label: 'Video edited' },
     { id: 'shared_with_doctor', label: 'Shared with doctor' },
+    { id: 'yt_metadata_generated', label: 'Metadata generated' },
     { id: 'posted', label: 'Posted' },
     { id: 'link_shared_with_doctor', label: 'Link shared with doctor' },
   ],
@@ -651,6 +651,11 @@ export function hasVideoFile(card) {
   return Boolean(String(card?.assets?.video_url || '').trim())
 }
 
+export function hasAudioOrVideo(card) {
+  const assets = card?.assets || {}
+  return Boolean(String(assets.audio_url || '').trim() || String(assets.video_url || '').trim())
+}
+
 export function stageReached(card, stageId) {
   const stages = stageList(card?.type).map((row) => row.id)
   const current = Math.max(0, stages.indexOf(card?.stage || 'planned'))
@@ -659,24 +664,31 @@ export function stageReached(card, stageId) {
 }
 
 export function canMarkSharedWithDoctor(card) {
-  if (!isVideoCard(card?.type)) return false
-  if (!hasTrackerScript(card)) return false
-  return hasVideoFile(card) || stageReached(card, 'video_edited') || stageReached(card, 'posted')
+  return isVideoCard(card?.type)
 }
 
 export function canConfirmLinkShared(card) {
   const stages = stageList(card?.type).map((row) => row.id)
-  if (stages[stages.length - 1] !== COMPLETE_STAGE) return false
+  return stages[stages.length - 1] === COMPLETE_STAGE
+}
+
+export function confirmChecklist(card) {
   if (isVideoCard(card?.type)) {
-    if (!hasTrackerScript(card)) return false
-    if (!hasDoctorShare(card)) return false
-    const posted = stageReached(card, 'posted') || hasLiveDestination(card)
-    if (!posted) return false
-    return hasVideoFile(card) || stageReached(card, 'video_edited') || stageReached(card, 'posted')
+    return [
+      { id: 'script_generated', label: 'Script generated', done: hasTrackerScript(card) },
+      { id: 'video_edited', label: 'Video edited', done: hasVideoFile(card) },
+      { id: 'shared_with_doctor', label: 'Shared with doctor', done: hasDoctorShare(card) },
+      { id: 'yt_metadata_generated', label: 'Metadata generated', done: localeHasTitle(card?.yt_locales || {}) },
+      { id: 'posted', label: 'Posted', done: hasLiveDestination(card) },
+    ]
   }
-  if (card?.type === 'static_post') return stageReached(card, 'posted') || hasLiveDestination(card)
-  if (card?.type === 'blog') return stageReached(card, 'published') || hasLiveDestination(card)
-  return false
+  if (card?.type === 'blog') {
+    return [{ id: 'published', label: 'Published', done: hasLiveDestination(card) }]
+  }
+  if (card?.type === 'static_post') {
+    return [{ id: 'posted', label: 'Posted', done: hasLiveDestination(card) }]
+  }
+  return []
 }
 
 export function maybeAdvanceStage(card) {
@@ -690,23 +702,13 @@ export function maybeAdvanceStage(card) {
   }
   if (isVideoCard(card.type)) {
     if (hasTrackerScript(card)) bump('script_generated')
-    const locales = card.yt_locales || {}
-    if (Object.values(locales).some((loc) => loc && String(loc.yt_title || '').trim())) {
-      bump('yt_metadata_generated')
-    }
-    if (hasTrackerScript(card)) {
-      if (card.assets?.audio_url || card.assets?.video_url) bump('audio_generated')
-      if (card.assets?.video_url) bump('video_edited')
-    }
-    if (hasDoctorShare(card) && idx >= stages.indexOf('video_edited')) {
-      bump('shared_with_doctor')
-    }
-    if (hasLiveDestination(card) && idx >= stages.indexOf('shared_with_doctor')) {
-      bump('posted')
-    }
+    if (hasAudioOrVideo(card)) bump('audio_generated')
+    if (hasVideoFile(card)) bump('video_edited')
+    if (hasDoctorShare(card)) bump('shared_with_doctor')
+    if (localeHasTitle(card.yt_locales || {})) bump('yt_metadata_generated')
+    if (hasLiveDestination(card)) bump('posted')
   }
-  const hasLiveUrl = hasLiveDestination(card)
-  if (hasLiveUrl) {
+  if (hasLiveDestination(card)) {
     if (card.type === 'blog') bump('published')
     if (card.type === 'static_post') bump('posted')
   }
@@ -725,18 +727,20 @@ export function stageCheckpointDone(card, stageId) {
   if (stageId === 'planned') return Boolean(card.started)
   if (stageId === 'script_generated') return hasTrackerScript(card)
   if (stageId === 'yt_metadata_generated') return localeHasTitle(card.yt_locales || {})
-  if (stageId === 'audio_generated') return stageReached(card, 'audio_generated')
-  if (stageId === 'video_edited') return stageReached(card, 'video_edited')
-  if (stageId === 'shared_with_doctor') return stageReached(card, 'shared_with_doctor')
-  if (stageId === 'posted') return stageReached(card, 'posted')
+  if (stageId === 'audio_generated') return hasAudioOrVideo(card)
+  if (stageId === 'video_edited') return hasVideoFile(card)
+  if (stageId === 'shared_with_doctor') return hasDoctorShare(card)
+  if (stageId === 'posted' || stageId === 'published') return hasLiveDestination(card)
   if (stageId === COMPLETE_STAGE) return isCompletedCard(card)
   return stageReached(card, stageId)
 }
 
-export function hasDelayProof(card) {
+export function hasDelayProof(card, proofRequired = false) {
   const reason = String(card?.delay_reason || '').trim()
+  if (!reason) return false
+  if (!proofRequired) return true
   const proofs = card?.delay_proofs || []
-  return Boolean(reason && proofs.some((file) => String(file?.url || '').trim()))
+  return proofs.some((file) => String(file?.url || '').trim())
 }
 
 export function isPastTrackerWeek(year, month, week) {
@@ -746,11 +750,11 @@ export function isPastTrackerWeek(year, month, week) {
   return Number(week) < today.week
 }
 
-export function needsDelayProof(prev, next, year, month, week) {
+export function needsDelayProof(prev, next, year, month, week, proofRequired = false) {
   if (!isPastTrackerWeek(year, month, week)) return false
   if (!isCompletedCard(next)) return false
   if (prev && isCompletedCard(prev)) return false
-  if (hasDelayProof(next)) return false
+  if (hasDelayProof(next, proofRequired)) return false
   return true
 }
 

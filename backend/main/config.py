@@ -31,6 +31,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
 # --- Mongo (same names as TG) ---
 MONGODB_URI = _env("MONGODB_URI")
 MONGODB_DB_NAME = _env("MONGODB_DB_NAME", "beacon")
@@ -49,6 +56,7 @@ else:
 
 # --- App URLs ---
 BASE_URL = _env("BASE_URL", "http://localhost:8000")
+TRACKER_DELAY_PROOF_REQUIRED = _env_bool("TRACKER_DELAY_PROOF_REQUIRED", False)
 FRONTEND_URL = _env("FRONTEND_URL", "http://localhost:5173")
 CORS_ORIGINS = _env(
     "CORS_ORIGINS",
@@ -171,6 +179,7 @@ _SETTINGS_NAMES = (
     "PAGESPEED_API_KEY",
     "FRONTEND_URL",
     "BASE_URL",
+    "TRACKER_DELAY_PROOF_REQUIRED",
     "CORS_ORIGINS",
     "MONGODB_URI",
     "MONGODB_DB_NAME",

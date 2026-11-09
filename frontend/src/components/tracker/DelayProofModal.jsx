@@ -6,6 +6,7 @@ const ACCEPT = 'image/*,audio/*,video/*,.pdf,.doc,.docx,.m4a,.mp3,.wav,.ogg'
 export default function DelayProofModal({
   token,
   uploadFields,
+  proofRequired = false,
   onCancel,
   onSubmit,
 }) {
@@ -29,7 +30,7 @@ export default function DelayProofModal({
       setError('Enter a reason for the delay.')
       return
     }
-    if (!files.length) {
+    if (proofRequired && !files.length) {
       setError('Upload at least one proof (voice note, chat screenshot, or call history).')
       return
     }
@@ -44,8 +45,12 @@ export default function DelayProofModal({
         }, file)
         if (result?.file?.url) proofs.push(result.file)
       }
-      if (!proofs.length) {
+      if (files.length && !proofs.length) {
         setError('Could not upload the proof files. Try again.')
+        return
+      }
+      if (proofRequired && !proofs.length) {
+        setError('Upload at least one proof (voice note, chat screenshot, or call history).')
         return
       }
       await onSubmit({ reason: text, proofs })
@@ -68,8 +73,9 @@ export default function DelayProofModal({
           </div>
           <div className="modal-body">
             <p>
-              This task is from an earlier week. Add a reason for the delay and upload proof
-              (voice note, screenshot of chat, or calling history) before marking it completed.
+              {proofRequired
+                ? 'This task is from an earlier week. Add a reason for the delay and upload proof (voice note, screenshot of chat, or calling history) before marking it completed.'
+                : 'This task is from an earlier week. Add a reason for the delay before marking it completed. Proof is optional.'}
             </p>
             <label className="delay-proof-label" htmlFor="delay-reason">
               Why was this late?
@@ -103,7 +109,11 @@ export default function DelayProofModal({
             >
               <i className="fa-solid fa-paperclip" /> Upload proof
             </button>
-            <p className="delay-proof-hint">Voice, chat screenshots, call history, or similar.</p>
+            <p className="delay-proof-hint">
+              {proofRequired
+                ? 'Voice, chat screenshots, call history, or similar.'
+                : 'Optional. Voice, chat screenshots, call history, or similar.'}
+            </p>
             {files.length ? (
               <ul className="delay-proof-files">
                 {files.map((file, index) => (
@@ -129,7 +139,7 @@ export default function DelayProofModal({
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? 'Uploading…' : 'Mark completed'}
+              {busy ? (files.length ? 'Uploading…' : 'Saving…') : 'Mark completed'}
             </button>
           </div>
         </form>

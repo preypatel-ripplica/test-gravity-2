@@ -520,12 +520,19 @@ def week_is_before_current(year: int, month: int, week: int, today: date | None 
     return (int(year), int(month), int(week)) < current_week_tuple(today)
 
 
-def has_delay_proof(row: dict | None) -> bool:
+def has_delay_proof(row: dict | None, *, require_files: bool | None = None) -> bool:
     if not isinstance(row, dict):
         return False
     reason = str(row.get("delay_reason") or "").strip()
+    if not reason:
+        return False
+    if require_files is None:
+        from backend.main.config import TRACKER_DELAY_PROOF_REQUIRED
+        require_files = TRACKER_DELAY_PROOF_REQUIRED
+    if not require_files:
+        return True
     proofs = row.get("delay_proofs") or []
-    if not reason or not isinstance(proofs, list):
+    if not isinstance(proofs, list):
         return False
     return any(
         isinstance(item, dict) and str(item.get("url") or "").strip()

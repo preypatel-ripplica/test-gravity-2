@@ -5315,6 +5315,18 @@ a.plan-item-link {
     color: var(--success);
 }
 
+.tracker-stage-checklist li.is-missing {
+    color: var(--text-muted);
+}
+
+.tracker-stage-checklist li.is-missing i {
+    color: #dc2626;
+}
+
+.tracker-stage-confirm-block {
+    margin-top: 16px;
+}
+
 .tracker-stage-links a {
     color: var(--primary);
     font-size: 14px;
@@ -6643,11 +6655,51 @@ select.input {
     flex-direction: column;
 }
 
+.ct-task-block {
+    display: flex;
+    flex-direction: column;
+}
+
 .ct-task {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 3px 0;
+}
+
+.ct-comment-preview {
+    margin: 0 0 6px 32px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+}
+
+.ct-comment-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 8px 32px;
+}
+
+.ct-comment-input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 13px;
+    resize: vertical;
+}
+
+.ct-comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ct-icon-btn.is-on {
+    color: var(--primary);
 }
 
 .ct-composer {

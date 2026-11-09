@@ -1044,6 +1044,7 @@ class WeeklyTrackerDoc(BaseModel):
 class WeeklyTrackerResponse(BaseModel):
     tracker: WeeklyTrackerDoc
     languages: List[str] = []
+    delay_proof_required: bool = False
 
 
 class CustomTrackerTask(BaseModel):

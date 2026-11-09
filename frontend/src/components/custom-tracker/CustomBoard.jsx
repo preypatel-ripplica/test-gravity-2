@@ -71,25 +71,95 @@ function AddRow({ placeholder, onAdd }) {
 }
 
 function TaskRow({ task, onChange, onRemove }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(task.comment || '')
+  const comment = String(task.comment || '').trim()
+
+  function startEdit() {
+    setDraft(task.comment || '')
+    setEditing(true)
+  }
+
+  function saveComment() {
+    onChange({ ...task, comment: draft.trim() })
+    setEditing(false)
+  }
+
+  function deleteComment() {
+    setDraft('')
+    onChange({ ...task, comment: '' })
+    setEditing(false)
+  }
+
   return (
-    <div className={`ct-task${task.done ? ' is-complete' : ''}`}>
-      <label className="ct-check">
+    <div className="ct-task-block">
+      <div className={`ct-task${task.done ? ' is-complete' : ''}`}>
+        <label className="ct-check">
+          <input
+            type="checkbox"
+            checked={Boolean(task.done)}
+            onChange={(event) => onChange({ ...task, done: event.target.checked })}
+          />
+        </label>
         <input
-          type="checkbox"
-          checked={Boolean(task.done)}
-          onChange={(event) => onChange({ ...task, done: event.target.checked })}
+          className={`ct-inline-input${task.done ? ' is-done' : ''}`}
+          value={task.title}
+          placeholder="Task"
+          onChange={(event) => onChange({ ...task, title: event.target.value })}
         />
-      </label>
-      <input
-        className={`ct-inline-input${task.done ? ' is-done' : ''}`}
-        value={task.title}
-        placeholder="Task"
-        onChange={(event) => onChange({ ...task, title: event.target.value })}
-      />
-      <DuePicker value={task.due_date || ''} onChange={(due_date) => onChange({ ...task, due_date })} />
-      <button type="button" className="ct-icon-btn" title="Remove" onClick={onRemove}>
-        <i className="fa-solid fa-xmark" />
-      </button>
+        <DuePicker value={task.due_date || ''} onChange={(due_date) => onChange({ ...task, due_date })} />
+        <button
+          type="button"
+          className={`ct-icon-btn${comment ? ' is-on' : ''}`}
+          title={comment ? 'Edit comment' : 'Add comment'}
+          onClick={startEdit}
+        >
+          <i className="fa-solid fa-pen" />
+        </button>
+        <button type="button" className="ct-icon-btn" title="Remove" onClick={onRemove}>
+          <i className="fa-solid fa-xmark" />
+        </button>
+      </div>
+      {comment && !editing ? <p className="ct-comment-preview">{comment}</p> : null}
+      {editing ? (
+        <div className="ct-comment-edit">
+          <textarea
+            className="ct-comment-input"
+            rows={2}
+            value={draft}
+            placeholder="Add a comment"
+            autoFocus
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setEditing(false)
+                setDraft(task.comment || '')
+              }
+            }}
+          />
+          <div className="ct-comment-actions">
+            <button type="button" className="btn btn-primary btn-sm" onClick={saveComment}>
+              Save
+            </button>
+            {comment ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={deleteComment}>
+                Delete
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setEditing(false)
+                setDraft(task.comment || '')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

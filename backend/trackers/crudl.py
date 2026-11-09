@@ -69,20 +69,20 @@ STAGES = {
     "long_video": [
         "planned",
         "script_generated",
-        "yt_metadata_generated",
         "audio_generated",
         "video_edited",
         "shared_with_doctor",
+        "yt_metadata_generated",
         "posted",
         "link_shared_with_doctor",
     ],
     "short": [
         "planned",
         "script_generated",
-        "yt_metadata_generated",
         "audio_generated",
         "video_edited",
         "shared_with_doctor",
+        "yt_metadata_generated",
         "posted",
         "link_shared_with_doctor",
     ],
@@ -342,6 +342,28 @@ def _has_video_file(card: dict | None) -> bool:
     return bool(str(assets.get("video_url") or "").strip())
 
 
+def _has_audio_or_video(card: dict | None) -> bool:
+    assets = card.get("assets") if isinstance(card, dict) else None
+    if not isinstance(assets, dict):
+        return False
+    return bool(
+        str(assets.get("audio_url") or "").strip()
+        or str(assets.get("video_url") or "").strip()
+    )
+
+
+def _has_metadata_title(card: dict | None) -> bool:
+    if not isinstance(card, dict):
+        return False
+    locales = card.get("yt_locales") or {}
+    if not isinstance(locales, dict):
+        return False
+    return any(
+        isinstance(loc, dict) and str(loc.get("yt_title") or "").strip()
+        for loc in locales.values()
+    )
+
+
 def _has_doctor_share(card: dict | None) -> bool:
     if not isinstance(card, dict):
         return False
@@ -375,25 +397,7 @@ def _can_confirm_complete(card: dict | None) -> bool:
     if not isinstance(card, dict):
         return False
     stages = STAGES.get(str(card.get("type") or "")) or []
-    if not stages or stages[-1] != COMPLETE_STAGE:
-        return False
-    card_type = str(card.get("type") or "")
-    if card_type in VIDEO_TYPES:
-        if not _has_tracker_script(card) or not _has_doctor_share(card):
-            return False
-        posted = _stage_reached(card, "posted") or _has_live_destination(card)
-        if not posted:
-            return False
-        return (
-            _has_video_file(card)
-            or _stage_reached(card, "video_edited")
-            or _stage_reached(card, "posted")
-        )
-    if card_type == "static_post":
-        return _stage_reached(card, "posted") or _has_live_destination(card)
-    if card_type == "blog":
-        return _stage_reached(card, "published") or _has_live_destination(card)
-    return False
+    return bool(stages) and stages[-1] == COMPLETE_STAGE
 
 
 def _advance_tracker_stage(card: dict | None) -> None:
@@ -411,16 +415,15 @@ def _advance_tracker_stage(card: dict | None) -> None:
     if card_type in VIDEO_TYPES:
         if _has_tracker_script(card):
             _at_least_stage(card, "script_generated")
-            assets = card.get("assets") if isinstance(card.get("assets"), dict) else {}
-            if str(assets.get("audio_url") or "").strip() or str(assets.get("video_url") or "").strip():
-                _at_least_stage(card, "audio_generated")
-            if str(assets.get("video_url") or "").strip():
-                _at_least_stage(card, "video_edited")
-        if _has_doctor_share(card) and (
-            _stage_reached(card, "video_edited") or _stage_reached(card, "posted")
-        ):
+        if _has_audio_or_video(card):
+            _at_least_stage(card, "audio_generated")
+        if _has_video_file(card):
+            _at_least_stage(card, "video_edited")
+        if _has_doctor_share(card):
             _at_least_stage(card, "shared_with_doctor")
-        if _has_live_destination(card) and _stage_reached(card, "shared_with_doctor"):
+        if _has_metadata_title(card):
+            _at_least_stage(card, "yt_metadata_generated")
+        if _has_live_destination(card):
             _at_least_stage(card, "posted")
     elif card_type == "static_post" and _has_live_destination(card):
         _at_least_stage(card, "posted")
@@ -849,6 +852,8 @@ def _weekly_response(doc: dict, languages: list[str]) -> dict:
     cards = _hydrate_cards(project_id, list(doc.get("cards") or []))
     slots = doc.get("deliverable_slots")
     project = projects_col().find_one({"id": project_id}, {"_id": 0, "name": 1}) or {}
+    from backend.main.config import TRACKER_DELAY_PROOF_REQUIRED
+
     return {
         "tracker": {
             "id": doc.get("id"),
@@ -864,6 +869,7 @@ def _weekly_response(doc: dict, languages: list[str]) -> dict:
             "updated_by": doc.get("updated_by"),
         },
         "languages": languages,
+        "delay_proof_required": bool(TRACKER_DELAY_PROOF_REQUIRED),
     }
 
 
@@ -1118,10 +1124,13 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
                 if previous and _card_is_complete(previous):
                     continue
                 if not has_delay_proof(card):
+                    from backend.main.config import TRACKER_DELAY_PROOF_REQUIRED
                     raise HTTPException(
                         400,
                         "This task is from an earlier week. Add a reason for the delay and "
-                        "upload proof (voice, chat screenshot, or call history) before marking it completed.",
+                        "upload proof (voice, chat screenshot, or call history) before marking it completed."
+                        if TRACKER_DELAY_PROOF_REQUIRED
+                        else "This task is from an earlier week. Add a reason for the delay before marking it completed.",
                     )
                 if not str(card.get("delay_recorded_at") or "").strip():
                     card["delay_recorded_at"] = _now_iso()
