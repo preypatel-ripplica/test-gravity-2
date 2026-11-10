@@ -439,6 +439,7 @@ class ClientContentPlanResponse(BaseModel):
 
 class ClientContentPlanMetadataResponse(ClientContentPlanResponse):
     yt_locales: Optional[dict] = None
+    topic_id: Optional[str] = None
     thumbnail_reference_failed: bool = False
 
 

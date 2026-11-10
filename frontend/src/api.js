@@ -6,20 +6,35 @@ function url(path) {
 }
 
 async function parseError(response) {
-  const err = await response.json().catch(() => ({}))
+  const rawText = await response.text().catch(() => '')
+  let err = {}
+  try {
+    err = rawText ? JSON.parse(rawText) : {}
+  } catch {
+    if (rawText.trim()) return `HTTP ${response.status}: ${rawText.slice(0, 2000)}`
+  }
   const detail = err.detail
-  if (typeof detail === 'string' && detail.trim()) return detail
+  if (typeof detail === 'string' && detail.trim()) return `HTTP ${response.status}: ${detail}`
   if (Array.isArray(detail)) {
     const joined = detail
-      .map((item) => item?.msg || item?.message || (typeof item === 'string' ? item : ''))
+      .map((item) => item?.msg || item?.message || (typeof item === 'string' ? item : JSON.stringify(item)))
       .filter(Boolean)
       .join(' ')
-    if (joined) return joined
+    if (joined) return `HTTP ${response.status}: ${joined}`
   }
-  if (detail && typeof detail === 'object' && (detail.msg || detail.message)) {
-    return detail.msg || detail.message
+  if (detail && typeof detail === 'object') {
+    const nested = detail.msg || detail.message || detail.error || JSON.stringify(detail)
+    if (nested) return `HTTP ${response.status}: ${nested}`
   }
-  return err.message || `HTTP ${response.status}`
+  if (err.message) return `HTTP ${response.status}: ${err.message}`
+  if (rawText.trim()) return `HTTP ${response.status}: ${rawText.slice(0, 2000)}`
+  return `HTTP ${response.status} ${response.statusText || ''}`.trim()
+}
+
+function networkErrorMessage(err, path) {
+  const raw = err?.message || String(err)
+  const cause = err?.cause ? ` | cause: ${err.cause?.message || err.cause}` : ''
+  return `Network error on POST ${path}: ${err?.name || 'Error'}: ${raw}${cause}`
 }
 
 export function isAuthExpiredError(error) {
@@ -62,11 +77,11 @@ export async function apiFetch(path, { token, body, form, formData, timeoutMs } 
     })
   } catch (err) {
     if (err?.name === 'AbortError') {
-      const timeoutErr = new Error('Request timed out')
+      const timeoutErr = new Error(`Request timed out on POST ${path}${timeoutMs ? ` after ${timeoutMs}ms` : ''}`)
       timeoutErr.name = 'TimeoutError'
       throw timeoutErr
     }
-    throw err
+    throw new Error(networkErrorMessage(err, path))
   } finally {
     if (timer) clearTimeout(timer)
   }
@@ -84,11 +99,16 @@ export async function apiFetch(path, { token, body, form, formData, timeoutMs } 
 export async function apiFetchProgress(path, { token, body, onStage } = {}) {
   const headers = { 'Content-Type': 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(url(path), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body ?? {}),
-  })
+  let response
+  try {
+    response = await fetch(url(path), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body ?? {}),
+    })
+  } catch (err) {
+    throw new Error(networkErrorMessage(err, path))
+  }
   if (!response.ok) {
     throw new Error(await parseError(response))
   }
@@ -109,18 +129,28 @@ export async function apiFetchProgress(path, { token, body, onStage } = {}) {
       buf = buf.slice(nl + 1)
       nl = buf.indexOf('\n')
       if (!line) continue
-      const event = JSON.parse(line)
+      let event
+      try {
+        event = JSON.parse(line)
+      } catch (err) {
+        throw new Error(`Publish stream was not JSON on ${path}: ${err.message}. Line: ${line.slice(0, 500)}`)
+      }
       if (event.event === 'stage' && event.stage) onStage?.(event.stage)
       if (event.event === 'done') result = event.result
-      if (event.event === 'error') throw new Error(event.detail || 'Publish failed')
+      if (event.event === 'error') throw new Error(event.detail || JSON.stringify(event) || 'Publish failed')
     }
   }
   const tail = buf.trim()
   if (tail) {
-    const event = JSON.parse(tail)
+    let event
+    try {
+      event = JSON.parse(tail)
+    } catch (err) {
+      throw new Error(`Publish stream was not JSON on ${path}: ${err.message}. Line: ${tail.slice(0, 500)}`)
+    }
     if (event.event === 'stage' && event.stage) onStage?.(event.stage)
     if (event.event === 'done') result = event.result
-    if (event.event === 'error') throw new Error(event.detail || 'Publish failed')
+    if (event.event === 'error') throw new Error(event.detail || JSON.stringify(event) || 'Publish failed')
   }
   if (!result) throw new Error('Publish ended before it finished')
   return result

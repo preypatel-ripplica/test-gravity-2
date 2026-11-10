@@ -93,7 +93,14 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
   async function refreshCardLocales(nextLocales, topicId) {
     if (topicId || (nextLocales && localeHasTitle(nextLocales))) applyLocales(nextLocales, topicId)
     try {
-      await reloadWeek?.()
+      const result = await reloadWeek?.()
+      const saved = (result?.tracker?.cards || []).find((row) => row.id === card.id)
+      const serverBehind = saved && topicId && (
+        (saved.topic_id && saved.topic_id !== topicId)
+        || (localeHasTitle(nextLocales) && !localeHasTitle(saved.yt_locales))
+      )
+      // Reload can still be the previous script, or it can return before titles are stored.
+      if (serverBehind) applyLocales(nextLocales, topicId)
     } catch {
       // Locales may already be on the card from applyLocales.
     }
@@ -117,6 +124,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
     setGenerating(true)
     let nextLocales = null
     let unresolved = false
+    let resolvedTopicId = topicId
     try {
       const manualScript = card.assets?.script_source === 'manual' ? scriptText : ''
       const data = await api.generateYouTubeMetadata(token, clientId, {
@@ -124,7 +132,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
         referenceVideoIds: continueWithoutReference ? [] : selectedRefIds,
         languages: generateLanguages,
         scriptOverride: manualScript || undefined,
-        topicId: card.content_plan_item_id ? undefined : topicId,
+        topicId,
         topicTitle: card.title,
         format: cardFormat(),
         allowUnreferencedThumbnail: continueWithoutReference,
@@ -136,15 +144,20 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
         const item = (data.suggestions?.items || []).find((row) => row.id === card.content_plan_item_id)
         const keyword = (data.suggestions?.keyword_analysis || []).find((row) => row.topic_id === topicId)
         nextLocales = data.yt_locales || item?.yt_locales || keyword?.yt_locales || null
+        resolvedTopicId = data.topic_id || item?.topic_id || topicId
         setRefThumbFailed(false)
         setPickingLang(false)
-        toast('YouTube metadata generated.', 'success')
+        if (localeHasTitle(nextLocales || {})) {
+          toast('YouTube metadata generated.', 'success')
+        } else {
+          toast('Metadata generation finished, but no titles were saved. Try again.', 'error')
+        }
       }
     } catch (err) {
       toast(err.message, 'error')
     }
     if (!unresolved) {
-      await refreshCardLocales(nextLocales, card.content_plan_item_id ? card.topic_id : topicId)
+      await refreshCardLocales(nextLocales, resolvedTopicId)
     }
     setGenerating(false)
   }

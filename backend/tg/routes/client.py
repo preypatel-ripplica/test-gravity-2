@@ -1,4 +1,6 @@
 from __future__ import annotations
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
 
@@ -866,6 +868,27 @@ def _raise_metadata_failures(failures: list[str], generated: dict) -> None:
     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
 
 
+def _ensure_item_topic_id(item: dict, *, client_id: str, fallback: str | None = None) -> str:
+    """Use the plan item's topic. Write one only when that row does not have one yet."""
+    from backend.tg.database import claim_plan_item_topic
+
+    item_id = str(item.get("id") or "").strip()
+    if not item_id:
+        topic_id = str(item.get("topic_id") or fallback or "").strip() or str(uuid4())
+        item["topic_id"] = topic_id
+        return topic_id
+    before = str(item.get("topic_id") or "").strip()
+    topic_id = claim_plan_item_topic(
+        client_id,
+        item_id,
+        preferred=before or fallback,
+    )
+    if topic_id and topic_id != before:
+        print(f"[yt-metadata] topic_id={topic_id} item={item_id}", flush=True)
+    item["topic_id"] = topic_id
+    return topic_id
+
+
 @router.post("/client.content-plan-generate-metadata", response_model=schemas.ClientContentPlanMetadataResponse)
 def client_content_plan_generate_metadata(
     body: schemas.ClientContentPlanGenerateMetadataRequest,
@@ -954,7 +977,12 @@ def client_content_plan_generate_metadata(
     keyword_analysis = suggestions.get("keyword_analysis", [])
 
     def _persist_locale(topic_id, locale, language, *, topic_text, source, item_id):
+        topic_id = str(topic_id or "").strip()
         if not topic_id:
+            print(
+                f"[yt-metadata] skip persist language={language} item={item_id}: missing topic_id",
+                flush=True,
+            )
             return
         upsert_content_video(
             client_id,
@@ -1054,6 +1082,7 @@ def client_content_plan_generate_metadata(
     generated_locales: dict = {}
     failures: list[str] = []
     pending_locales: list[dict] = []
+    resolved_topic_id: str | None = None
 
     def _fail_language(label: str, language: str, exc: Exception) -> None:
         msg = _metadata_error_text(exc)
@@ -1061,6 +1090,9 @@ def client_content_plan_generate_metadata(
         failures.append(f"{language}: {msg}")
 
     def _remember_locale(topic_id, locale, language, *, topic_text, source, item_id):
+        nonlocal resolved_topic_id
+        if topic_id:
+            resolved_topic_id = str(topic_id)
         pending_locales.append({
             "topic_id": topic_id,
             "locale": locale,
@@ -1106,7 +1138,8 @@ def client_content_plan_generate_metadata(
         item = items_by_id.get(item_id)
         if not item:
             continue
-        topic_id = item.get("topic_id")
+        topic_id = _ensure_item_topic_id(item, client_id=client_id, fallback=body.topic_id)
+        print(f"[yt-metadata] generating item={item_id} topic_id={topic_id}", flush=True)
         processed_topic_ids.add(topic_id)
         source = "script" if item.get("script") else "manual"
         topic_text = item.get("topic") or item.get("topic_text") or item.get("working_title") or ""
@@ -1219,6 +1252,12 @@ def client_content_plan_generate_metadata(
             source=row["source"],
             item_id=row["item_id"],
         )
+    if pending_locales:
+        print(
+            f"[yt-metadata] saved {len(pending_locales)} locale(s) "
+            f"topic_id={resolved_topic_id} item_ids={[row.get('item_id') for row in pending_locales]}",
+            flush=True,
+        )
 
     client_bundle["content_suggestions"] = suggestions
     replace_content_plan(client_id, client_bundle)
@@ -1226,6 +1265,7 @@ def client_content_plan_generate_metadata(
     return schemas.ClientContentPlanMetadataResponse(
         **plan.model_dump(),
         yt_locales=generated_locales or None,
+        topic_id=resolved_topic_id,
     )
 
 
@@ -1270,7 +1310,11 @@ def client_content_plan_refine_metadata(
     
     target = target_item or target_kw
     language = normalize_yt_language(body.language or "hinglish")
-    topic_id = target.get("topic_id")
+    if target_item:
+        topic_id = _ensure_item_topic_id(target_item, client_id=client_id, fallback=body.topic_id)
+        target["topic_id"] = topic_id
+    else:
+        topic_id = str(target.get("topic_id") or body.topic_id or "").strip()
     matching_item = target_item or next((i for i in items if i.get("topic_id") == topic_id), None)
     matching_kw = target_kw or next((k for k in keyword_analysis if isinstance(k, dict) and k.get("topic_id") == topic_id), None)
     source = "script" if matching_item and matching_item.get("script") else "manual"
@@ -1371,6 +1415,7 @@ def client_content_plan_refine_metadata(
     return schemas.ClientContentPlanMetadataResponse(
         **plan.model_dump(),
         yt_locales=saved_locales,
+        topic_id=str(topic_id or "").strip() or None,
     )
 
 

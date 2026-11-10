@@ -99,6 +99,8 @@ export default defineConfig({
       '^/(auth|user|project|client|channel|video|production|report|social|website|weekly|custom|tracker|edit|google)\\..*': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        timeout: 3_600_000,
+        proxyTimeout: 3_600_000,
       },
       '/health': {
         target: 'http://127.0.0.1:8000',

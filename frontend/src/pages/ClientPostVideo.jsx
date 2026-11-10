@@ -448,8 +448,8 @@ export default function ClientPostVideo() {
       </header>
 
       {pageError && (
-        <div style={{ position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)', background: '#f8d7da', color: '#842029', padding: '16px 24px', borderRadius: '12px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '12px', zIndex: 9999, boxShadow: '0 8px 32px rgba(220, 53, 69, 0.25)', border: '1px solid #f5c2c7' }}>
-          <i className="fa-solid fa-circle-exclamation" style={{ fontSize: '1.2em' }} /> {pageError}
+        <div style={{ position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)', background: '#f8d7da', color: '#842029', padding: '16px 24px', borderRadius: '12px', fontWeight: '500', display: 'flex', alignItems: 'flex-start', gap: '12px', zIndex: 9999, boxShadow: '0 8px 32px rgba(220, 53, 69, 0.25)', border: '1px solid #f5c2c7', maxWidth: 'min(900px, 92vw)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          <i className="fa-solid fa-circle-exclamation" style={{ fontSize: '1.2em', marginTop: '2px' }} /> {pageError}
           <button onClick={() => setPageError('')} style={{ background: 'none', border: 'none', marginLeft: '12px', cursor: 'pointer', color: '#842029', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <i className="fa-solid fa-xmark" style={{ fontSize: '1.2em' }} />
           </button>

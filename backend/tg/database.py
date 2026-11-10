@@ -1084,6 +1084,41 @@ def suggestion_item_from_plan_item(pi: dict | None) -> dict | None:
     }
 
 
+def claim_plan_item_topic(project_id: str, item_id: str, preferred: str | None = None) -> str:
+    """Return the plan item's topic id, writing one only when it does not have one yet."""
+    import uuid
+
+    item_id = str(item_id or "").strip()
+    preferred = str(preferred or "").strip()
+    existing = plan_items_col().find_one(
+        {"id": item_id, "project_id": project_id},
+        {"_id": 0, "topic_id": 1},
+    )
+    current = str((existing or {}).get("topic_id") or "").strip()
+    if current:
+        return current
+    topic_id = preferred or str(uuid.uuid4())
+    result = plan_items_col().update_one(
+        {
+            "id": item_id,
+            "project_id": project_id,
+            "$or": [
+                {"topic_id": None},
+                {"topic_id": ""},
+                {"topic_id": {"$exists": False}},
+            ],
+        },
+        {"$set": {"topic_id": topic_id}},
+    )
+    if result.modified_count:
+        return topic_id
+    fresh = plan_items_col().find_one(
+        {"id": item_id, "project_id": project_id},
+        {"_id": 0, "topic_id": 1},
+    )
+    return str((fresh or {}).get("topic_id") or "").strip() or topic_id
+
+
 def ensure_plan_item_for_tracker_card(project_id: str, card: dict) -> dict | None:
     """Ensure a weekly-tracker card points at a real plan_items document.
 
@@ -1098,6 +1133,26 @@ def ensure_plan_item_for_tracker_card(project_id: str, card: dict) -> dict | Non
     if not script and not item_id:
         return None
 
+    if not item_id and card.get("id"):
+        # A save that lost its ids must not create another shadow row for this card.
+        shadow = next(
+            plan_items_col()
+            .find(
+                {
+                    "project_id": project_id,
+                    "source": "weekly_tracker",
+                    "source_card_id": card.get("id"),
+                },
+                {"_id": 0},
+            )
+            .sort("updated_at", DESCENDING)
+            .limit(1),
+            None,
+        )
+        if shadow and shadow.get("id"):
+            item_id = str(shadow["id"])
+            card["content_plan_item_id"] = item_id
+
     existing = None
     if item_id:
         existing = plan_items_col().find_one(
@@ -1106,15 +1161,27 @@ def ensure_plan_item_for_tracker_card(project_id: str, card: dict) -> dict | Non
         )
         if existing:
             patch: dict[str, Any] = {}
-            if script and not str(existing.get("script") or "").strip():
+            if existing.get("source") == "weekly_tracker":
+                if script != str(existing.get("script") or ""):
+                    patch["script"] = script
+                    patch["status"] = "scripted" if script else "planned"
+                title = str(card.get("title") or "").strip()
+                if title and title != str(existing.get("title") or ""):
+                    patch["title"] = title
+            elif script and not str(existing.get("script") or "").strip():
                 patch["script"] = script
                 patch["status"] = "scripted"
-            if not existing.get("topic_id") and card.get("topic_id"):
-                patch["topic_id"] = card.get("topic_id")
             if patch:
                 patch["updated_at"] = _iso()
                 plan_items_col().update_one({"id": item_id}, {"$set": patch})
                 existing = {**existing, **patch}
+            topic_id = claim_plan_item_topic(
+                project_id,
+                item_id,
+                preferred=str(existing.get("topic_id") or card.get("topic_id") or ""),
+            )
+            card["topic_id"] = topic_id
+            card["content_plan_item_id"] = item_id
             return existing
 
     import uuid
@@ -1128,10 +1195,11 @@ def ensure_plan_item_for_tracker_card(project_id: str, card: dict) -> dict | Non
         if str(assets.get("script_source") or "").strip().lower() == "manual"
         else PLAN_ITEM_ORIGIN_GENERATED
     )
+    topic_id = str(card.get("topic_id") or "").strip() or str(uuid.uuid4())
     doc = {
         "id": new_id,
         "project_id": project_id,
-        "topic_id": card.get("topic_id") or None,
+        "topic_id": topic_id,
         "title": title,
         "format": fmt,
         "script": script,
@@ -1150,12 +1218,16 @@ def ensure_plan_item_for_tracker_card(project_id: str, card: dict) -> dict | Non
         "source_card_id": card.get("id"),
         "updated_at": now,
     }
+    fields = {key: value for key, value in doc.items() if key != "topic_id"}
     plan_items_col().update_one(
         {"id": new_id},
-        {"$set": doc, "$setOnInsert": {"created_at": now}},
+        {"$set": fields, "$setOnInsert": {"created_at": now, "topic_id": topic_id}},
         upsert=True,
     )
+    topic_id = claim_plan_item_topic(project_id, new_id, preferred=topic_id)
+    doc["topic_id"] = topic_id
     card["content_plan_item_id"] = new_id
+    card["topic_id"] = topic_id
     return doc
 
 

@@ -31,8 +31,34 @@ from backend.tg.services.youtube_api import (
 router = APIRouter(tags=["video"])
 
 UPLOADED_VIDEOS_DIR = Path(__file__).resolve().parent.parent.parent / "social_assets" / "uploaded_videos"
-VIDEO_MIME_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
-VIDEO_EXTS = {".mp4", ".mov", ".webm"}
+VIDEO_MIME_TYPES = {
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-m4v",
+    "video/mpeg",
+    "video/x-matroska",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/aac",
+    "audio/webm",
+}
+VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mpeg", ".mpg", ".mkv", ".mp3", ".m4a", ".wav", ".aac"}
+MIME_FOR_EXT = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".m4v": "video/x-m4v",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".mkv": "video/x-matroska",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+}
 
 
 def _resolve_ids(
@@ -385,28 +411,42 @@ async def video_local_upload(
     if not fetch_client_doc(client_id, username=current_user["username"]):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
-    content_type = file.content_type or "application/octet-stream"
-    mime = content_type.split(";")[0].strip().lower()
-    file_ext = Path(file.filename or "").suffix.lower()
+    # Original name is kept for display only. Storage key is a uuid + the original suffix.
+    original_name = Path(file.filename or "upload").name or "upload"
+    mime = (file.content_type or "application/octet-stream").split(";")[0].strip().lower()
+    file_ext = Path(original_name).suffix.lower()
     if mime not in VIDEO_MIME_TYPES and file_ext not in VIDEO_EXTS:
-        raise HTTPException(status_code=400, detail="File must be an mp4, mov, or webm video.")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported file ({original_name}, type={mime or 'unknown'}). "
+                "Use mp4, mov, webm, m4v, mkv, mp3, m4a, or wav. "
+                "The original filename does not need a special prefix."
+            ),
+        )
 
     ext = file_ext if file_ext in VIDEO_EXTS else {
         "video/mp4": ".mp4",
         "video/quicktime": ".mov",
         "video/webm": ".webm",
+        "audio/mpeg": ".mp3",
+        "audio/mp4": ".m4a",
+        "audio/wav": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/aac": ".aac",
     }.get(mime, ".mp4")
-    stored_type = mime if mime in VIDEO_MIME_TYPES else {
-        ".mp4": "video/mp4",
-        ".mov": "video/quicktime",
-        ".webm": "video/webm",
-    }.get(ext, "video/mp4")
+    stored_type = mime if mime in VIDEO_MIME_TYPES else MIME_FOR_EXT.get(ext, "application/octet-stream")
 
     filename = f"{uuid.uuid4().hex}{ext}"
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
+    print(
+        f"[video.local.upload] name={original_name!r} bytes={len(content)} mime={mime} stored={filename}",
+        flush=True,
+    )
 
+    storage = "gcs"
     try:
         public_url = upload_bytes("uploaded_videos", filename, content, content_type=stored_type)
     except Exception as exc:  # noqa: BLE001
@@ -415,11 +455,14 @@ async def video_local_upload(
         (UPLOADED_VIDEOS_DIR / filename).write_bytes(content)
         base_url = settings.BASE_URL.rstrip("/")
         public_url = f"{base_url}/weekly.tracker.asset/uploaded_videos/{filename}"
+        storage = "local"
 
     return {
         "url": public_url,
-        "name": file.filename or filename,
+        "name": original_name,
         "content_type": stored_type,
+        "bytes": len(content),
+        "storage": storage,
     }
 
 

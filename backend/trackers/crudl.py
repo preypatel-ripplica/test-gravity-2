@@ -449,11 +449,15 @@ def _is_source_file_url(url: str) -> bool:
 
 
 def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
-    packages = {
-        str(p.get("topic_id")): p
-        for p in yt_metadata_col().find({"project_id": project_id}, {"_id": 0})
-        if p.get("topic_id")
-    }
+    packages_by_topic: dict[str, dict] = {}
+    packages_by_item: dict[str, dict] = {}
+    for p in yt_metadata_col().find({"project_id": project_id}, {"_id": 0}):
+        topic_key = str(p.get("topic_id") or "").strip()
+        if topic_key:
+            packages_by_topic[topic_key] = p
+        item_key = str(p.get("content_plan_item_id") or p.get("plan_item_id") or "").strip()
+        if item_key:
+            packages_by_item[item_key] = p
     out = []
     for card in cards:
         row = dict(card)
@@ -463,8 +467,18 @@ def _hydrate_cards(project_id: str, cards: list[dict]) -> list[dict]:
             if isinstance(d, dict) and not _is_source_file_url(d.get("url") or "")
         ]
         topic_id = str(row.get("topic_id") or "").strip()
-        pkg = packages.get(topic_id) if topic_id else None
+        item_id = str(row.get("content_plan_item_id") or "").strip()
+        pkg = packages_by_topic.get(topic_id) if topic_id else None
+        if not pkg and item_id:
+            by_item = packages_by_item.get(item_id)
+            by_item_topic = str((by_item or {}).get("topic_id") or "").strip()
+            # Don't show another topic's titles just because the script row id matches.
+            if by_item and (not topic_id or by_item_topic == topic_id):
+                pkg = by_item
         if pkg:
+            pkg_topic = str(pkg.get("topic_id") or "").strip()
+            if pkg_topic and not topic_id:
+                row["topic_id"] = pkg_topic
             locales = pkg.get("locales") or pkg.get("yt_locales") or {}
             row["yt_locales"] = locales
             if any(
@@ -1261,13 +1275,20 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
     assets["script_source"] = "content_plan"
     target["assets"] = assets
     target["content_plan_item_id"] = item_id
-    if topic_id:
-        target["topic_id"] = topic_id
-    if title and not target.get("title"):
+    if not str(topic_id or "").strip() and item_id and pi:
+        from backend.tg.database import claim_plan_item_topic
+        topic_id = claim_plan_item_topic(project_id, item_id)
+    # Choosing an existing script replaces the card's topic, including a previous custom one.
+    target["topic_id"] = str(topic_id or "").strip() or None
+    if title and not already:
         target["title"] = title
     target["started"] = True
     if not target.get("destinations"):
         seed_destinations_for_card(target, languages)
+    if not already:
+        # New script: drop the previous custom-script timeline. Hydrate can bump
+        # metadata/posted again if this topic already has them.
+        target["stage"] = "script_generated"
     _at_least_stage(target, "script_generated")
     doc["cards"] = _order_cards_by_type(cards)
     doc["updated_at"] = _now_iso()
@@ -1326,7 +1347,7 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
 
 
 _TRACKER_FILES_DIR = Path(__file__).resolve().parents[1] / "social_assets" / "tracker_files"
-_MAX_TRACKER_FILE_BYTES = 50 * 1024 * 1024
+_MAX_TRACKER_FILE_BYTES = 500 * 1024 * 1024
 
 
 def _store_tracker_upload(filename: str, content: bytes, content_type: str) -> str:
@@ -1383,7 +1404,7 @@ async def weekly_tracker_file_upload(
     if not content:
         raise HTTPException(400, "Empty file")
     if len(content) > _MAX_TRACKER_FILE_BYTES:
-        raise HTTPException(400, "File is larger than 50 MB.")
+        raise HTTPException(400, "File is larger than 500 MB.")
 
     public_url = _store_tracker_upload(stored_name, content, content_type or "application/octet-stream")
     record = {
