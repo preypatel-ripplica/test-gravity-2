@@ -6,6 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Playwright's bundled Node needs libatomic; slim images do not ship it, and
+# `playwright install --with-deps` only covers Chromium OS libs — not this one.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY backend/main/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && playwright install --with-deps chromium
