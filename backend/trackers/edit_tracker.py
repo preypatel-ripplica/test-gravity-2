@@ -18,7 +18,7 @@ from backend.main.access_guards import (
 from backend.main.auth import current_user
 from backend.main.db import projects_col, weekly_trackers_col
 from backend.main.models import ProjectStatus
-from backend.trackers.crudl import _card_is_complete, _ensure_week, _now_iso
+from backend.trackers.crudl import STAGES, _ensure_week, _now_iso, _stage_index
 from backend.trackers.editors import (
     EDITOR_FIELD_ID,
     EDITOR_FIELD_LABEL,
@@ -98,21 +98,28 @@ def _is_video(card: dict) -> bool:
     return str(card.get("type") or "") in VIDEO_TYPES
 
 
+# Editor board keeps work through video_edited. shared_with_doctor and later drop off.
+_EDIT_BOARD_LAST_STAGE = "video_edited"
+
+
 def _open_video(card: dict) -> bool:
     if not isinstance(card, dict) or not _is_video(card):
         return False
     if is_did_not_track(card.get("marking")):
         return False
-    if _card_is_complete(card):
-        return False
-    return True
+    card_type = str(card.get("type") or "")
+    stages = STAGES.get(card_type) or []
+    if _EDIT_BOARD_LAST_STAGE not in stages:
+        return True
+    stage = str(card.get("stage") or "planned").strip() or "planned"
+    return _stage_index(card_type, stage) <= _stage_index(card_type, _EDIT_BOARD_LAST_STAGE)
 
 
 def _hydrate_card(card: dict, project: dict, late: bool, *, fill_editor: bool = True) -> dict:
     next_card = dict(card)
     overridden = bool(next_card.get("editor_overridden"))
     editor_id = str(next_card.get("editor_id") or "").strip()
-    if fill_editor and not overridden and (not editor_id or not editor_by_id(editor_id)):
+    if fill_editor and not overridden:
         next_card["editor_id"] = default_editor_id(project, late=late)
     elif editor_id and not editor_by_id(editor_id):
         next_card["editor_id"] = default_editor_id(project, late=late)
@@ -315,37 +322,72 @@ def _filter_items_for_auth(items: list[dict], auth: dict) -> list[dict]:
     return [item for item in items if str(item.get("editor_id") or "").strip() == editor_id]
 
 
-def _day_hours(items: list[dict], week_dates: list[str]) -> dict[str, dict[str, int]]:
+def _item_hours(item: dict) -> float:
+    try:
+        return float(item.get("edit_hours") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _fits(load: float, hours: float, cap: float) -> bool:
+    return load + hours <= cap + 1e-9
+
+
+def _assign_sort_key(row: dict) -> tuple:
+    return (
+        0 if row.get("late") else 1,
+        1 if _script_pending(row) else 0,
+        -_item_hours(row),
+    )
+
+
+def _day_hours(items: list[dict], week_dates: list[str]) -> dict[str, dict[str, float]]:
     allowed = set(week_dates)
-    totals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for item in items:
         day = item.get("planned_edit_date") or ""
         editor_id = item.get("editor_id") or ""
         if not editor_id or day not in allowed:
             continue
-        totals[editor_id][day] += float(item.get("edit_hours") or 0)
+        totals[editor_id][day] += _item_hours(item)
     return totals
 
 
 def _annotate_spill(items: list[dict], week_dates: list[str]) -> list[dict]:
     week_set = set(week_dates)
-    totals = _day_hours(items, week_dates)
+    caps = {row["id"]: int(row.get("max_hours_per_day") or 0) for row in editor_list()}
+    grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for index, item in enumerate(items):
+        day = str(item.get("planned_edit_date") or "").strip()
+        editor_id = str(item.get("editor_id") or "").strip()
+        if editor_id and day in week_set:
+            grouped[(editor_id, day)].append(index)
+    overflow = set()
+    for (editor_id, _day), indexes in grouped.items():
+        cap = caps.get(editor_id) or 0
+        used = 0.0
+        for index in sorted(indexes, key=lambda i: _assign_sort_key(items[i])):
+            hours = _item_hours(items[index])
+            if cap and not _fits(used, hours, cap):
+                overflow.add(index)
+                continue
+            used += hours
+    totals = _day_hours(
+        [item for index, item in enumerate(items) if index not in overflow],
+        week_dates,
+    )
     out = []
-    for item in items:
+    for index, item in enumerate(items):
         next_item = dict(item)
         editor = editor_by_id(item.get("editor_id"))
-        day = item.get("planned_edit_date") or ""
         cap = int((editor or {}).get("max_hours_per_day") or 0)
-        spill = False
-        reason = ""
-        if not day or day not in week_set:
-            spill = True
-            reason = "unassigned"
-        elif editor and totals[editor["id"]][day] > cap:
-            spill = True
-            reason = "editor spill"
+        day = str(item.get("planned_edit_date") or "").strip()
+        if index in overflow:
+            next_item["planned_edit_date"] = ""
+            day = ""
+        spill = not day or day not in week_set
         next_item["spill"] = spill
-        next_item["spill_reason"] = reason
+        next_item["spill_reason"] = "unassigned" if spill else ""
         next_item["day_hours"] = totals.get(item.get("editor_id") or "", {}).get(day, 0)
         next_item["max_hours"] = cap
         out.append(next_item)
@@ -406,12 +448,12 @@ def _script_pending(item: dict) -> bool:
     return stage in _LATER_STAGES
 
 
-def _lowest_load_day(days: list[str], day_hours: dict[str, int], hours: int, cap: int) -> str | None:
+def _lowest_load_day(days: list[str], day_hours: dict[str, float], hours: float, cap: float) -> str | None:
     best = None
     best_load = None
     for day in days:
         load = day_hours[day]
-        if load + hours > cap:
+        if not _fits(load, hours, cap):
             continue
         if best is None or load < best_load:
             best = day
@@ -419,7 +461,7 @@ def _lowest_load_day(days: list[str], day_hours: dict[str, int], hours: int, cap
     return best
 
 
-def _choose_day(working_iso: list[str], day_hours: dict[str, int], hours: int, cap: int, *, prefer_late: bool) -> str | None:
+def _choose_day(working_iso: list[str], day_hours: dict[str, float], hours: float, cap: float, *, prefer_late: bool) -> str | None:
     if not working_iso:
         return None
     ordered = list(reversed(working_iso)) if prefer_late else list(working_iso)
@@ -439,15 +481,11 @@ def _assign(items: list[dict], working: list[date], actor: str) -> list[dict]:
 
     for editor_id, rows in grouped.items():
         editor = editor_by_id(editor_id) or {}
-        cap = int(editor.get("max_hours_per_day") or 0)
-        day_hours = {day: 0 for day in working_iso}
-        rows.sort(key=lambda row: (
-            0 if row.get("late") else 1,
-            1 if _script_pending(row) else 0,
-            -int(row.get("edit_hours") or 0),
-        ))
+        cap = float(editor.get("max_hours_per_day") or 0)
+        day_hours = {day: 0.0 for day in working_iso}
+        rows.sort(key=_assign_sort_key)
         for item in rows:
-            hours = int(item.get("edit_hours") or 0)
+            hours = _item_hours(item)
             prefer_late = (not item.get("late")) and _script_pending(item)
             best = _choose_day(working_iso, day_hours, hours, cap, prefer_late=prefer_late)
             patch = {"editor_id": editor_id}
@@ -458,8 +496,8 @@ def _assign(items: list[dict], working: list[date], actor: str) -> list[dict]:
                 patch["planned_edit_date"] = ""
             saved = _save_card_fields(item, patch, actor)
             item.update(patch)
-            if saved:
-                item["edit_hours"] = int(saved.get("edit_hours") or hours)
+            if saved and saved.get("edit_hours") not in (None, ""):
+                item["edit_hours"] = saved.get("edit_hours")
     return items
 
 

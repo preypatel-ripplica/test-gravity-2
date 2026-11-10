@@ -52,11 +52,11 @@ function rowGroup(row, today) {
 
 function sortRows(rows, today) {
   return [...rows].sort((a, b) => {
+    const toneDiff = (TONE_RANK[a.tone] ?? 9) - (TONE_RANK[b.tone] ?? 9)
+    if (toneDiff) return toneDiff
     const groupDiff = rowGroup(a, today) - rowGroup(b, today)
     if (groupDiff) return groupDiff
-    const clientDiff = String(a.client_name || '').localeCompare(String(b.client_name || ''), undefined, { sensitivity: 'base' })
-    if (clientDiff) return clientDiff
-    return (TONE_RANK[a.tone] ?? 9) - (TONE_RANK[b.tone] ?? 9)
+    return String(a.client_name || '').localeCompare(String(b.client_name || ''), undefined, { sensitivity: 'base' })
   })
 }
 
@@ -649,6 +649,8 @@ export default function PocWeeklyTracker() {
       })
       .filter((client) => client.tasks.length > 0 || filtersIdle)
       .sort((a, b) => {
+        const urgentDiff = b.urgentCount - a.urgentCount
+        if (urgentDiff) return urgentDiff
         const countDiff = b.tasks.length - a.tasks.length
         if (countDiff) return countDiff
         return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })

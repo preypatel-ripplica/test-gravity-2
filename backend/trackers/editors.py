@@ -167,11 +167,11 @@ def working_dates(
 
 
 def default_editor_id(project: dict | None, *, late: bool) -> str:
-    if late:
-        return late_editor_id()
     stored = str((project or {}).get("video_editor_id") or "").strip()
     if editor_by_id(stored):
         return stored
+    if late:
+        return late_editor_id()
     return editor_list()[0]["id"]
 
 
