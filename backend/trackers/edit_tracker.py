@@ -355,39 +355,23 @@ def _day_hours(items: list[dict], week_dates: list[str]) -> dict[str, dict[str, 
 
 def _annotate_spill(items: list[dict], week_dates: list[str]) -> list[dict]:
     week_set = set(week_dates)
-    caps = {row["id"]: int(row.get("max_hours_per_day") or 0) for row in editor_list()}
-    grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
-    for index, item in enumerate(items):
-        day = str(item.get("planned_edit_date") or "").strip()
-        editor_id = str(item.get("editor_id") or "").strip()
-        if editor_id and day in week_set:
-            grouped[(editor_id, day)].append(index)
-    overflow = set()
-    for (editor_id, _day), indexes in grouped.items():
-        cap = caps.get(editor_id) or 0
-        used = 0.0
-        for index in sorted(indexes, key=lambda i: _assign_sort_key(items[i])):
-            hours = _item_hours(items[index])
-            if cap and not _fits(used, hours, cap):
-                overflow.add(index)
-                continue
-            used += hours
-    totals = _day_hours(
-        [item for index, item in enumerate(items) if index not in overflow],
-        week_dates,
-    )
+    totals = _day_hours(items, week_dates)
     out = []
-    for index, item in enumerate(items):
+    for item in items:
         next_item = dict(item)
         editor = editor_by_id(item.get("editor_id"))
+        day = item.get("planned_edit_date") or ""
         cap = int((editor or {}).get("max_hours_per_day") or 0)
-        day = str(item.get("planned_edit_date") or "").strip()
-        if index in overflow:
-            next_item["planned_edit_date"] = ""
-            day = ""
-        spill = not day or day not in week_set
+        spill = False
+        reason = ""
+        if not day or day not in week_set:
+            spill = True
+            reason = "unassigned"
+        elif editor and totals[editor["id"]][day] > cap + 1e-9:
+            spill = True
+            reason = "editor spill"
         next_item["spill"] = spill
-        next_item["spill_reason"] = "unassigned" if spill else ""
+        next_item["spill_reason"] = reason
         next_item["day_hours"] = totals.get(item.get("editor_id") or "", {}).get(day, 0)
         next_item["max_hours"] = cap
         out.append(next_item)

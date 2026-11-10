@@ -68,61 +68,30 @@ function dateOnBoard(item, weekDates) {
   return weekDates.has(day) ? day : ''
 }
 
-const SCRIPT_PENDING_STAGES = new Set(['', 'planned', 'script_generated'])
-
-function itemHours(item) {
-  return Number(item?.edit_hours) || 0
-}
-
-function scriptPending(item) {
-  const stage = String(item?.stage || 'planned').trim() || 'planned'
-  return SCRIPT_PENDING_STAGES.has(stage)
-}
-
-function assignPriority(left, right) {
-  const late = (left.late ? 0 : 1) - (right.late ? 0 : 1)
-  if (late) return late
-  const pending = (scriptPending(left) ? 1 : 0) - (scriptPending(right) ? 1 : 0)
-  if (pending) return pending
-  return itemHours(right) - itemHours(left)
-}
-
 function annotateItems(items, days, editors) {
   const weekDates = weekDateSet(days)
-  const editorCap = Object.fromEntries((editors || []).map((editor) => [editor.id, Number(editor.max_hours_per_day) || 0]))
-  const groups = {}
-  items.forEach((item, index) => {
+  const totals = {}
+  for (const item of items) {
     const day = dateOnBoard(item, weekDates)
     const editorId = item.editor_id || ''
-    if (!editorId || !day) return
-    const key = `${editorId}|${day}`
-    groups[key] = groups[key] || []
-    groups[key].push(index)
-  })
-  const overflow = new Set()
-  Object.entries(groups).forEach(([key, indexes]) => {
-    const editorId = key.split('|')[0]
-    const cap = editorCap[editorId] || 0
-    let used = 0
-    const ordered = [...indexes].sort((a, b) => assignPriority(items[a], items[b]))
-    ordered.forEach((index) => {
-      const hours = itemHours(items[index])
-      if (cap && used + hours > cap + 1e-9) {
-        overflow.add(index)
-        return
-      }
-      used += hours
-    })
-  })
-  return items.map((item, index) => {
-    const overflowed = overflow.has(index)
-    const day = overflowed ? '' : dateOnBoard(item, weekDates)
-    return {
-      ...item,
-      planned_edit_date: overflowed ? '' : item.planned_edit_date,
-      spill: !day,
-      spill_reason: day ? '' : 'unassigned',
+    if (!editorId || !day) continue
+    totals[editorId] = totals[editorId] || {}
+    totals[editorId][day] = (totals[editorId][day] || 0) + (Number(item.edit_hours) || 0)
+  }
+  const editorCap = Object.fromEntries((editors || []).map((editor) => [editor.id, Number(editor.max_hours_per_day) || 0]))
+  return items.map((item) => {
+    const day = dateOnBoard(item, weekDates)
+    const cap = editorCap[item.editor_id] || 0
+    let spill = false
+    let reason = ''
+    if (!day) {
+      spill = true
+      reason = 'unassigned'
+    } else if (cap && (totals[item.editor_id]?.[day] || 0) > cap + 1e-9) {
+      spill = true
+      reason = 'editor spill'
     }
+    return { ...item, spill, spill_reason: reason }
   })
 }
 
