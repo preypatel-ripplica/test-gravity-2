@@ -2676,7 +2676,8 @@ h1, h2, h3, .greeting h1, .connect-prompt-container h2 {
     align-items: center;
     gap: 12px;
     min-width: 320px;
-    max-width: 520px;
+    max-width: min(720px, 92vw);
+    align-items: flex-start;
     background: var(--surface);
     border-radius: var(--radius);
     padding: 14px 16px;
@@ -2705,6 +2706,10 @@ h1, h2, h3, .greeting h1, .connect-prompt-container h2 {
     flex-grow: 1;
     line-height: 1.4;
     white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-height: 40vh;
+    overflow-y: auto;
 }
 
 .toast-close {

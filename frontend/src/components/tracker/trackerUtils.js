@@ -271,6 +271,66 @@ export function newId(prefix = 'id') {
   return `${prefix}-${Math.random().toString(16).slice(2, 14)}`
 }
 
+export function newUuid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const rand = Math.floor(Math.random() * 16)
+    const value = char === 'x' ? rand : ((rand % 4) + 8)
+    return value.toString(16)
+  })
+}
+
+/** Ids for a custom-script save. A new custom script gets a fresh pair. An edit keeps the pair. */
+export function manualScriptIdentity(card, payload) {
+  const explicitNew = Boolean(payload && typeof payload === 'object' && !payload.itemId && !payload.topicId)
+  if (explicitNew) {
+    return { content_plan_item_id: newUuid(), topic_id: newUuid() }
+  }
+  const fromPayload = payload && typeof payload === 'object'
+  const content_plan_item_id = (fromPayload ? payload.itemId : null) || card?.content_plan_item_id || null
+  let topic_id = (fromPayload ? payload.topicId : null) || card?.topic_id || null
+  if (content_plan_item_id && !topic_id) topic_id = newUuid()
+  return { content_plan_item_id, topic_id }
+}
+
+/**
+ * Copy script/topic ids from a save response onto the open card.
+ * A newer local script row (different id) is left alone.
+ * The same script row keeps the topic the server stored.
+ */
+export function savedScriptIdsConflict(local, saved) {
+  if (!local || !saved) return false
+  const localItem = local.content_plan_item_id || null
+  const savedItem = saved.content_plan_item_id || null
+  return Boolean(localItem && savedItem && localItem !== savedItem)
+}
+
+export function mergeSavedScriptIds(local, saved) {
+  if (!local || !saved) return local
+  const localItem = local.content_plan_item_id || null
+  const savedItem = saved.content_plan_item_id || null
+  if (localItem && savedItem && localItem !== savedItem) return local
+  const content_plan_item_id = localItem || savedItem || null
+  const topic_id = savedItem && saved.topic_id && (!localItem || localItem === savedItem)
+    ? saved.topic_id
+    : (local.topic_id || saved.topic_id || null)
+  const idsSame = (
+    content_plan_item_id === (local.content_plan_item_id || null)
+    && topic_id === (local.topic_id || null)
+  )
+  const next = idsSame ? local : { ...local, content_plan_item_id, topic_id }
+  // The save response is hydrated for this topic. Use it, but don't wipe titles
+  // the page just generated if this response was built before they were stored.
+  if ((next.topic_id || null) === (saved.topic_id || null) && saved.yt_locales) {
+    const serverHasTitles = Object.values(saved.yt_locales).some((loc) => loc && String(loc.yt_title || '').trim())
+    const localHasTitles = Object.values(next.yt_locales || {}).some((loc) => loc && String(loc.yt_title || '').trim())
+    if (serverHasTitles || !localHasTitles) {
+      if (saved.yt_locales !== next.yt_locales) return { ...next, yt_locales: saved.yt_locales }
+    }
+  }
+  return next
+}
+
 export function emptyCard(type, sortOrder, isDefault = false) {
   return {
     id: newId('card'),

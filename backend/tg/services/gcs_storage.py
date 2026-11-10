@@ -1,10 +1,16 @@
 from __future__ import annotations
+import io
 import json
 from pathlib import Path
 from google.cloud import storage
 from google.oauth2 import service_account
 
 from backend.tg.config import settings
+
+# google.cloud.storage defaults to 120s. Large mp4/mov uploads need longer.
+_LARGE_UPLOAD_DEADLINE = 3600.0
+_LARGE_UPLOAD_BYTES = 32 * 1024 * 1024
+_CHUNK_SIZE = 8 * 1024 * 1024
 
 def _get_gcs_client() -> storage.Client:
     """Initialize GCS client using either JSON string from env var or the local credentials file."""
@@ -18,21 +24,75 @@ def _get_gcs_client() -> storage.Client:
     return storage.Client()
 
 
+def _needs_long_upload(content_type: str, size: int) -> bool:
+    kind = (content_type or "").split(";")[0].strip().lower()
+    return (
+        kind.startswith("video/")
+        or kind.startswith("audio/")
+        or size > _LARGE_UPLOAD_BYTES
+    )
+
+
+def _public_url(blob, blob_path: str) -> str:
+    url = f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_path}"
+    try:
+        blob.reload()
+        generation = getattr(blob, "generation", None)
+    except Exception:
+        generation = None
+    if generation:
+        return f"{url}?generation={generation}"
+    return url
+
+
+def _maybe_make_public(blob, blob_path: str, content_type: str) -> None:
+    if not (content_type or "").startswith(("video/", "audio/")):
+        return
+    try:
+        blob.make_public()
+        print(f"[gcs] public read enabled for {blob_path}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        text = str(exc)
+        if "uniform bucket-level access" in text.lower():
+            print(
+                f"[gcs] {blob_path} uses bucket-level access, so per-file public ACL is skipped.",
+                flush=True,
+            )
+        else:
+            print(f"[gcs] could not set a public ACL on {blob_path}: {exc}", flush=True)
+
+
 def upload_bytes(folder: str, filename: str, data: bytes, content_type: str = "image/png") -> str:
     """Upload raw bytes to GCS and return the public URL."""
     if not settings.GCS_BUCKET_NAME:
         raise ValueError("GCS_BUCKET_NAME is not set in config.")
-        
+
     client = _get_gcs_client()
     bucket = client.bucket(settings.GCS_BUCKET_NAME)
-    
-    # Ensure folder name ends with a slash if provided
     prefix = f"{folder.strip('/')}/" if folder else ""
     blob_path = f"{prefix}{filename}"
-    
     blob = bucket.blob(blob_path)
+    size = len(data or b"")
+    print(
+        f"[gcs] upload_bytes path={blob_path} bytes={size} content_type={content_type}",
+        flush=True,
+    )
+
+    if _needs_long_upload(content_type, size):
+        from google.api_core import retry as api_retry
+
+        blob.chunk_size = _CHUNK_SIZE
+        blob.upload_from_file(
+            io.BytesIO(data),
+            size=size,
+            content_type=content_type,
+            timeout=_LARGE_UPLOAD_DEADLINE,
+            retry=api_retry.Retry(deadline=_LARGE_UPLOAD_DEADLINE),
+        )
+        _maybe_make_public(blob, blob_path, content_type)
+        return _public_url(blob, blob_path)
+
     blob.upload_from_string(data, content_type=content_type)
-    
     return f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_path}"
 
 
@@ -82,13 +142,14 @@ def upload_file(folder: str, local_path: Path | str, content_type: str = "applic
     
     blob = bucket.blob(blob_path)
     size = path.stat().st_size if path.exists() else 0
-    # We set this 1 hour limit. The storage client itself stops at 2 minutes, which drops a large video.
-    # If the copy does not finish in 1 hour, Instagram and Facebook are not posted.
-    if content_type.startswith("video/") or size > 32 * 1024 * 1024:
+    print(
+        f"[gcs] upload_file path={blob_path} bytes={size} content_type={content_type}",
+        flush=True,
+    )
+    if _needs_long_upload(content_type, size):
         from google.api_core import retry as api_retry
 
-        deadline = 3600.0
-        blob.chunk_size = 8 * 1024 * 1024
+        blob.chunk_size = _CHUNK_SIZE
         try:
             if on_progress and size:
                 with path.open("rb") as raw:
@@ -96,15 +157,15 @@ def upload_file(folder: str, local_path: Path | str, content_type: str = "applic
                         _ProgressReader(raw, size, on_progress),
                         size=size,
                         content_type=content_type,
-                        timeout=deadline,
-                        retry=api_retry.Retry(deadline=deadline),
+                        timeout=_LARGE_UPLOAD_DEADLINE,
+                        retry=api_retry.Retry(deadline=_LARGE_UPLOAD_DEADLINE),
                     )
             else:
                 blob.upload_from_filename(
                     str(path),
                     content_type=content_type,
-                    timeout=deadline,
-                    retry=api_retry.Retry(deadline=deadline),
+                    timeout=_LARGE_UPLOAD_DEADLINE,
+                    retry=api_retry.Retry(deadline=_LARGE_UPLOAD_DEADLINE),
                 )
         except Exception as exc:
             if _is_upload_timeout(exc):
@@ -124,30 +185,8 @@ def upload_file(folder: str, local_path: Path | str, content_type: str = "applic
             except Exception as exc:  # noqa: BLE001
                 print(f"[gcs] could not patch cache_control on {blob_path}: {exc}", flush=True)
 
-    if content_type.startswith("video/"):
-        try:
-            blob.make_public()
-            print(f"[gcs] public read enabled for {blob_path}", flush=True)
-        except Exception as exc:  # noqa: BLE001
-            text = str(exc)
-            if "uniform bucket-level access" in text.lower():
-                print(
-                    f"[gcs] {blob_path} uses bucket-level access, so per-file public ACL is skipped.",
-                    flush=True,
-                )
-            else:
-                print(f"[gcs] could not set a public ACL on {blob_path}: {exc}", flush=True)
-
-    # Generation query forces clients/CDN to fetch the just-uploaded object version.
-    try:
-        blob.reload()
-        generation = getattr(blob, "generation", None)
-    except Exception:
-        generation = None
-    url = f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_path}"
-    if generation:
-        return f"{url}?generation={generation}"
-    return url
+    _maybe_make_public(blob, blob_path, content_type)
+    return _public_url(blob, blob_path)
 
 
 def delete_file(blob_path: str) -> None:

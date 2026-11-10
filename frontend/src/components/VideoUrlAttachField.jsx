@@ -1,7 +1,26 @@
 import { useRef, useState } from 'react'
 import api from '../api'
 
-const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm'
+const VIDEO_ACCEPT = [
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/x-m4v',
+  'video/mpeg',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/wav',
+  '.mp4',
+  '.mov',
+  '.webm',
+  '.m4v',
+  '.mpeg',
+  '.mpg',
+  '.mkv',
+  '.mp3',
+  '.m4a',
+  '.wav',
+].join(',')
 
 export default function VideoUrlAttachField({
   token,
@@ -23,11 +42,14 @@ export default function VideoUrlAttachField({
     try {
       const result = await api.uploadLocalVideo(token, clientId, file)
       const url = result?.url || ''
-      if (!url) throw new Error('Upload did not return a URL')
+      if (!url) {
+        throw new Error(`Upload did not return a URL. Response: ${JSON.stringify(result)}`)
+      }
       onChange(url)
-      toast?.('Video uploaded', 'success')
+      const where = result.storage === 'local' ? 'saved on this machine' : 'uploaded'
+      toast?.(`${file.name} ${where} (${Math.round((result.bytes || file.size) / (1024 * 1024))} MB)`, 'success')
     } catch (err) {
-      toast?.(err.message, 'error')
+      toast?.(err.message || String(err), 'error')
     } finally {
       setUploading(false)
     }

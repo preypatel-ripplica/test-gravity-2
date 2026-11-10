@@ -11,8 +11,11 @@ import {
   applyCardHistory,
   emptyCard,
   isVideoCard,
+  manualScriptIdentity,
   maybeAdvanceStage,
+  mergeSavedScriptIds,
   needsDelayProof,
+  savedScriptIdsConflict,
   seedDestinations,
   serializableCard,
   sortCardsByType,
@@ -40,6 +43,8 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   const saveTimer = useRef(null)
   const skipNextSave = useRef(true)
   const loadedKey = useRef('')
+  const cardsRef = useRef([])
+  const saveGen = useRef(0)
   const onSummaryChangeRef = useRef(onSummaryChange)
   onSummaryChangeRef.current = onSummaryChange
 
@@ -49,6 +54,8 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     try {
       const result = await api.getWeeklyTracker(token, nextClientId, nextYear, nextMonth, nextWeek)
       loadedKey.current = `${nextClientId}-${nextYear}-${nextMonth}-${nextWeek}`
+      saveGen.current += 1
+      clearTimeout(saveTimer.current)
       skipNextSave.current = true
       const langs = displayLanguages(result.languages || [])
       const nextCards = (result.tracker?.cards || []).map((card) => {
@@ -62,6 +69,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
         }
         return next
       })
+      cardsRef.current = nextCards
       setCards(nextCards)
       setWeekSlots(result.tracker?.deliverable_slots || null)
       setLanguages(langs)
@@ -126,15 +134,16 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     }
   }, [token])
 
-  const persist = useCallback((nextCards, { immediate } = {}) => {
+  const persist = useCallback((nextCards, { immediate, fromStale } = {}) => {
     if (!token || !clientId) return
     const key = `${clientId}-${year}-${month}-${week}`
     if (loadedKey.current !== key) return
     clearTimeout(saveTimer.current)
+    const gen = saveGen.current
     const run = async () => {
-      if (loadedKey.current !== key) return
+      if (loadedKey.current !== key || gen !== saveGen.current) return
       try {
-        await api.saveWeeklyTracker(
+        const result = await api.saveWeeklyTracker(
           token,
           clientId,
           year,
@@ -142,6 +151,28 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
           week,
           nextCards.map(serializableCard),
         )
+        if (gen !== saveGen.current) {
+          // Attach/reload happened while this save was in flight. Rewrite the live cards.
+          if (!fromStale) persist(cardsRef.current, { immediate: true, fromStale: true })
+          return
+        }
+        const savedCards = result?.tracker?.cards || []
+        setCards((prev) => {
+          let changed = false
+          let stale = false
+          const merged = prev.map((card) => {
+            const saved = savedCards.find((row) => row.id === card.id)
+            if (savedScriptIdsConflict(card, saved)) stale = true
+            const next = mergeSavedScriptIds(card, saved)
+            if (next !== card) changed = true
+            return next
+          })
+          // An older save returned after a new custom script. Write the current card again.
+          if (stale && !fromStale) queueMicrotask(() => persist(merged, { immediate: true, fromStale: true }))
+          if (!changed) return prev
+          if (!stale) skipNextSave.current = true
+          return merged
+        })
       } catch (err) {
         toast(err.message, 'error')
       }
@@ -154,6 +185,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   }, [token, clientId, year, month, week, toast])
 
   useEffect(() => {
+    cardsRef.current = cards
     if (skipNextSave.current) {
       skipNextSave.current = false
       return
@@ -180,7 +212,10 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
       const previous = cards.find((card) => card.id === next.id)
       return needsDelayProof(previous, next, year, month, week, delayProofRequired)
     })
+    saveGen.current += 1
+    clearTimeout(saveTimer.current)
     skipNextSave.current = true
+    cardsRef.current = nextCards
     setCards(nextCards)
     if (result.tracker?.deliverable_slots) setWeekSlots(result.tracker.deliverable_slots)
     if (result.languages) setLanguages(result.languages)
@@ -324,13 +359,18 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   function handleSaveManualScript(card, payload) {
     const text = typeof payload === 'string' ? payload : payload?.text
     const nextTitle = typeof payload === 'string' ? card.title : (payload?.title || '')
+    const identity = manualScriptIdentity(card, payload)
+    const topicChanged = (identity.topic_id || null) !== (card.topic_id || null)
     patchCard(maybeAdvanceStage({
       ...card,
       started: true,
       collapsed: false,
       title: nextTitle || card.title || '',
-      topic_id: typeof payload === 'string' ? card.topic_id : (payload?.topicId || null),
-      content_plan_item_id: typeof payload === 'string' ? card.content_plan_item_id : (payload?.itemId || null),
+      topic_id: identity.topic_id,
+      content_plan_item_id: identity.content_plan_item_id,
+      // Old titles belong to the previous topic. Drop them now; reload used to be the only refresh.
+      yt_locales: topicChanged ? {} : (card.yt_locales || {}),
+      live_posts: topicChanged ? [] : card.live_posts,
       assets: {
         ...(card.assets || {}),
         script_text: text,
