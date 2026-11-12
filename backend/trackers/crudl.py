@@ -646,6 +646,70 @@ def _ensure_dest_url(card: dict, platform: str, url: str, language: str | None =
     card["destinations"] = dests
 
 
+def destination_url_mutations(previous: dict | None, card: dict | None) -> list[dict]:
+    """Edits replace a permalink; new cells append. Drive/file URLs are ignored."""
+    if not isinstance(card, dict):
+        return []
+    prev_by_id = {
+        str(row.get("id") or ""): row
+        for row in (previous or {}).get("destinations") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+    mutations = []
+    for dest in card.get("destinations") or []:
+        if not isinstance(dest, dict):
+            continue
+        url = str(dest.get("url") or "").strip()
+        platform = str(dest.get("platform") or "").strip().lower()
+        if not url or platform not in _LIVE_DEST_PLATFORMS or _is_source_file_url(url):
+            continue
+        prev = prev_by_id.get(str(dest.get("id") or ""))
+        prev_url = str((prev or {}).get("url") or "").strip()
+        language = str(dest.get("language") or "").strip().lower() or None
+        if prev_url and prev_url != url:
+            mutations.append(
+                {
+                    "platform": platform,
+                    "url": url,
+                    "language": language,
+                    "replace_url": prev_url,
+                }
+            )
+        elif not prev_url:
+            mutations.append(
+                {
+                    "platform": platform,
+                    "url": url,
+                    "language": language,
+                    "replace_url": None,
+                }
+            )
+    return mutations
+
+
+def _sync_posted_urls_from_destinations(project_id: str, previous: dict | None, card: dict) -> None:
+    """Mirror grid add/edit into dated permalinks. Never fail the tracker save."""
+    topic_id = str((card or {}).get("topic_id") or "").strip()
+    if not project_id or not topic_id:
+        return
+    mutations = destination_url_mutations(previous, card)
+    if not mutations:
+        return
+    try:
+        from backend.tg.database import upsert_content_video_posted_url
+
+        for change in mutations:
+            upsert_content_video_posted_url(
+                project_id,
+                topic_id,
+                change["platform"],
+                {"url": change["url"], "language": change.get("language")},
+                replace_url=change.get("replace_url"),
+            )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tracker] destination permalink sync failed: {exc}", flush=True)
+
+
 
 def _card_is_complete(card: dict) -> bool:
     stages = STAGES.get(card.get("type") or "") or []
@@ -1152,7 +1216,9 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
     from backend.tg.database import ensure_plan_item_for_tracker_card
 
     for card in cards:
-        apply_card_history(existing_by_id.get(str(card.get("id"))), card, by=actor)
+        previous = existing_by_id.get(str(card.get("id")))
+        apply_card_history(previous, card, by=actor)
+        _sync_posted_urls_from_destinations(project_id, previous, card)
         # Keep plan_items in sync so metadata/regenerate can resolve tracker scripts.
         assets = card.get("assets") if isinstance(card.get("assets"), dict) else {}
         if str(assets.get("script_text") or "").strip() or card.get("content_plan_item_id"):
