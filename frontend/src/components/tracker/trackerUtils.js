@@ -932,8 +932,14 @@ function postDay(value) {
 export function templateKind(card) {
   const stage = card?.stage || ''
   if (isVideoCard(card?.type)) {
-    if (stage === 'script_generated' || stage === 'yt_metadata_generated' || stage === 'audio_generated') return 'script'
-    if (stage === 'video_edited' || stage === 'shared_with_doctor') return 'video'
+    // Timeline order: script → audio / video edited (same panel) → shared → metadata → posted.
+    if (stage === 'script_generated') return 'script'
+    if (
+      stage === 'audio_generated'
+      || stage === 'video_edited'
+      || stage === 'shared_with_doctor'
+      || stage === 'yt_metadata_generated'
+    ) return 'video'
     if (stage === 'posted' || stage === 'link_shared_with_doctor') return 'posted'
     return null
   }
