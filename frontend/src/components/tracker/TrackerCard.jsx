@@ -20,6 +20,7 @@ import {
   calendarWeekDates,
   isoDate,
   isVideoCard,
+  livePostsAfterDestChange,
   maybeAdvanceStage,
   nextStageId,
   nextStageLabel,
@@ -506,7 +507,10 @@ export default function TrackerCard({
   }
 
   function handleDestinationsChange(nextCard) {
-    onChange(maybeAdvanceStage(nextCard))
+    onChange(maybeAdvanceStage({
+      ...nextCard,
+      live_posts: livePostsAfterDestChange(card, nextCard),
+    }))
   }
 
   function scrollToSection(sectionId) {

@@ -942,36 +942,110 @@ export function templateKind(card) {
   return null
 }
 
-export function latestPostLinks(card) {
-  const dated = (card?.live_posts || []).filter((row) => String(row?.url || '').trim() && postDay(row?.posted_at))
-  if (dated.length) {
-    const latestDay = dated.reduce((max, row) => {
-      const day = postDay(row.posted_at)
-      return day > max ? day : max
-    }, '')
-    const best = new Map()
-    for (const row of dated) {
-      if (postDay(row.posted_at) !== latestDay) continue
-      const platform = String(row.platform || '').toLowerCase()
-      const language = String(row.language || '').toLowerCase()
-      const key = platform === 'youtube' ? `youtube:${language}` : platform
-      const prev = best.get(key)
-      if (!prev || String(row.posted_at) > String(prev.posted_at)) {
-        best.set(key, { platform, language, url: String(row.url).trim(), posted_at: row.posted_at })
-      }
-    }
-    return [...best.values()]
+const LIVE_DEST_PLATFORMS = new Set(['youtube', 'instagram', 'facebook'])
+
+function postLinkKey(platform, language) {
+  const plat = String(platform || '').toLowerCase()
+  const lang = String(language || '').toLowerCase()
+  return plat === 'youtube' ? `youtube:${lang}` : plat
+}
+
+function considerPostLink(best, row, { allowEmptyDate = false } = {}) {
+  const url = String(row?.url || '').trim()
+  if (!url || isSourceFileUrl(url)) return
+  const postedAt = String(row?.posted_at || '')
+  if (!allowEmptyDate && !postDay(postedAt)) return
+  const platform = String(row.platform || '').toLowerCase()
+  const language = String(row.language || '').toLowerCase()
+  if (!platform) return
+  const key = postLinkKey(platform, language)
+  const prev = best.get(key)
+  if (!prev || postedAt > String(prev.posted_at || '')) {
+    best.set(key, { platform, language, url, posted_at: postedAt })
   }
+}
+
+export function latestPostLinks(card) {
   const best = new Map()
+  for (const row of card?.live_posts || []) considerPostLink(best, row)
+
+  const destsByKey = new Map()
   for (const dest of card?.destinations || []) {
     const url = String(dest?.url || '').trim()
-    if (!url) continue
-    const platform = String(dest.platform || '').toLowerCase()
-    const language = String(dest.language || '').toLowerCase()
-    const key = language ? `${platform}:${language}` : platform
-    best.set(key, { platform, language, url, posted_at: '' })
+    const platform = String(dest?.platform || '').toLowerCase()
+    if (!url || !platform || isSourceFileUrl(url)) continue
+    const language = String(dest?.language || '').toLowerCase()
+    const key = postLinkKey(platform, language)
+    const bucket = destsByKey.get(key) || []
+    bucket.push({ platform, language, url })
+    destsByKey.set(key, bucket)
+  }
+  for (const [key, rows] of destsByKey) {
+    const urls = [...new Set(rows.map((row) => row.url))]
+    if (urls.length !== 1) {
+      if (!best.has(key)) {
+        const last = rows[rows.length - 1]
+        best.set(key, { ...last, posted_at: '' })
+      }
+      continue
+    }
+    const row = rows[0]
+    const prev = best.get(key)
+    if (prev && prev.url === row.url) continue
+    best.set(key, {
+      platform: row.platform,
+      language: row.language,
+      url: row.url,
+      posted_at: prev?.posted_at || '',
+    })
   }
   return [...best.values()]
+}
+
+export function livePostsAfterDestChange(previous, nextCard, now = '') {
+  const postedAt = String(now || new Date().toISOString())
+  const prevDests = (previous?.destinations || []).filter((row) => row && typeof row === 'object')
+  const nextDests = (nextCard?.destinations || []).filter((row) => row && typeof row === 'object')
+  const prevById = new Map(prevDests.map((row) => [String(row.id || ''), row]))
+  const nextById = new Map(nextDests.map((row) => [String(row.id || ''), row]))
+  let live = (nextCard?.live_posts || previous?.live_posts || [])
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => ({ ...row }))
+
+  function samePost(row, platform, url) {
+    return String(row.platform || '').toLowerCase() === platform && String(row.url || '').trim() === url
+  }
+
+  for (const prev of prevDests) {
+    if (nextById.has(String(prev.id || ''))) continue
+    const url = String(prev.url || '').trim()
+    const platform = String(prev.platform || '').toLowerCase()
+    if (!url || !LIVE_DEST_PLATFORMS.has(platform)) continue
+    if (nextDests.some((row) => samePost(row, platform, url))) continue
+    live = live.filter((row) => !samePost(row, platform, url))
+  }
+
+  for (const dest of nextDests) {
+    const url = String(dest.url || '').trim()
+    const platform = String(dest.platform || '').toLowerCase()
+    const prev = prevById.get(String(dest.id || ''))
+    const prevUrl = String(prev?.url || '').trim()
+    if (!LIVE_DEST_PLATFORMS.has(platform)) continue
+    if (!url || isSourceFileUrl(url)) {
+      if (prevUrl) live = live.filter((row) => !samePost(row, platform, prevUrl))
+      continue
+    }
+    const language = String(dest.language || '').toLowerCase()
+    if (prevUrl && prevUrl !== url) {
+      const idx = live.findIndex((row) => samePost(row, platform, prevUrl))
+      const updated = { platform, language, url, posted_at: postedAt }
+      if (idx >= 0) live[idx] = { ...live[idx], ...updated }
+      else live.push(updated)
+    } else if (!prevUrl && !live.some((row) => samePost(row, platform, url))) {
+      live.push({ platform, language, url, posted_at: postedAt })
+    }
+  }
+  return live
 }
 
 export function templateMessage(card, clientName) {

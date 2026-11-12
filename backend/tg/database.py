@@ -1691,6 +1691,18 @@ def append_content_video_posted_url(
     entry: dict,
 ) -> dict | None:
     """Append a posted watch/permalink URL. No-op if topic_id is missing or url is empty."""
+    return upsert_content_video_posted_url(client_id, topic_id, platform, entry)
+
+
+def upsert_content_video_posted_url(
+    client_id: str,
+    topic_id: str,
+    platform: str,
+    entry: dict,
+    *,
+    replace_url: str | None = None,
+) -> dict | None:
+    """Add a permalink, or replace an existing one when editing Where it went out."""
     if not client_id or not topic_id:
         return None
     url = str((entry or {}).get("url") or "").strip()
@@ -1701,14 +1713,30 @@ def append_content_video_posted_url(
         "youtube": "youtube_urls",
         "instagram": "instagram_urls",
         "facebook": "facebook_urls",
-    }.get(platform)
+    }.get(str(platform or "").strip().lower())
     if not key:
         return row
     posted = dict(entry)
     posted["url"] = url
-    posted.setdefault("posted_at", datetime.now(timezone.utc).isoformat())
+    now = datetime.now(timezone.utc).isoformat()
     bucket = list(row.get(key) or [])
-    if any(isinstance(item, dict) and item.get("url") == url for item in bucket):
+    old_url = str(replace_url or "").strip()
+    if old_url and old_url != url:
+        for index, item in enumerate(bucket):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("url") or "").strip() != old_url:
+                continue
+            updated = dict(item)
+            updated["url"] = url
+            updated["posted_at"] = now
+            if posted.get("language"):
+                updated["language"] = posted.get("language")
+            bucket[index] = updated
+            row[key] = bucket
+            return _persist_content_video(row)
+    posted.setdefault("posted_at", now)
+    if any(isinstance(item, dict) and str(item.get("url") or "").strip() == url for item in bucket):
         row[key] = bucket
         return _persist_content_video(row)
     bucket.append(posted)
