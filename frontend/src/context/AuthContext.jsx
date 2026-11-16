@@ -14,6 +14,35 @@ function readCachedUser() {
   }
 }
 
+function claimsFromToken(token) {
+  try {
+    const part = String(token || '').split('.')[1]
+    if (!part) return null
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'))
+    const payload = JSON.parse(json)
+    if (!payload || typeof payload !== 'object') return null
+    const exp = Number(payload.exp || 0)
+    if (exp && exp * 1000 <= Date.now()) return null
+    return payload
+  } catch {
+    return null
+  }
+}
+
+/** Offline/deploy fallback so RequireAuth does not bounce to /login. */
+function userFromToken(token) {
+  const claims = claimsFromToken(token)
+  if (!claims?.user_id && !claims?.email) return null
+  return {
+    id: claims.user_id || '',
+    email: claims.email || '',
+    name: claims.name || claims.email || 'User',
+    type: claims.type || 'internal',
+    editor_id: claims.editor_id || null,
+    is_active: true,
+  }
+}
+
 function persistSession(token, user) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
@@ -21,10 +50,23 @@ function persistSession(token, user) {
   else localStorage.removeItem(USER_KEY)
 }
 
+function initialToken() {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+function initialUser(token) {
+  if (!token) return null
+  return readCachedUser() || userFromToken(token)
+}
+
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
-  const [user, setUser] = useState(() => (localStorage.getItem(TOKEN_KEY) ? readCachedUser() : null))
-  const [loading, setLoading] = useState(!!localStorage.getItem(TOKEN_KEY))
+  const [token, setToken] = useState(() => initialToken())
+  const [user, setUser] = useState(() => initialUser(initialToken()))
+  // Only block the shell when we have a token but no usable profile yet.
+  const [loading, setLoading] = useState(() => {
+    const t = initialToken()
+    return Boolean(t && !initialUser(t))
+  })
 
   const logout = useCallback(() => {
     persistSession(null, null)
@@ -50,10 +92,11 @@ export function AuthProvider({ children }) {
         return null
       }
       console.warn('auth.me failed; keeping saved session', err)
-      // Always clear loading even if me hung/timed out — otherwise RequireAuth
-      // stays on a blank "Loading..." forever (common during Mongo reconnects).
-      const cached = readCachedUser()
-      if (cached) setUser(cached)
+      const cached = readCachedUser() || userFromToken(token)
+      if (cached) {
+        setUser(cached)
+        persistSession(token, cached)
+      }
       return cached
     } finally {
       setLoading(false)
@@ -67,31 +110,31 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     const data = await api.login(username, password)
     const nextToken = data.access_token
-    localStorage.setItem(TOKEN_KEY, nextToken)
+    const fallbackUser = data.user || userFromToken(nextToken)
+    // Persist immediately so a reload mid-hydrate still restores the session.
+    persistSession(nextToken, fallbackUser || null)
     setToken(nextToken)
-    setLoading(true)
+    if (fallbackUser) setUser(fallbackUser)
+    setLoading(!fallbackUser)
     try {
       const me = await api.me(nextToken)
       persistSession(nextToken, me)
       setUser(me)
       return me
     } catch (err) {
-      // Login succeeded — keep the token even if profile hydrate is flaky.
-      if (data.user && !isAuthExpiredError(err)) {
-        persistSession(nextToken, data.user)
-        setUser(data.user)
-        return data.user
+      if (fallbackUser && !isAuthExpiredError(err)) {
+        persistSession(nextToken, fallbackUser)
+        setUser(fallbackUser)
+        return fallbackUser
       }
       if (isAuthExpiredError(err)) {
-        persistSession(null, null)
-        setToken(null)
-        setUser(null)
+        logout()
       }
       throw new Error('Failed to load user profile')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [logout])
 
   const patchUser = useCallback((patch) => {
     setUser((prev) => {

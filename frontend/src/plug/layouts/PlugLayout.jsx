@@ -75,7 +75,8 @@ export default function PlugLayout({ children }) {
 export function RequirePlugAuth({ children }) {
   const { token, creator, loading } = usePlugAuth()
 
-  if (loading) {
+  // Keep the session through deploy blips — only a missing token means login.
+  if (token && !creator && loading) {
     return (
       <div className="plug-app plug-auth-loading">
         <p>Loading...</p>
@@ -83,8 +84,16 @@ export function RequirePlugAuth({ children }) {
     )
   }
 
-  if (!token || !creator) {
+  if (!token) {
     return <Navigate to="/plug/login" replace />
+  }
+
+  if (!creator) {
+    return (
+      <div className="plug-app plug-auth-loading">
+        <p>Reconnecting…</p>
+      </div>
+    )
   }
 
   return children
