@@ -6,7 +6,7 @@ import { NavItem, NavSection } from '../components/NavSection'
 import { hasStaticDeliverable, hasVideoDeliverable } from '../components/tracker/trackerUtils'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { DOMAINS, hasDomainAccess } from '../utils/access'
+import { DOMAINS, hasDomainAccess, hasTrackerAccess } from '../utils/access'
 
 export default function ClientHomeLayout() {
   const { clientId } = useParams()
@@ -59,6 +59,7 @@ export default function ClientHomeLayout() {
     hasDomainAccess(client, DOMAINS.SOCIALMEDIA) &&
     hasStaticDeliverable(client?.tracker_deliverables)
   const showWebsite = hasDomainAccess(client, DOMAINS.WEBSITE)
+  const showTracker = hasTrackerAccess(client)
 
   return (
     <div className="dashboard">
@@ -98,9 +99,11 @@ export default function ClientHomeLayout() {
                 Static Posts
               </NavItem>
             ) : null}
-            <NavItem to={`${base}/tracker`} icon={<i className="fa-solid fa-calendar-week" />}>
-              Tracker
-            </NavItem>
+            {showTracker ? (
+              <NavItem to={`${base}/tracker`} icon={<i className="fa-solid fa-calendar-week" />}>
+                Tracker
+              </NavItem>
+            ) : null}
             {showWebsite ? (
               <NavItem to={`${base}/website`} icon={<i className="fa-solid fa-globe" />}>
                 Website

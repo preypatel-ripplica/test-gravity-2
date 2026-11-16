@@ -24,6 +24,7 @@ import {
 import api from '../../api'
 import { useAuth } from '../../context/AuthContext'
 import { useUI } from '../../context/UIContext'
+import { canAddTrackerCardType } from '../../utils/access'
 
 export default function TrackerWeekBoard({ clientId, client, year, month, week, focusCardId = '', onSummaryChange }) {
   const { token, user } = useAuth()
@@ -251,6 +252,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   }
 
   function addCard(type) {
+    if (!canAddTrackerCardType(client, type)) return
     setCards((prev) => {
       const card = startCard(emptyCard(type, prev.length, false), languages)
       if (isVideoCard(type)) {
@@ -416,7 +418,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
       </div>
       {user?.type === 'editor' ? null : (
         <div className="tracker-add-cards">
-          {ADDABLE_CARD_TYPES.map((row) => (
+          {ADDABLE_CARD_TYPES.filter((row) => canAddTrackerCardType(client, row.type)).map((row) => (
             <button
               key={row.type}
               type="button"

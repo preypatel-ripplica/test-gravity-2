@@ -9,7 +9,7 @@ import {
 } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { useUI } from './context/UIContext'
-import { DOMAINS, hasDomainAccess } from './utils/access'
+import { DOMAINS, hasAnyDomainAccess, hasDomainAccess, TRACKER_DOMAINS } from './utils/access'
 import AppShell from './layouts/AppShell'
 import ChannelLayout from './layouts/ChannelLayout'
 import ClientHomeLayout from './layouts/ClientHomeLayout'
@@ -170,6 +170,19 @@ function DomainGuard({ domain, children }) {
   return children
 }
 
+function AnyDomainGuard({ domains, children }) {
+  const { clientId } = useParams()
+  const { user } = useAuth()
+  if (user?.type === 'editor') {
+    return <Navigate to="/edit-tracker" replace />
+  }
+  const client = (user?.clients || []).find((c) => c.id === clientId)
+  if (user?.clients && client && !hasAnyDomainAccess(client, domains)) {
+    return <Navigate to={`/clients/${clientId}`} replace />
+  }
+  return children
+}
+
 function RedirectToKeywords() {
   const { clientId } = useParams()
   return <Navigate to={`/clients/${clientId}/profile/keywords`} replace />
@@ -308,7 +321,9 @@ export default function App() {
           element={
             <RequireAuth>
               <ClientIdGuard>
-                <ClientTrackerLayout />
+                <AnyDomainGuard domains={TRACKER_DOMAINS}>
+                  <ClientTrackerLayout />
+                </AnyDomainGuard>
               </ClientIdGuard>
             </RequireAuth>
           }
