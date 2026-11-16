@@ -16,8 +16,9 @@ from backend.main.access_guards import (
     editor_id_from_auth,
     is_editor,
     is_internal,
-    require_domain_access,
+    require_any_domain_access,
     require_internal,
+    user_domains_on_project,
 )
 from backend.main.auth import current_user
 from backend.main.db import (
@@ -41,6 +42,7 @@ from backend.trackers.tracker_settings import (
     iter_weeks_inclusive,
     normalize_deliverables,
     normalize_marking,
+    slot_to_card_type,
     slots_for_week,
     slots_from_card_types,
     tracker_start_tuple,
@@ -49,7 +51,17 @@ from backend.trackers.tracker_settings import (
 )
 
 router = APIRouter(tags=["trackers"])
-DOMAIN = Domain.VIDEOS
+
+# Tracker cards are split by product domain so website-only users see blogs,
+# videos users see long/short, and social users see static posts.
+TRACKER_DOMAINS = (Domain.VIDEOS, Domain.SOCIALMEDIA, Domain.WEBSITE)
+CARD_TYPE_DOMAIN = {
+    "long_video": Domain.VIDEOS.value,
+    "short": Domain.VIDEOS.value,
+    "paid_ads": Domain.VIDEOS.value,
+    "static_post": Domain.SOCIALMEDIA.value,
+    "blog": Domain.WEBSITE.value,
+}
 
 LANG_ORDER = ("hinglish", "arabic", "russian")
 CARD_TYPES = ("long_video", "short", "static_post", "blog", "paid_ads")
@@ -105,8 +117,63 @@ def _pid(body: Any) -> str:
 
 
 def _require_project(auth: dict, project_id: str) -> dict:
-    require_domain_access(auth["user_id"], project_id, DOMAIN)
+    require_any_domain_access(auth["user_id"], project_id, list(TRACKER_DOMAINS))
     return find_project(project_id)
+
+
+def _allowed_card_types_for_auth(auth: dict, project_id: str) -> set[str] | None:
+    """None = no filter (editors / owners see everything they already can)."""
+    if is_editor(auth):
+        return None
+    domains = user_domains_on_project(auth["user_id"], project_id)
+    if domains >= {domain.value for domain in Domain}:
+        return None
+    allowed = {
+        card_type
+        for card_type, domain in CARD_TYPE_DOMAIN.items()
+        if domain in domains
+    }
+    return allowed
+
+
+def _filter_slots_for_types(slots, allowed: set[str] | None):
+    if allowed is None or slots is None:
+        return slots
+    return [
+        slot
+        for slot in normalize_deliverables(slots)
+        if slot_to_card_type(slot) in allowed
+    ]
+
+
+def _filter_cards_for_types(cards, allowed: set[str] | None):
+    if allowed is None or cards is None:
+        return cards
+    return [
+        card
+        for card in cards
+        if isinstance(card, dict) and str(card.get("type") or "") in allowed
+    ]
+
+
+def _filter_week_for_domains(doc: dict, auth: dict, project_id: str) -> dict:
+    allowed = _allowed_card_types_for_auth(auth, project_id)
+    if allowed is None:
+        return doc
+    return {
+        **doc,
+        "cards": _filter_cards_for_types(doc.get("cards") or [], allowed),
+        "deliverable_slots": _filter_slots_for_types(doc.get("deliverable_slots"), allowed),
+    }
+
+
+def _assert_card_type_allowed(auth: dict, project_id: str, card_type: str) -> None:
+    allowed = _allowed_card_types_for_auth(auth, project_id)
+    if allowed is None:
+        return
+    if str(card_type or "") not in allowed:
+        domain = CARD_TYPE_DOMAIN.get(str(card_type or ""), "tracker")
+        raise HTTPException(403, f"No access to domain '{domain}' on this project")
 
 
 _EDITOR_NOTE_KEYS = {"feedback": "feedback_notes", "doctor": "doctor_notes", "editor": "editor_notes"}
@@ -1011,7 +1078,9 @@ def weekly_tracker_get(body: WeeklyGetBody, auth: dict = Depends(current_user)):
     doc = _ensure_week(
         project_id, body.year, body.month, body.week, auth.get("email") or auth["user_id"]
     )
-    doc = _filter_week_for_editor(doc, auth)
+    doc = _filter_week_for_domains(
+        _filter_week_for_editor(doc, auth), auth, project_id
+    )
     return _weekly_response(doc, languages)
 
 
@@ -1022,6 +1091,7 @@ def weekly_tracker_month_summary(
     project_id = _pid(body)
     _validate_month(body.year, body.month)
     _require_tracker_project(auth, project_id)
+    allowed = _allowed_card_types_for_auth(auth, project_id)
     docs = {
         int(d.get("week") or 0): d
         for d in weekly_trackers_col().find(
@@ -1041,11 +1111,15 @@ def weekly_tracker_month_summary(
             continue
         week_doc = docs.get(week)
         week_slots = (week_doc or {}).get("deliverable_slots")
+        if week_slots is None:
+            week_slots = slots_for_week(project, body.year, body.month, week)
         weeks.append(
             _week_summary_from_cards(
                 week,
-                (week_doc.get("cards") if week_doc else None),
-                week_slots if week_slots is not None else slots_for_week(project, body.year, body.month, week),
+                _filter_cards_for_types(
+                    week_doc.get("cards") if week_doc else None, allowed
+                ),
+                _filter_slots_for_types(week_slots, allowed),
             )
         )
     return {"weeks": weeks}
@@ -1173,9 +1247,14 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             cards.append(row)
     else:
         require_internal(auth)
+        allowed_types = _allowed_card_types_for_auth(auth, project_id)
         cards = []
         for index, incoming in enumerate(body.cards or []):
             card = dict(incoming)
+            previous = existing_by_id.get(str(card.get("id")))
+            if previous:
+                _assert_card_type_allowed(auth, project_id, previous.get("type"))
+            _assert_card_type_allowed(auth, project_id, card.get("type"))
             card["sort_order"] = index if card.get("sort_order") is None else card["sort_order"]
             card["marking"] = normalize_marking(card.get("marking"))
             if card.get("started") and not card.get("destinations"):
@@ -1185,7 +1264,6 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             card.pop("template_topic", None)
             card.pop("yt_locales", None)
             requested_complete = _card_is_complete(card)
-            previous = existing_by_id.get(str(card.get("id")))
             _advance_tracker_stage(card)
             if requested_complete and (
                 _can_confirm_complete(card) or (previous and _card_is_complete(previous))
@@ -1194,8 +1272,27 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
                 if stages:
                     card["stage"] = stages[-1]
             cards.append(card)
+        # Domain-scoped saves must not wipe cards outside the caller's domains.
+        if allowed_types is not None:
+            kept_ids = {
+                str(row.get("id"))
+                for row in cards
+                if isinstance(row, dict) and row.get("id")
+            }
+            for row in existing.get("cards") or []:
+                if not isinstance(row, dict):
+                    continue
+                card_type = str(row.get("type") or "")
+                if card_type in allowed_types:
+                    continue
+                row_id = str(row.get("id") or "")
+                if row_id and row_id in kept_ids:
+                    continue
+                cards.append(row)
         if week_is_before_current(body.year, body.month, body.week):
             for card in cards:
+                if allowed_types is not None and str(card.get("type") or "") not in allowed_types:
+                    continue
                 if not _card_is_complete(card):
                     continue
                 previous = existing_by_id.get(str(card.get("id")))
@@ -1237,7 +1334,10 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
         "updated_by": actor,
     }
     weekly_trackers_col().replace_one({"id": existing["id"]}, {**doc}, upsert=True)
-    return _weekly_response(_filter_week_for_editor(doc, auth), languages)
+    return _weekly_response(
+        _filter_week_for_domains(_filter_week_for_editor(doc, auth), auth, project_id),
+        languages,
+    )
 
 
 @router.post("/weekly.tracker.script-links.get")
@@ -1246,11 +1346,14 @@ def weekly_tracker_script_links_get(
 ):
     project_id = _pid(body)
     _require_project(auth, project_id)
+    allowed = _allowed_card_types_for_auth(auth, project_id)
     placements = []
     for doc in weekly_trackers_col().find({"project_id": project_id}, {"_id": 0}):
         for card in doc.get("cards") or []:
             item_id = card.get("content_plan_item_id")
             if not item_id:
+                continue
+            if allowed is not None and str(card.get("type") or "") not in allowed:
                 continue
             placements.append(
                 {
@@ -1311,6 +1414,7 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
 
     fmt = item_format.strip().lower()
     preferred_type = "short" if fmt.startswith("short") else "long_video"
+    _assert_card_type_allowed(auth, project_id, preferred_type)
 
     target = None
     created = False
@@ -1318,6 +1422,7 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
         target = next((c for c in cards if c.get("id") == card_id), None)
         if not target:
             raise HTTPException(404, "Card not found")
+        _assert_card_type_allowed(auth, project_id, target.get("type"))
     else:
         # Scripts page: never clobber an occupied card.
         # 1) empty slot of the right type  2) else create a new card
@@ -1360,7 +1465,9 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
     doc["updated_at"] = _now_iso()
     doc["updated_by"] = auth.get("email") or auth["user_id"]
     weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
-    response = _weekly_response(doc, languages)
+    response = _weekly_response(
+        _filter_week_for_domains(doc, auth, project_id), languages
+    )
     response["status"] = "already" if already else ("created" if created else "attached")
     response["card_id"] = target.get("id")
     return response
@@ -1389,6 +1496,7 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
         raise HTTPException(404, "Card not found")
     if not _editor_owns_card(auth, card):
         raise HTTPException(403, "Card is not assigned to you")
+    _assert_card_type_allowed(auth, project_id, card.get("type"))
     if key == "editor_notes" and str(card.get("type") or "") not in VIDEO_TYPES:
         raise HTTPException(400, "Editor notes are only allowed on long and short videos")
     previous = dict(card)
@@ -1409,7 +1517,10 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
     doc["cards"] = cards
     doc["updated_at"] = _now_iso()
     weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
-    return _weekly_response(_filter_week_for_editor(doc, auth), languages)
+    return _weekly_response(
+        _filter_week_for_domains(_filter_week_for_editor(doc, auth), auth, project_id),
+        languages,
+    )
 
 
 _TRACKER_FILES_DIR = Path(__file__).resolve().parents[1] / "social_assets" / "tracker_files"
@@ -1458,6 +1569,7 @@ async def weekly_tracker_file_upload(
         raise HTTPException(404, "Card not found")
     if not _editor_owns_card(auth, card):
         raise HTTPException(403, "Card is not assigned to you")
+    _assert_card_type_allowed(auth, client_id, card.get("type"))
     if is_editor(auth) and target not in {"pending", "video_url", "audio_url"}:
         raise HTTPException(403, "Editors can only upload video/audio or note attachments")
     previous = dict(card)
@@ -1509,7 +1621,10 @@ async def weekly_tracker_file_upload(
         doc["updated_by"] = actor
         weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
 
-    response = _weekly_response(_filter_week_for_editor(doc, auth), languages)
+    response = _weekly_response(
+        _filter_week_for_domains(_filter_week_for_editor(doc, auth), auth, client_id),
+        languages,
+    )
     response["file"] = record
     return response
 

@@ -7,6 +7,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.main.access_guards import user_domains_on_project
 from backend.main.models import Domain
 from backend.tg import schemas
 from backend.tg.auth import get_current_user
@@ -19,6 +20,7 @@ from backend.tg.database import (
     save_sheet_comment,
     weekly_tracker_doc_id,
 )
+from backend.trackers.crudl import CARD_TYPE_DOMAIN
 from backend.tg.services.tracker_sheet import (
     STAGE_LABELS,
     comments_map,
@@ -71,6 +73,18 @@ def _require_videos_client(username: str, client_id: str) -> dict:
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     return client
+
+
+def _allowed_card_types_for_user(user_id: str, project_id: str) -> set[str] | None:
+    """Card types this user may see on the sheet. None = no filter (full access)."""
+    domains = user_domains_on_project(user_id, project_id)
+    if domains >= {domain.value for domain in Domain}:
+        return None
+    return {
+        card_type
+        for card_type, domain in CARD_TYPE_DOMAIN.items()
+        if domain in domains
+    }
 
 
 def _tasks_from_doc(doc: dict | None) -> list[dict]:
@@ -315,10 +329,12 @@ def tracker_sheet_all(
         ]
     )
     custom_docs = fetch_custom_trackers_by_client_ids(client_ids)
+    user_id = str(current_user.get("user_id") or current_user.get("id") or "")
     rows = []
     for client in clients:
         client_id = client["id"]
         client_name = client.get("name") or "Untitled client"
+        allowed_types = _allowed_card_types_for_user(user_id, client_id)
         current_doc = weekly_docs.get(weekly_tracker_doc_id(client_id, *current))
         next_doc = weekly_docs.get(weekly_tracker_doc_id(client_id, *nxt))
         rows.extend(
@@ -328,6 +344,7 @@ def tracker_sheet_all(
                 *current,
                 include_completed=True,
                 open_tone="pending",
+                types=allowed_types,
             )
         )
         for past in past_weeks:
@@ -339,12 +356,20 @@ def tracker_sheet_all(
                     *past,
                     include_completed=False,
                     open_tone="urgent",
+                    types=allowed_types,
                 )
             )
         rows.extend(
             _pending_custom_rows(
                 client_id, client_name, custom_docs.get(client_id), current, last
             )
+        )
+        # Upcoming week: keep the old video-only preview when the user has videos;
+        # otherwise show only types they can access (e.g. blogs for website).
+        upcoming_types = (
+            VIDEO_TYPES
+            if allowed_types is None
+            else (VIDEO_TYPES & allowed_types) or allowed_types
         )
         rows.extend(
             _weekly_rows_from_doc(
@@ -353,7 +378,7 @@ def tracker_sheet_all(
                 *nxt,
                 include_completed=True,
                 open_tone="upcoming",
-                types=VIDEO_TYPES,
+                types=upcoming_types,
             )
         )
     tone_rank = {"urgent": 0, "pending": 1, "completed": 2}

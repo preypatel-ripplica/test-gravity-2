@@ -78,6 +78,46 @@ def require_domain_access(user_id: str, project_id: str, domain: Domain | str) -
     return project
 
 
+def user_domains_on_project(user_id: str, project_id: str) -> set[str]:
+    """Domains the user may use on this project. Owners get every domain."""
+    project = projects_col().find_one({"id": project_id}, {"_id": 0, "owner_user_id": 1})
+    if not project:
+        return set()
+    if project.get("owner_user_id") == user_id:
+        return {domain.value for domain in Domain}
+    return {
+        str(row.get("domain") or "")
+        for row in access_col().find(
+            {"user_id": user_id, "project_id": project_id},
+            {"_id": 0, "domain": 1},
+        )
+        if row.get("domain")
+    }
+
+
+def require_any_domain_access(
+    user_id: str,
+    project_id: str,
+    domains: list[Domain | str],
+) -> dict:
+    """Require at least one of the given domains. Returns the project doc."""
+    wanted = {
+        domain.value if isinstance(domain, Domain) else str(domain)
+        for domain in (domains or [])
+        if domain
+    }
+    project = projects_col().find_one({"id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if project.get("owner_user_id") == user_id:
+        return project
+    granted = user_domains_on_project(user_id, project_id)
+    if granted & wanted:
+        return project
+    labels = ", ".join(sorted(wanted)) or "(none)"
+    raise HTTPException(403, f"No access to domains [{labels}] on this project")
+
+
 def require_project_owner(auth: dict, project_id: str) -> dict:
     """Only the project owner may manage members / access UI."""
     project = projects_col().find_one({"id": project_id}, {"_id": 0})

@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
 import { hasStaticDeliverable, hasVideoDeliverable } from '../components/tracker/trackerUtils'
 import { useAuth } from '../context/AuthContext'
-import { DOMAINS, hasDomainAccess } from '../utils/access'
+import { DOMAINS, hasDomainAccess, hasTrackerAccess } from '../utils/access'
 
 export default function ClientHub() {
   const { clientId } = useParams()
@@ -14,6 +14,7 @@ export default function ClientHub() {
     hasDomainAccess(client, DOMAINS.SOCIALMEDIA) &&
     hasStaticDeliverable(client?.tracker_deliverables)
   const showWebsite = hasDomainAccess(client, DOMAINS.WEBSITE)
+  const showTracker = hasTrackerAccess(client)
 
   return (
     <>
@@ -64,6 +65,7 @@ export default function ClientHub() {
         </Link>
         ) : null}
 
+        {showTracker ? (
         <Link to={`/clients/${clientId}/tracker`} className="workspace-card card">
           <div className="workspace-card-icon tracker">
             <i className="fa-solid fa-calendar-week" />
@@ -74,6 +76,7 @@ export default function ClientHub() {
           </div>
           <span className="btn btn-primary btn-sm">Open Tracker</span>
         </Link>
+        ) : null}
 
         {showWebsite ? (
         <Link to={`/clients/${clientId}/website`} className="workspace-card card">
