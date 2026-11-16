@@ -62,7 +62,9 @@ import BotRoot from './bot/BotRoot'
 function RequireAuth({ children }) {
   const { token, user, loading } = useAuth()
 
-  if (loading) {
+  // Token alone is enough to stay in-app during backend blips; profile hydrate
+  // can lag without bouncing the user to /login (Ripplica-style sticky session).
+  if (token && !user && loading) {
     return (
       <div className="login-page">
         <div className="login-body">
@@ -72,8 +74,18 @@ function RequireAuth({ children }) {
     )
   }
 
-  if (!token || !user) {
+  if (!token) {
     return <Navigate to="/login" replace />
+  }
+
+  if (!user) {
+    return (
+      <div className="login-page">
+        <div className="login-body">
+          <p className="text-muted">Reconnecting…</p>
+        </div>
+      </div>
+    )
   }
 
   return children

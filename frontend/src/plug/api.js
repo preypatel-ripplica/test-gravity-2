@@ -6,10 +6,25 @@ function url(path) {
 
 async function parseError(response) {
   const err = await response.json().catch(() => ({}))
-  return err.detail || `HTTP ${response.status}`
+  const detail = err.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  return err.message || `HTTP ${response.status}`
 }
 
-export async function plugFetch(path, { token, body, form } = {}) {
+export function isPlugAuthExpiredError(error) {
+  if (!error) return false
+  if (error.name === 'AuthExpiredError') return true
+  if (error.status === 401) return true
+  const message = String(error.message || '')
+  return (
+    message === 'Authentication token has expired' ||
+    message === 'Token is invalid or expired' ||
+    message === 'Token is missing' ||
+    message === 'Could not validate credentials'
+  )
+}
+
+export async function plugFetch(path, { token, body, form, timeoutMs } = {}) {
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
 
@@ -22,9 +37,32 @@ export async function plugFetch(path, { token, body, form } = {}) {
     payload = JSON.stringify(body ?? {})
   }
 
-  const response = await fetch(url(path), { method: 'POST', headers, body: payload })
+  const controller = typeof timeoutMs === 'number' && timeoutMs > 0 ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  let response
+  try {
+    response = await fetch(url(path), {
+      method: 'POST',
+      headers,
+      body: payload,
+      signal: controller?.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Request timed out')
+      timeoutErr.name = 'TimeoutError'
+      throw timeoutErr
+    }
+    throw err
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+
   if (!response.ok) {
-    throw new Error(await parseError(response))
+    const error = new Error(await parseError(response))
+    error.status = response.status
+    if (response.status === 401) error.name = 'AuthExpiredError'
+    throw error
   }
   if (response.status === 204) return null
   return response.json()
@@ -38,7 +76,7 @@ const plugApi = {
     form.append('password', password)
     return plugFetch('/plug/auth.login', { form })
   },
-  me: (token) => plugFetch('/plug/auth.me', { token }),
+  me: (token) => plugFetch('/plug/auth.me', { token, timeoutMs: 12000 }),
   updateProfile: (token, fields) => plugFetch('/plug/profile.update', { token, body: fields }),
   saveInstagramConfig: (token, config) => plugFetch('/plug/instagram.config.save', { token, body: config }),
   getInstagramConfig: (token) => plugFetch('/plug/instagram.config.get', { token }),
