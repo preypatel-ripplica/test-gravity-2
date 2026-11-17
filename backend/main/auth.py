@@ -7,9 +7,9 @@ from typing import Any
 
 import bcrypt
 from fastapi import HTTPException, Request
-from jose import JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 
-from .config import JWT_ALGORITHM, JWT_SECRET, TOKEN_EXPIRY_SECONDS
+from .config import JWT_ALGORITHM, SECRET_KEY, TOKEN_EXPIRY_SECONDS
 
 
 def hash_password(password: str) -> str:
@@ -27,21 +27,17 @@ def create_token(user: dict[str, Any]) -> str:
         "email": user["email"],
         "name": user["name"],
         "type": user["type"],
-        "exp": expiry.timestamp(),
+        "exp": int(expiry.timestamp()),
     }
     editor_id = str(user.get("editor_id") or "").strip()
     if editor_id:
         payload["editor_id"] = editor_id
-    return jwt.encode(
-        payload,
-        JWT_SECRET,
-        algorithm=JWT_ALGORITHM,
-    )
+    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
 def decode_token(token: str) -> dict[str, Any] | None:
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except JWTError:
         return None
 
@@ -50,7 +46,12 @@ def current_user(request: Request) -> dict[str, Any]:
     header = request.headers.get("Authorization") or ""
     if not header.startswith("Bearer "):
         raise HTTPException(401, "Token is missing")
-    payload = decode_token(header.split(" ", 1)[1])
-    if not payload:
-        raise HTTPException(401, "Token is invalid or expired")
-    return payload
+    raw = header.split(" ", 1)[1].strip()
+    if not raw:
+        raise HTTPException(401, "Token is missing")
+    try:
+        return jwt.decode(raw, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except ExpiredSignatureError:
+        raise HTTPException(401, "Authentication token has expired") from None
+    except JWTError:
+        raise HTTPException(401, "Token is invalid or expired") from None

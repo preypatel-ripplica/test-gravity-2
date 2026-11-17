@@ -86,8 +86,10 @@ export function AuthProvider({ children }) {
       persistSession(token, me)
       return me
     } catch (err) {
-      // Keep the session on network/backend blips — only clear on real auth expiry.
-      if (isAuthExpiredError(err)) {
+      // Ripplica parity: keep the token unless it is actually past exp.
+      // Signature/"invalid" 401s must not wipe localStorage (that was the bug).
+      const claims = claimsFromToken(token)
+      if (!claims || isAuthExpiredError(err)) {
         logout()
         return null
       }
@@ -122,7 +124,8 @@ export function AuthProvider({ children }) {
       setUser(me)
       return me
     } catch (err) {
-      if (fallbackUser && !isAuthExpiredError(err)) {
+      // Fresh login token is valid enough to stay signed in even if me() blips.
+      if (fallbackUser) {
         persistSession(nextToken, fallbackUser)
         setUser(fallbackUser)
         return fallbackUser

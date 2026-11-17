@@ -39,13 +39,24 @@ function networkErrorMessage(err, path) {
 
 export function isAuthExpiredError(error) {
   if (!error) return false
-  if (error.name === 'AuthExpiredError') return true
-  if (error.status === 401) return true
   const message = String(error.message || '')
-  return (
-    message === 'Authentication token has expired' ||
-    message === 'Token is invalid or expired' ||
-    message === 'Token is missing'
+  // Session-ending ONLY for missing token or real clock expiry.
+  // Do NOT match the legacy umbrella "Token is invalid or expired" — that
+  // string is also used for signature mismatches, and wiping localStorage on
+  // those is why Plug kept forcing re-login (Ripplica keeps the token).
+  if (/Authentication token has expired/i.test(message)) return true
+  if (/Token is missing/i.test(message) && !/invalid/i.test(message)) return true
+  return false
+}
+
+/** True for any 401 auth failure (expired or invalid). Use for UI, not logout. */
+export function isAuthFailureError(error) {
+  if (!error) return false
+  if (error.status === 401) return true
+  if (error.name === 'AuthExpiredError') return true
+  const message = String(error.message || '')
+  return /token is missing|token is invalid|token has expired|authentication token/i.test(
+    message,
   )
 }
 

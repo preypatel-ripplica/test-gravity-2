@@ -100,8 +100,9 @@ export function PlugAuthProvider({ children }) {
       })
       return me
     } catch (err) {
-      // Same rule as Ripplica inbox: only a real 401 clears the session.
-      if (isPlugAuthExpiredError(err)) {
+      // Ripplica parity: keep token unless JWT is past exp client-side / API says expired.
+      const claims = claimsFromToken(token)
+      if (!claims || isPlugAuthExpiredError(err)) {
         logout()
         return null
       }
