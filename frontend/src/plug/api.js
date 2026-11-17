@@ -13,15 +13,11 @@ async function parseError(response) {
 
 export function isPlugAuthExpiredError(error) {
   if (!error) return false
-  if (error.name === 'AuthExpiredError') return true
-  if (error.status === 401) return true
   const message = String(error.message || '')
-  return (
-    message === 'Authentication token has expired' ||
-    message === 'Token is invalid or expired' ||
-    message === 'Token is missing' ||
-    message === 'Could not validate credentials'
-  )
+  // Same rule as main Plug auth: only real expiry / missing clears session.
+  if (/Authentication token has expired/i.test(message)) return true
+  if (/Token is missing/i.test(message) && !/invalid/i.test(message)) return true
+  return false
 }
 
 export async function plugFetch(path, { token, body, form, timeoutMs } = {}) {

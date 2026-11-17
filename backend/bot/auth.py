@@ -83,28 +83,26 @@ def get_current_client_id(
 
 
 def get_jwt_secret() -> str:
-    """Return the server-side JWT signing secret from JWT_SECRET.
+    """Return the single app JWT signing secret (SECRET_KEY)."""
+    from backend.main.config import SECRET_KEY
 
-    Without this value the server cannot safely create or verify client tokens,
-    so callers get a 500 configuration error instead of silently accepting an
-    insecure default.
-    """
-    secret = os.getenv("JWT_SECRET")
-    if not secret:
-        raise HTTPException(
-            status_code=500,
-            detail="JWT_SECRET is not configured on the server.",
-        )
-    return secret
+    if not SECRET_KEY or SECRET_KEY == "dev-change-me":
+        # Allow explicit env override only when main config has no real secret.
+        secret = (os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET") or "").strip()
+        if not secret or secret == "dev-change-me":
+            raise HTTPException(
+                status_code=500,
+                detail="SECRET_KEY is not configured on the server.",
+            )
+        return secret
+    return SECRET_KEY
 
 
 def get_jwt_algorithm() -> str:
-    """Return the JWT signing algorithm.
+    """Return the JWT signing algorithm (same as main Plug auth)."""
+    from backend.main.config import JWT_ALGORITHM
 
-    Defaults to HS256, which matches the shared-secret JWT setup used by this
-    app. JWT_ALGORITHM exists so deployments can override it deliberately.
-    """
-    return os.getenv("JWT_ALGORITHM", "HS256")
+    return JWT_ALGORITHM or "HS256"
 
 
 def token_days(env_name: str, default: int) -> int:

@@ -42,9 +42,19 @@ def _env_bool(name: str, default: bool = False) -> bool:
 MONGODB_URI = _env("MONGODB_URI")
 MONGODB_DB_NAME = _env("MONGODB_DB_NAME", "beacon")
 
-# --- Auth: prefer TG SECRET_KEY; fall back to legacy Beacon JWT_SECRET ---
-SECRET_KEY = _env("SECRET_KEY") or _env("JWT_SECRET") or "dev-change-me"
-JWT_SECRET = SECRET_KEY  # alias used by existing Beacon auth
+# --- Auth: one signing secret (Ripplica-style). ---
+# Prefer SECRET_KEY. JWT_SECRET is only read if SECRET_KEY is unset (legacy env name).
+# After load there is a single value; JWT_SECRET is an alias of SECRET_KEY for old imports.
+_raw_secret = _env("SECRET_KEY")
+_raw_jwt = _env("JWT_SECRET")
+if _raw_secret and _raw_jwt and _raw_secret != _raw_jwt:
+    print(
+        "AUTH WARNING: SECRET_KEY and JWT_SECRET differ; using SECRET_KEY only. "
+        "Remove JWT_SECRET or set it equal to SECRET_KEY.",
+        flush=True,
+    )
+SECRET_KEY = _raw_secret or _raw_jwt or "dev-change-me"
+JWT_SECRET = SECRET_KEY
 JWT_ALGORITHM = _env("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = _env_int("ACCESS_TOKEN_EXPIRE_MINUTES", 259200)
 # Legacy Beacon seconds; if only TOKEN_EXPIRY_SECONDS set, honour it
