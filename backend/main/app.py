@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -34,15 +35,35 @@ from .db import close, ensure_indexes, ping, reset_client
 from .main_crudl import router as main_router
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
+def _warmup_mongo() -> None:
+    """Ping + indexes. Runs off the PORT-bind path so Cloud Run can go ready."""
     ping()
     ensure_indexes()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     # Local asset dirs used by social/video upload (TG parity)
     backend_root = Path(__file__).resolve().parents[1]
     for name in ("social_assets", "narration_cache", "reports"):
         (backend_root / name).mkdir(parents=True, exist_ok=True)
-    # Must not block PORT bind — bot mongo init runs in a background task.
+
+    # Must not block PORT bind — Cloud Run kills the revision if we hang here.
+    # Same image already serves traffic; failed revises were dying on sync Mongo
+    # warmup (missing URI / slow Atlas / long ensure_indexes) before listen.
+    mongo_task = asyncio.create_task(
+        asyncio.to_thread(_warmup_mongo), name="beacon-mongo-warmup"
+    )
+
+    def _mongo_done(task: asyncio.Task) -> None:
+        try:
+            task.result()
+            print("BEACON: mongo ping + indexes ready", flush=True)
+        except Exception as error:  # noqa: BLE001
+            print(f"BEACON: mongo warmup failed: {error}", flush=True)
+
+    mongo_task.add_done_callback(_mongo_done)
+
     bot_tasks: list = []
     try:
         bot_tasks = start_bot_workers()
@@ -51,6 +72,12 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        if not mongo_task.done():
+            mongo_task.cancel()
+            try:
+                await mongo_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await stop_bot_workers(bot_tasks)
         close()
 
