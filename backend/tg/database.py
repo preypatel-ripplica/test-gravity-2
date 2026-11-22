@@ -17,6 +17,9 @@ content_videos      -> yt_metadata (TG keys + Beacon keys written together)
 IG / FB config      -> project_secrets kind=app_config
 IG / FB connection  -> project_secrets kind=oauth
 OAuth `state` rows  -> generic `oauth_states` collection (no Beacon equivalent)
+GBP connection      -> project_secrets kind=oauth provider=gbp
+GBP oauth state     -> oauth_states provider=gbp
+GBP locations/drafts stay in gbp_locations, gbp_review_drafts, gbp_post_drafts, gbp_review_counter
 social posts        -> social_posts (TG fields kept next to Beacon fields)
 social schedule     -> social_schedules
 monthly reports     -> monthly_reports (full TG doc stored, + project_id)
@@ -28,7 +31,9 @@ client credentials  -> project_secrets kind=manual
 from __future__ import annotations
 
 import copy
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from pymongo import ASCENDING, DESCENDING, UpdateOne
@@ -75,6 +80,12 @@ COL_CONTENT_VIDEOS = "yt_metadata"
 COL_TRACKER_SHEET_COMMENTS = "tracker_sheet_comments"
 COL_INSTAGRAM_OAUTH_STATES = "oauth_states"
 COL_FACEBOOK_OAUTH_STATES = "oauth_states"
+COL_GBP_CONNECTIONS = "gbp_connections"
+COL_GBP_LOCATIONS = "gbp_locations"
+COL_GBP_OAUTH_STATES = "gbp_oauth_states"
+COL_GBP_REVIEW_DRAFTS = "gbp_review_drafts"
+COL_GBP_POST_DRAFTS = "gbp_post_drafts"
+COL_GBP_REVIEW_COUNTER = "gbp_review_counter"
 
 CLIENT_PROFILE_KEYS = (
     "name",
@@ -118,8 +129,12 @@ _DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
 def _use_mongo() -> bool:
-    """Beacon is always Mongo-backed."""
+    """Beacon is always Mongo-backed. Tests may patch this off."""
     return True
+
+
+# Set only by tests that store GBP rows in a JSON file.
+DB_FILE = None
 
 
 def _mdb():
@@ -131,8 +146,27 @@ def mongo_db():
 
 
 def _load_file(username: str | None = None) -> dict:
-    """TG JSON-file fallback does not exist in Beacon."""
-    return {}
+    """JSON file store. A no-op unless tests set DB_FILE and turn Mongo off."""
+    path = DB_FILE
+    if not path:
+        return {}
+    file = Path(path)
+    if not file.is_file():
+        return {}
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_file(data: dict) -> None:
+    path = DB_FILE
+    if not path:
+        return
+    file = Path(path)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps(data), encoding="utf-8")
 
 
 def _strip_mongo_id(doc: dict | None) -> dict:
@@ -445,6 +479,7 @@ def delete_client_owned(client_id: str, username: str) -> bool:
     if not _project_doc(client_id, username=username):
         return False
     _cascade_archive_client(client_id)
+    delete_gbp_for_client(client_id)
     udoc = _find_user_doc(username)
     if udoc and udoc.get("active_client_id") == client_id:
         remaining = list_clients_for_user(username, with_topics=False)
@@ -2693,3 +2728,349 @@ def collection_stats() -> dict[str, int]:
         "social_posts": social_posts_col().count_documents({}),
         "monthly_reports": monthly_reports_col().count_documents({}),
     }
+
+
+# ── Google Business Profile ──────────────────────────────────────────────────
+
+
+def _gbp_from_secret(doc: dict) -> dict:
+    """project_secrets oauth row -> the connection dict the GBP routes already use."""
+    row = dict((doc.get("metadata") or {}).get("gbp") or {})
+    row["client_id"] = doc.get("project_id") or row.get("client_id")
+    return row
+
+
+def delete_gbp_for_client(client_id: str) -> None:
+    """Remove every GBP row for a client. Called when the client is archived."""
+    if _use_mongo():
+        project_secrets_col().delete_many(
+            {"project_id": client_id, "provider": "gbp", "kind": SecretKind.OAUTH.value}
+        )
+        _states_col().delete_many({"provider": "gbp", "client_id": client_id})
+        _mdb()[COL_GBP_LOCATIONS].delete_many({"client_id": client_id})
+        _mdb()[COL_GBP_REVIEW_DRAFTS].delete_many({"client_id": client_id})
+        _mdb()[COL_GBP_POST_DRAFTS].delete_many({"client_id": client_id})
+        _mdb()[COL_GBP_REVIEW_COUNTER].delete_many({"client_id": client_id})
+        return
+    data = _load_file()
+    data.setdefault(COL_GBP_CONNECTIONS, {}).pop(client_id, None)
+    for col in (
+        COL_GBP_LOCATIONS,
+        COL_GBP_OAUTH_STATES,
+        COL_GBP_REVIEW_DRAFTS,
+        COL_GBP_POST_DRAFTS,
+        COL_GBP_REVIEW_COUNTER,
+    ):
+        bucket = data.get(col) or {}
+        if isinstance(bucket, dict):
+            data[col] = {
+                key: row
+                for key, row in bucket.items()
+                if not (isinstance(row, dict) and row.get("client_id") == client_id)
+            }
+    _save_file(data)
+
+
+def get_gbp_connection(client_id: str) -> dict | None:
+    if _use_mongo():
+        doc = _secret_one(client_id, "gbp", SecretKind.OAUTH)
+        return _gbp_from_secret(doc) if doc else None
+    row = (_load_file().get(COL_GBP_CONNECTIONS) or {}).get(client_id)
+    return dict(row) if isinstance(row, dict) else None
+
+
+def save_gbp_connection(client_id: str, payload: dict) -> dict:
+    row = {"client_id": client_id, **payload}
+    if _use_mongo():
+        creds = dict(row.get("google_credentials") or {})
+        _secret_upsert(
+            client_id,
+            "gbp",
+            SecretKind.OAUTH,
+            {
+                "username": row.get("google_account_email") or row.get("username"),
+                "access_token_encrypted": creds.get("token"),
+                "refresh_token_encrypted": creds.get("refresh_token"),
+                "scopes": list(creds.get("scopes") or []),
+                "external_account_name": row.get("google_account_email") or row.get("username"),
+                "label": "Google Business Profile",
+                "metadata": {"gbp": row},
+            },
+            label="Google Business Profile",
+        )
+        return row
+    data = _load_file()
+    data.setdefault(COL_GBP_CONNECTIONS, {})[client_id] = row
+    _save_file(data)
+    return row
+
+
+def list_gbp_connections() -> list[dict]:
+    if _use_mongo():
+        docs = project_secrets_col().find(
+            {"provider": "gbp", "kind": SecretKind.OAUTH.value},
+            {"_id": 0},
+        )
+        return [_gbp_from_secret(doc) for doc in docs]
+    rows = (_load_file().get(COL_GBP_CONNECTIONS) or {}).values()
+    return [dict(row) for row in rows if isinstance(row, dict)]
+
+
+def list_gbp_locations(client_id: str) -> list[dict]:
+    if _use_mongo():
+        cursor = _mdb()[COL_GBP_LOCATIONS].find({"client_id": client_id})
+        return [_strip_mongo_id(doc) for doc in cursor]
+    rows = []
+    for row in (_load_file().get(COL_GBP_LOCATIONS) or {}).values():
+        if isinstance(row, dict) and row.get("client_id") == client_id:
+            rows.append(dict(row))
+    return rows
+
+
+def get_gbp_location(client_id: str, location_id: str) -> dict | None:
+    doc_id = f"{client_id}:{location_id}"
+    if _use_mongo():
+        doc = _mdb()[COL_GBP_LOCATIONS].find_one({"_id": doc_id, "client_id": client_id})
+        return _strip_mongo_id(doc) if doc else None
+    row = (_load_file().get(COL_GBP_LOCATIONS) or {}).get(doc_id)
+    if isinstance(row, dict) and row.get("client_id") == client_id:
+        return dict(row)
+    return None
+
+
+def upsert_gbp_location(client_id: str, location_id: str, payload: dict) -> dict:
+    doc_id = f"{client_id}:{location_id}"
+    row = {"client_id": client_id, "location_id": location_id, **payload}
+    if _use_mongo():
+        _mdb()[COL_GBP_LOCATIONS].replace_one(
+            {"_id": doc_id},
+            {"_id": doc_id, **row},
+            upsert=True,
+        )
+        return row
+    data = _load_file()
+    data.setdefault(COL_GBP_LOCATIONS, {})[doc_id] = row
+    _save_file(data)
+    return row
+
+
+def merge_gbp_optimize(client_id: str, location_id: str, patch: dict) -> dict:
+    """Merge fields into the location's optimize object. Other location fields stay."""
+    row = get_gbp_location(client_id, location_id) or {
+        "client_id": client_id,
+        "location_id": location_id,
+        "selected": True,
+    }
+    optimize = dict(row.get("optimize") or {})
+    optimize.update(patch)
+    saved = upsert_gbp_location(client_id, location_id, {**row, "optimize": optimize})
+    return saved.get("optimize") or optimize
+
+
+def get_gbp_optimize(client_id: str, location_id: str) -> dict:
+    row = get_gbp_location(client_id, location_id) or {}
+    return dict(row.get("optimize") or {})
+
+
+def reply_slot_decision(current: int | None, *, phrase_fits: bool) -> tuple[int, bool]:
+    """Return (new counter, include a gap phrase).
+
+    Values 0-5 are ordinary replies. 6 is the 7th slot. A review that does not
+    fit a saved phrase leaves 6 in place so the slot is not burned.
+    """
+    value = 0 if current is None else int(current)
+    if value < 6:
+        return value + 1, False
+    if phrase_fits:
+        return 0, True
+    return 6, False
+
+
+def advance_review_counter(client_id: str, location_id: str, *, phrase_fits: bool) -> bool:
+    """Apply reply_slot_decision and persist it. True when this reply should include a phrase."""
+    doc_id = f"{client_id}:{location_id}"
+    now = datetime.now(timezone.utc).isoformat()
+    if _use_mongo():
+        from pymongo import ReturnDocument
+        from pymongo.errors import DuplicateKeyError
+
+        coll = _mdb()[COL_GBP_REVIEW_COUNTER]
+        if phrase_fits:
+            claimed = coll.find_one_and_update(
+                {"_id": doc_id, "replies_since_insert": {"$gte": 6}},
+                {"$set": {"replies_since_insert": 0, "updated_at": now, "client_id": client_id, "location_id": location_id}},
+                return_document=ReturnDocument.AFTER,
+            )
+            if claimed:
+                return True
+        try:
+            updated = coll.find_one_and_update(
+                {"_id": doc_id, "replies_since_insert": {"$lt": 6}},
+                {
+                    "$inc": {"replies_since_insert": 1},
+                    "$set": {"updated_at": now, "client_id": client_id, "location_id": location_id},
+                    "$setOnInsert": {"last_used_keyword": ""},
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except DuplicateKeyError:
+            updated = None
+        if updated and int(updated.get("replies_since_insert") or 0) <= 6:
+            return False
+        return False
+    data = _load_file()
+    bucket = data.setdefault(COL_GBP_REVIEW_COUNTER, {})
+    row = dict(bucket.get(doc_id) or {})
+    new_value, include = reply_slot_decision(row.get("replies_since_insert"), phrase_fits=phrase_fits)
+    row.update(
+        {
+            "client_id": client_id,
+            "location_id": location_id,
+            "replies_since_insert": new_value,
+            "last_used_keyword": row.get("last_used_keyword") or "",
+            "updated_at": now,
+        }
+    )
+    bucket[doc_id] = row
+    _save_file(data)
+    return include
+
+
+def remember_reply_keyword(client_id: str, location_id: str, keyword: str) -> None:
+    doc_id = f"{client_id}:{location_id}"
+    if _use_mongo():
+        _mdb()[COL_GBP_REVIEW_COUNTER].update_one(
+            {"_id": doc_id},
+            {"$set": {"last_used_keyword": keyword, "client_id": client_id, "location_id": location_id}},
+            upsert=True,
+        )
+        return
+    data = _load_file()
+    bucket = data.setdefault(COL_GBP_REVIEW_COUNTER, {})
+    row = dict(bucket.get(doc_id) or {"client_id": client_id, "location_id": location_id, "replies_since_insert": 0})
+    row["last_used_keyword"] = keyword
+    bucket[doc_id] = row
+    _save_file(data)
+
+
+def set_gbp_location_selection(client_id: str, location_ids: list[str]) -> list[dict]:
+    wanted = {str(item) for item in location_ids}
+    updated = []
+    for row in list_gbp_locations(client_id):
+        selected = row.get("location_id") in wanted
+        saved = upsert_gbp_location(
+            client_id,
+            row["location_id"],
+            {**row, "selected": selected},
+        )
+        updated.append(saved)
+    return updated
+
+
+def save_gbp_oauth_state(state: str, payload: dict) -> dict:
+    row = {"state": state, **payload}
+    if _use_mongo():
+        return _save_oauth_state("gbp", state, payload)
+    data = _load_file()
+    data.setdefault(COL_GBP_OAUTH_STATES, {})[state] = row
+    _save_file(data)
+    return row
+
+
+def pop_gbp_oauth_state(state: str) -> dict | None:
+    if _use_mongo():
+        return _pop_oauth_state("gbp", state)
+    data = _load_file()
+    states = data.setdefault(COL_GBP_OAUTH_STATES, {})
+    row = states.pop(state, None)
+    _save_file(data)
+    return dict(row) if isinstance(row, dict) else None
+
+
+def save_gbp_review_draft(draft_id: str, payload: dict) -> dict:
+    row = {"id": draft_id, **payload}
+    if _use_mongo():
+        _mdb()[COL_GBP_REVIEW_DRAFTS].replace_one(
+            {"_id": draft_id},
+            {"_id": draft_id, **row},
+            upsert=True,
+        )
+        return row
+    data = _load_file()
+    data.setdefault(COL_GBP_REVIEW_DRAFTS, {})[draft_id] = row
+    _save_file(data)
+    return row
+
+
+def get_gbp_review_draft(draft_id: str) -> dict | None:
+    if _use_mongo():
+        doc = _mdb()[COL_GBP_REVIEW_DRAFTS].find_one({"_id": draft_id})
+        if not doc:
+            return None
+        return {"id": doc["_id"], **_strip_mongo_id(doc)}
+    row = (_load_file().get(COL_GBP_REVIEW_DRAFTS) or {}).get(draft_id)
+    return dict(row) if isinstance(row, dict) else None
+
+
+def save_gbp_post_draft(draft_id: str, payload: dict) -> dict:
+    row = {"id": draft_id, **payload}
+    if _use_mongo():
+        _mdb()[COL_GBP_POST_DRAFTS].replace_one(
+            {"_id": draft_id},
+            {"_id": draft_id, **row},
+            upsert=True,
+        )
+        return row
+    data = _load_file()
+    data.setdefault(COL_GBP_POST_DRAFTS, {})[draft_id] = row
+    _save_file(data)
+    return row
+
+
+def get_gbp_post_draft(draft_id: str) -> dict | None:
+    if _use_mongo():
+        doc = _mdb()[COL_GBP_POST_DRAFTS].find_one({"_id": draft_id})
+        if not doc:
+            return None
+        return {"id": doc["_id"], **_strip_mongo_id(doc)}
+    row = (_load_file().get(COL_GBP_POST_DRAFTS) or {}).get(draft_id)
+    return dict(row) if isinstance(row, dict) else None
+
+
+def list_gbp_post_drafts(client_id: str, location_id: str | None = None, status: str | None = None) -> list[dict]:
+    if _use_mongo():
+        query: dict[str, Any] = {"client_id": client_id}
+        if location_id:
+            query["location_id"] = location_id
+        if status:
+            query["status"] = status
+        cursor = _mdb()[COL_GBP_POST_DRAFTS].find(query)
+        return [{"id": doc["_id"], **_strip_mongo_id(doc)} for doc in cursor]
+    rows = []
+    for row in (_load_file().get(COL_GBP_POST_DRAFTS) or {}).values():
+        if not isinstance(row, dict) or row.get("client_id") != client_id:
+            continue
+        if location_id and row.get("location_id") != location_id:
+            continue
+        if status and row.get("status") != status:
+            continue
+        rows.append(dict(row))
+    return rows
+
+
+def list_gbp_review_drafts(client_id: str, status: str | None = None) -> list[dict]:
+    if _use_mongo():
+        query: dict[str, Any] = {"client_id": client_id}
+        if status:
+            query["status"] = status
+        cursor = _mdb()[COL_GBP_REVIEW_DRAFTS].find(query)
+        return [{"id": doc["_id"], **_strip_mongo_id(doc)} for doc in cursor]
+    rows = []
+    for row in (_load_file().get(COL_GBP_REVIEW_DRAFTS) or {}).values():
+        if not isinstance(row, dict) or row.get("client_id") != client_id:
+            continue
+        if status and row.get("status") != status:
+            continue
+        rows.append(dict(row))
+    return rows

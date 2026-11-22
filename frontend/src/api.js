@@ -1241,6 +1241,238 @@ export const api = {
     if (!response.ok) throw new Error(await parseError(response))
     return response.blob()
   },
+  gbpLogin: (token, clientId) =>
+    apiFetch('/gbp.login', { token, body: { client_id: clientId } }),
+  gbpConnectionGet: (token, clientId) =>
+    apiFetch('/gbp.connection.get', { token, body: { client_id: clientId } }),
+  gbpDisconnect: (token, clientId) =>
+    apiFetch('/gbp.disconnect', { token, body: { client_id: clientId } }),
+  gbpLocationsAvailable: (token, clientId) =>
+    apiFetch('/gbp.locations.available', { token, body: { client_id: clientId } }),
+  gbpSelectLocations: (token, clientId, locationIds) =>
+    apiFetch('/gbp.locations.select', {
+      token,
+      body: { client_id: clientId, location_ids: locationIds },
+    }),
+  gbpSetActiveLocation: (token, clientId, locationId) =>
+    apiFetch('/gbp.locations.set-active', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpProfileGet: (token, clientId, locationId) =>
+    apiFetch('/gbp.profile.get', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpProfilePatch: (token, clientId, locationId, updateMask, location, appointment) =>
+    apiFetch('/gbp.profile.patch', {
+      token,
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        update_mask: updateMask,
+        location,
+        update_appointment: !!appointment?.update,
+        appointment_uri: appointment?.uri || '',
+      },
+    }),
+  gbpCategorySearch: (token, clientId, query) =>
+    apiFetch('/gbp.categories.search', { token, body: { client_id: clientId, query } }),
+  gbpReviewsList: (token, clientId, locationId, filters = {}) =>
+    apiFetch('/gbp.reviews.list', {
+      token,
+      body: { client_id: clientId, location_id: locationId, ...filters },
+    }),
+  gbpReviewsAll: (token, clientId, locationId, filters = {}) =>
+    apiFetch('/gbp.reviews.all', {
+      token,
+      body: { client_id: clientId, location_id: locationId, ...filters },
+    }),
+  gbpReviewReply: (token, clientId, reviewName, comment) =>
+    apiFetch('/gbp.reviews.reply', {
+      token,
+      body: { client_id: clientId, review_name: reviewName, comment },
+    }),
+  gbpReviewReplyDelete: (token, clientId, reviewName) =>
+    apiFetch('/gbp.reviews.reply.delete', {
+      token,
+      body: { client_id: clientId, review_name: reviewName },
+    }),
+  gbpReviewDrafts: (token, clientId) =>
+    apiFetch('/gbp.reviews.drafts.list', { token, body: { client_id: clientId } }),
+  gbpReviewThemes: (token, clientId, reviews) =>
+    apiFetch('/gbp.reviews.themes', {
+      token,
+      body: {
+        client_id: clientId,
+        reviews: reviews.map((review) => ({
+          star_rating: review.starRating,
+          comment: review.comment || '',
+        })),
+      },
+    }),
+  gbpPublishDraft: (token, clientId, draftId, comment) =>
+    apiFetch('/gbp.reviews.drafts.publish', {
+      token,
+      body: { client_id: clientId, draft_id: draftId, comment },
+    }),
+  gbpSaveSettings: (token, clientId, settings) =>
+    apiFetch('/gbp.settings.save', { token, body: { client_id: clientId, ...settings } }),
+  gbpPostsList: (token, clientId, locationId) =>
+    apiFetch('/gbp.posts.list', { token, body: { client_id: clientId, location_id: locationId } }),
+  gbpPostCreate: (token, clientId, payload) =>
+    apiFetch('/gbp.posts.create', { token, body: { client_id: clientId, ...payload } }),
+  gbpPostImage: (token, clientId, file) => {
+    const formData = new FormData()
+    formData.append('client_id', clientId)
+    formData.append('file', file)
+    return apiFetch('/gbp.posts.image', { token, formData })
+  },
+  gbpPostPatch: (token, clientId, postName, summary) =>
+    apiFetch('/gbp.posts.patch', {
+      token,
+      body: { client_id: clientId, location_id: 'unused', post_name: postName, summary },
+    }),
+  gbpPostDelete: (token, clientId, name) =>
+    apiFetch('/gbp.posts.delete', { token, body: { client_id: clientId, name } }),
+  gbpMediaList: (token, clientId, locationId) =>
+    apiFetch('/gbp.media.list', { token, body: { client_id: clientId, location_id: locationId } }),
+  gbpMediaUpload: (token, clientId, locationId, category, file) => {
+    const formData = new FormData()
+    formData.append('client_id', clientId)
+    formData.append('location_id', locationId)
+    formData.append('category', category)
+    formData.append('file', file)
+    return apiFetch('/gbp.media.upload', { token, formData })
+  },
+  gbpMediaDelete: (token, clientId, name) =>
+    apiFetch('/gbp.media.delete', { token, body: { client_id: clientId, name } }),
+  gbpPerformance: (token, clientId, startDate, endDate, locationId) =>
+    apiFetch('/gbp.performance.get', {
+      token,
+      body: {
+        client_id: clientId,
+        start_date: startDate,
+        end_date: endDate,
+        ...(locationId ? { location_id: locationId } : {}),
+      },
+    }),
+  gbpKeywords: (token, clientId, startDate, endDate, locationId) =>
+    apiFetch('/gbp.performance.keywords', {
+      token,
+      body: {
+        client_id: clientId,
+        start_date: startDate,
+        end_date: endDate,
+        ...(locationId ? { location_id: locationId } : {}),
+      },
+    }),
+  gbpOverview: (token, clientId, locationId) =>
+    apiFetch('/gbp.overview.get', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpOptimize: (token, clientId, locationId) =>
+    apiFetch('/gbp.optimize.audit', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpOptimizeGet: (token, clientId, locationId) =>
+    apiFetch('/gbp.optimize.get', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpOptimizeRefresh: (token, clientId, locationId) =>
+    apiFetch('/gbp.optimize.refresh', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpOptimizeRun: (token, clientId, locationId, instruction = '', latitude = null, longitude = null) =>
+    apiFetch('/gbp.optimize.run', {
+      token,
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        instruction,
+        latitude,
+        longitude,
+      },
+    }),
+  gbpOptimizeApplyScore: (token, clientId, locationId, description = '', addedServices = []) =>
+    apiFetch('/gbp.optimize.apply-score', {
+      token,
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        description,
+        added_services: addedServices,
+      },
+    }),
+  gbpReviewInsights: (token, clientId, locationId) =>
+    apiFetch('/gbp.reviews.insights', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpPostSchedule: (token, clientId, locationId) =>
+    apiFetch('/gbp.posts.schedule.get', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpSavePostSchedule: (token, clientId, locationId, schedule) =>
+    apiFetch('/gbp.posts.schedule.save', {
+      token,
+      body: { client_id: clientId, location_id: locationId, ...schedule },
+    }),
+  gbpPostDrafts: (token, clientId, locationId) =>
+    apiFetch('/gbp.posts.drafts.list', {
+      token,
+      body: { client_id: clientId, location_id: locationId },
+    }),
+  gbpQueuePostDraft: (token, clientId, draftId, summary) =>
+    apiFetch('/gbp.posts.queue.add', {
+      token,
+      body: { client_id: clientId, location_id: '', draft_id: draftId, summary },
+    }),
+  gbpUnqueuePostDraft: (token, clientId, draftId) =>
+    apiFetch('/gbp.posts.queue.remove', {
+      token,
+      body: { client_id: clientId, location_id: '', draft_id: draftId },
+    }),
+  gbpReorderPostQueue: (token, clientId, locationId, draftIds) =>
+    apiFetch('/gbp.posts.queue.reorder', {
+      token,
+      body: { client_id: clientId, location_id: locationId, draft_ids: draftIds },
+    }),
+  gbpGeneratePostDrafts: (token, clientId, locationId, postsPerDay, referenceUrls = [], post = {}) =>
+    apiFetch('/gbp.posts.drafts.generate', {
+      token,
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        ...(postsPerDay ? { posts_per_day: postsPerDay } : {}),
+        reference_urls: referenceUrls,
+        topic_type: post.topic_type || 'STANDARD',
+        event_title: post.event_title || '',
+        event_start: post.event_start || '',
+        event_end: post.event_end || '',
+        coupon_code: post.coupon_code || '',
+      },
+    }),
+  gbpPublishPostDraft: (token, clientId, draftId, summary) =>
+    apiFetch('/gbp.posts.drafts.publish', {
+      token,
+      body: { client_id: clientId, location_id: '', draft_id: draftId, summary },
+    }),
+  gbpDiscardPostDraft: (token, clientId, draftId) =>
+    apiFetch('/gbp.posts.drafts.discard', {
+      token,
+      body: { client_id: clientId, location_id: '', draft_id: draftId },
+    }),
+  gbpRetryPostImage: (token, clientId, draftId) =>
+    apiFetch('/gbp.posts.drafts.retry-image', {
+      token,
+      body: { client_id: clientId, location_id: '', draft_id: draftId },
+    }),
 }
 
 export default api

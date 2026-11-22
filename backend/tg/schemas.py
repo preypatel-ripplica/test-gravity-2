@@ -1298,3 +1298,137 @@ class VideoUploadRequest(BaseModel):
     social_drive_link: Optional[str] = None
     channels: List[VideoUploadChannel] = []
     stream_progress: bool = False
+
+
+# Google Business Profile request bodies
+class GbpClientRequest(BaseModel):
+    client_id: str
+
+
+class GbpLocationSelectRequest(BaseModel):
+    client_id: str
+    location_ids: List[str] = []
+
+
+class GbpActiveLocationRequest(BaseModel):
+    client_id: str
+    location_id: str
+    posts_per_day: Optional[int] = None
+    reference_urls: List[str] = []
+    topic_type: str = "STANDARD"
+    event_title: str = ""
+    event_start: str = ""
+    event_end: str = ""
+    coupon_code: str = ""
+
+
+class GbpProfilePatchRequest(BaseModel):
+    client_id: str
+    location_id: str
+    update_mask: List[str] = []
+    location: Dict[str, Any] = {}
+    update_appointment: bool = False
+    appointment_uri: str = ""
+
+
+class GbpCategorySearchRequest(BaseModel):
+    client_id: str
+    query: str = ""
+    region_code: str = "IN"
+
+
+class GbpReviewsListRequest(BaseModel):
+    client_id: str
+    location_id: Optional[str] = None
+    rating: Optional[int] = None
+    unanswered_only: bool = False
+    page_token: Optional[str] = None
+
+
+class GbpReviewThemesRequest(BaseModel):
+    client_id: str
+    reviews: List[Dict[str, Any]] = []
+
+
+class GbpReviewReplyRequest(BaseModel):
+    client_id: str
+    review_name: str
+    comment: str
+
+
+class GbpReviewReplyDeleteRequest(BaseModel):
+    client_id: str
+    review_name: str
+
+
+class GbpDraftPublishRequest(BaseModel):
+    client_id: str
+    draft_id: str
+    comment: Optional[str] = None
+
+
+class GbpSettingsRequest(BaseModel):
+    client_id: str
+    auto_reply_mode: str = "off"
+    skip_one_star: bool = True
+    skip_angry: bool = True
+    agent_instructions: str = ""
+
+
+class GbpPerformanceRequest(BaseModel):
+    client_id: str
+    location_id: Optional[str] = None
+    start_date: str
+    end_date: str
+
+
+class GbpPostWriteRequest(BaseModel):
+    client_id: str
+    location_id: str
+    summary: str
+    topic_type: str = "STANDARD"
+    source_url: Optional[str] = None
+    cta_type: Optional[str] = None
+    cta_url: Optional[str] = None
+    event_title: Optional[str] = None
+    event_start: Optional[str] = None
+    event_end: Optional[str] = None
+    coupon_code: Optional[str] = None
+    post_name: Optional[str] = None
+
+
+class GbpNamedDeleteRequest(BaseModel):
+    client_id: str
+    name: str
+
+
+class GbpPostScheduleRequest(BaseModel):
+    client_id: str
+    location_id: str
+    frequency: str = "off"
+    selected_days: List[str] = []
+    posts_per_day: int = 1
+    autopublish: bool = False
+
+
+class GbpPostDraftRequest(BaseModel):
+    client_id: str
+    location_id: str
+    draft_id: str = ""
+    summary: Optional[str] = None
+    draft_ids: List[str] = []
+
+
+class GbpOptimizeRunRequest(BaseModel):
+    client_id: str
+    location_id: str
+    instruction: str = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class GbpOptimizeApplyRequest(BaseModel):
+    client_id: str
+    location_id: str
+    description: str = ""
+    added_services: List[str] = []
