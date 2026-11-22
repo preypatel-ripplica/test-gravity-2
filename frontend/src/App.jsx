@@ -13,6 +13,7 @@ import { DOMAINS, hasAnyDomainAccess, hasDomainAccess, TRACKER_DOMAINS } from '.
 import AppShell from './layouts/AppShell'
 import ChannelLayout from './layouts/ChannelLayout'
 import ClientHomeLayout from './layouts/ClientHomeLayout'
+import GbpLayout from './layouts/GbpLayout'
 import ClientLayout from './layouts/ClientLayout'
 import SocialMediaLayout from './layouts/SocialMediaLayout'
 import WebsiteLayout from './layouts/WebsiteLayout'
@@ -21,6 +22,15 @@ import ChannelOverview from './pages/ChannelOverview'
 import ChannelSettings from './pages/ChannelSettings'
 import ChannelVideos from './pages/ChannelVideos'
 import ClientHub from './pages/ClientHub'
+import ClientGbpConnection from './pages/ClientGbpConnection'
+import ClientGbpLocations from './pages/ClientGbpLocations'
+import ClientGbpMedia from './pages/ClientGbpMedia'
+import ClientGbpOptimize from './pages/ClientGbpOptimize'
+import ClientGbpOverview from './pages/ClientGbpOverview'
+import ClientGbpPerformance from './pages/ClientGbpPerformance'
+import ClientGbpPosts from './pages/ClientGbpPosts'
+import ClientGbpProfile from './pages/ClientGbpProfile'
+import ClientGbpReviews from './pages/ClientGbpReviews'
 import ClientOverview from './pages/ClientOverview'
 import ClientSettings from './pages/ClientSettings'
 import ClientProfileLayout from './layouts/ClientProfileLayout'
@@ -144,6 +154,23 @@ function OAuthSuccessHandler() {
   return null
 }
 
+function GbpOAuthSuccessHandler() {
+  const { toast } = useUI()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const handled = useRef(false)
+
+  useEffect(() => {
+    if (searchParams.get('gbp_auth') !== 'success' || handled.current) return
+    handled.current = true
+    toast('Google Business Profile connected. Choose the locations to manage.', 'success')
+    const next = new URLSearchParams(searchParams)
+    next.delete('gbp_auth')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams, toast])
+
+  return null
+}
+
 function ClientIdGuard({ children }) {
   const { clientId } = useParams()
   const { user } = useAuth()
@@ -223,6 +250,7 @@ export default function App() {
   return (
     <>
       <OAuthSuccessHandler />
+      <GbpOAuthSuccessHandler />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin" element={<AdminDashboard />} />
@@ -400,6 +428,27 @@ export default function App() {
           <Route path="media" element={<WebsiteMedia />} />
           <Route path="reports" element={<WebsiteReports />} />
           <Route path="deployment" element={<WebsiteDeployment />} />
+        </Route>
+
+        <Route
+          path="/clients/:clientId/gbp"
+          element={
+            <RequireAuth>
+              <ClientIdGuard>
+                <GbpLayout />
+              </ClientIdGuard>
+            </RequireAuth>
+          }
+        >
+          <Route index element={<ClientGbpOverview />} />
+          <Route path="optimize" element={<ClientGbpOptimize />} />
+          <Route path="profile" element={<ClientGbpProfile />} />
+          <Route path="reviews" element={<ClientGbpReviews />} />
+          <Route path="posts" element={<ClientGbpPosts />} />
+          <Route path="media" element={<ClientGbpMedia />} />
+          <Route path="performance" element={<ClientGbpPerformance />} />
+          <Route path="locations" element={<ClientGbpLocations />} />
+          <Route path="connection" element={<ClientGbpConnection />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -19,7 +19,9 @@ from backend.trackers.edit_tracker import router as edit_tracker_router
 from backend.website.crudl import router as website_router
 from backend.website.reports import router as website_reports_router
 
+from backend.tg.gbp_oauth import router as gbp_oauth_router
 from backend.tg.google_oauth import router as google_oauth_router
+from backend.tg.routes.gbp import router as gbp_router
 from backend.tg.routes.channel import router as tg_channel_router
 from backend.tg.routes.client import router as tg_client_router
 from backend.tg.routes.client_profile import router as tg_client_profile_router
@@ -109,6 +111,8 @@ app.include_router(main_router)
 
 # TG Videos + Social parity (takes precedence for shared path names)
 app.include_router(google_oauth_router)
+app.include_router(gbp_oauth_router)
+app.include_router(gbp_router)
 app.include_router(tg_video_router)
 app.include_router(tg_channel_router)
 app.include_router(tg_client_router)

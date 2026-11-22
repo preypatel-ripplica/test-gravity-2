@@ -180,6 +180,13 @@ def ensure_indexes() -> None:
     if _indexes_ready:
         return
 
+    # Before the rest: a later duplicate-key failure must not skip these.
+    gbp = get_db()
+    gbp["gbp_locations"].create_index([("client_id", ASCENDING)])
+    gbp["gbp_review_drafts"].create_index([("client_id", ASCENDING), ("location_id", ASCENDING)])
+    gbp["gbp_post_drafts"].create_index([("client_id", ASCENDING), ("location_id", ASCENDING)])
+    gbp["gbp_review_counter"].create_index([("client_id", ASCENDING)])
+
     users_col().create_index([("email", ASCENDING)], unique=True)
     users_col().create_index([("id", ASCENDING)], unique=True)
 

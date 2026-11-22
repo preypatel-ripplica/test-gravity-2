@@ -91,6 +91,17 @@ export default function ClientHub() {
         </Link>
         ) : null}
 
+        <Link to={`/clients/${clientId}/gbp`} className="workspace-card card">
+          <div className="workspace-card-icon gbp">
+            <i className="fa-solid fa-store" />
+          </div>
+          <div className="workspace-card-body">
+            <h2>Google Business Profile</h2>
+            <p>Listing, reviews, posts, photos, and search recommendations for this client.</p>
+          </div>
+          <span className="btn btn-primary btn-sm">Open Google Business</span>
+        </Link>
+
         <Link to="/bot" className="workspace-card card">
           <div className="workspace-card-icon whatsapp">
             <i className="fa-brands fa-whatsapp" />
