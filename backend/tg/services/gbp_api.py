@@ -552,6 +552,41 @@ def rollup_labels(totals: dict) -> dict:
     }
 
 
+def totals_between(series: dict, start: date, end: date) -> dict:
+    totals: dict[str, float] = {}
+    for metric, points in (series or {}).items():
+        total = 0.0
+        for point in points or []:
+            raw = str((point or {}).get("date") or "")
+            try:
+                day = datetime.strptime(raw, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if start <= day <= end:
+                total += _num(point.get("value"))
+        totals[metric] = total
+    return totals
+
+
+def percent_change(left: float, right: float, days_left: int, days_right: int) -> dict:
+    """Change from the left range to the right range. Unequal lengths use a per-day average."""
+    days_left = max(1, int(days_left or 1))
+    days_right = max(1, int(days_right or 1))
+    same = days_left == days_right
+    base = float(left or 0) if same else float(left or 0) / days_left
+    nxt = float(right or 0) if same else float(right or 0) / days_right
+    if base == 0:
+        value = 0 if nxt == 0 else None
+    else:
+        value = round((nxt - base) / base * 100)
+    return {
+        "percent": value,
+        "basis": "total" if same else "per_day",
+        "days_a": days_left,
+        "days_b": days_right,
+    }
+
+
 def previous_window(start: date, end: date) -> tuple[date, date]:
     length = (end - start).days + 1
     prev_end = start - timedelta(days=1)

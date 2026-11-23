@@ -109,6 +109,12 @@ export default function ClientHomeLayout() {
                 Website
               </NavItem>
             ) : null}
+            <NavItem to={`${base}/gbp`} icon={<i className="fa-solid fa-store" />}>
+              Google Business
+            </NavItem>
+            <NavItem to="/bot" icon={<i className="fa-brands fa-whatsapp" />}>
+              WhatsApp
+            </NavItem>
           </NavSection>
         </nav>
 

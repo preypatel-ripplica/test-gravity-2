@@ -12,6 +12,7 @@ import { Line } from 'react-chartjs-2'
 import { useOutletContext } from 'react-router-dom'
 import api from '../api'
 import { GbpConnectPrompt, GbpHeader, GbpPickLocation } from '../components/gbp/GbpChrome'
+import ClientGbpResults from './ClientGbpResults'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
@@ -59,6 +60,7 @@ export default function ClientGbpPerformance() {
   const [keywords, setKeywords] = useState([])
   const [loading, setLoading] = useState(false)
   const [visible, setVisible] = useState(() => new Set(DEFAULT_ON))
+  const [tab, setTab] = useState('analysis')
 
   useEffect(() => {
     if (!token || !connected || !activeLocation) return
@@ -147,6 +149,16 @@ export default function ClientGbpPerformance() {
         <GbpPickLocation clientId={clientId} />
       ) : (
         <div className="gbp-stack gbp-stack-wide">
+          <div className="gbp-perf-tabs" role="tablist" aria-label="Performance views">
+            <button type="button" role="tab" aria-selected={tab === 'analysis'} className={tab === 'analysis' ? 'is-active' : ''} onClick={() => setTab('analysis')}>
+              Performance analysis
+            </button>
+            <button type="button" role="tab" aria-selected={tab === 'compare'} className={tab === 'compare' ? 'is-active' : ''} onClick={() => setTab('compare')}>
+              Compare performance
+            </button>
+          </div>
+          {tab === 'compare' ? <ClientGbpResults /> : (
+          <>
           <div className="gbp-toolbar">
             <div className="gbp-range" role="group" aria-label="Date range">
               {[7, 30, 90].map((value) => (
@@ -259,6 +271,8 @@ export default function ClientGbpPerformance() {
                 )}
               </section>
             </>
+          )}
+          </>
           )}
         </div>
       )}

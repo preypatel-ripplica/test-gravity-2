@@ -1432,3 +1432,21 @@ class GbpOptimizeApplyRequest(BaseModel):
     location_id: str
     description: str = ""
     added_services: List[str] = []
+
+
+class GbpApplyLogRequest(BaseModel):
+    client_id: str
+    location_id: str
+    kind: str
+    before: str = ""
+    after: str = ""
+    summary: str = ""
+
+
+class GbpResultsRequest(BaseModel):
+    client_id: str
+    location_id: str
+    range_a_start: str = ""
+    range_a_end: str = ""
+    range_b_start: str = ""
+    range_b_end: str = ""
