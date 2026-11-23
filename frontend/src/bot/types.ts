@@ -387,7 +387,9 @@ export type Disposition =
   | "INTERESTED"
   | "APPOINTMENT_REQUESTED"
   | "NOT_INTERESTED"
-  | "Repeated";
+  | "Repeated"
+  | "STALLED"
+  | "LEAD SAID DNC";
 export const DISPOSITIONS: Disposition[] = [
   "DID_NOT_CONNECT",
   "FOLLOW_UP_REQUIRED",
@@ -395,6 +397,8 @@ export const DISPOSITIONS: Disposition[] = [
   "APPOINTMENT_REQUESTED",
   "NOT_INTERESTED",
   "Repeated",
+  "STALLED",
+  "LEAD SAID DNC",
 ];
 
 export type CustomColumnType = "text" | "number" | "date" | "checkbox" | "dropdown";

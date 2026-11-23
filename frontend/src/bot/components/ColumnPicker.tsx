@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Icon, isMobile } from "../lib/ui";
+import { Icon, isMobile, portalRoot } from "../lib/ui";
 
 export interface PickerColumn { key: string; label: string; custom?: boolean }
 
@@ -87,7 +87,7 @@ export default function ColumnPicker({ available, visible, onToggle, onClear, on
             {body}
           </div>
         </div>,
-        document.body,
+        portalRoot(),
       )}
     </div>
   );

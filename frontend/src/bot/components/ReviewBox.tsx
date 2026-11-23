@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Icon, isMobile } from "../lib/ui";
+import { Icon, isMobile, portalRoot } from "../lib/ui";
 
 /**
  * A read-only sibling of RemarkEditor: the same anchored popover on desktop and
@@ -72,7 +72,7 @@ export default function ReviewBox({ label, trigger, children, width = 420 }: {
           </div>
           {children}
         </div>,
-        document.body,
+        portalRoot(),
       )}
       {sheet && createPortal(
         <div className="fixed inset-0 z-[80] flex items-end bg-black/40" onMouseDown={(e) => e.stopPropagation()} onClick={() => setOpen(false)}>
@@ -84,7 +84,7 @@ export default function ReviewBox({ label, trigger, children, width = 420 }: {
             <div className="px-4 pt-3">{children}</div>
           </div>
         </div>,
-        document.body,
+        portalRoot(),
       )}
     </>
   );

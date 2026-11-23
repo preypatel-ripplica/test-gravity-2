@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Icon, isMobile } from "../lib/ui";
+import { Icon, isMobile, portalRoot } from "../lib/ui";
 
 /**
  * Collapsed text cell that shows the LAST line of the value; clicking opens an
@@ -111,7 +111,7 @@ export default function RemarkEditor({ value, onSave, placeholder = "Add a remar
             {editor(false)}
           </div>
         ),
-        document.body,
+        portalRoot(),
       )}
     </>
   );
