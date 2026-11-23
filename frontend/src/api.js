@@ -1408,6 +1408,30 @@ export const api = {
         added_services: addedServices,
       },
     }),
+  gbpLogApply: (token, clientId, locationId, entry) =>
+    apiFetch('/gbp.optimize.apply-log', {
+      token,
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        kind: entry.kind,
+        before: entry.before || '',
+        after: entry.after || '',
+        summary: entry.summary || '',
+      },
+    }),
+  gbpResults: (token, clientId, locationId, ranges) =>
+    apiFetch('/gbp.results.get', {
+      token,
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        range_a_start: ranges?.a?.start || '',
+        range_a_end: ranges?.a?.end || '',
+        range_b_start: ranges?.b?.start || '',
+        range_b_end: ranges?.b?.end || '',
+      },
+    }),
   gbpReviewInsights: (token, clientId, locationId) =>
     apiFetch('/gbp.reviews.insights', {
       token,

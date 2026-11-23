@@ -180,6 +180,14 @@ export default function ClientGbpOptimize() {
       }))
   }, [audit, pickedServices])
 
+  async function logApply(entry) {
+    try {
+      await api.gbpLogApply(token, clientId, activeLocation.location_id, entry)
+    } catch (err) {
+      toast(err.message, 'error')
+    }
+  }
+
   async function approve(kind) {
     if (!audit) return
     setSaving(kind)
@@ -231,6 +239,26 @@ export default function ClientGbpOptimize() {
       if (kind === 'description') {
         const scored = await api.gbpOptimizeApplyScore(token, clientId, activeLocation.location_id, description, [])
         applySnapshot(scored)
+        const currentTitle = (activeLocation?.title || '').trim()
+        if (title.trim() && title.trim() !== currentTitle) {
+          await logApply({ kind: 'title', before: currentTitle, after: title.trim(), summary: 'Updated the title' })
+        }
+        if (description.trim()) {
+          await logApply({
+            kind: 'description',
+            before: audit?.description?.current || '',
+            after: description.trim(),
+            summary: 'Updated the description',
+          })
+        }
+      }
+      if (kind === 'categories') {
+        await logApply({
+          kind: 'category',
+          before: audit?.categories?.primary?.displayName || '',
+          after: audit?.categories?.suggestion?.displayName || '',
+          summary: `Changed the category to ${audit?.categories?.suggestion?.displayName || 'a new category'}`,
+        })
       }
       toast(saved.pending ? 'Saved. Google is still reviewing some edits.' : 'Updated on Google.', 'success')
     } catch (err) {
@@ -314,6 +342,15 @@ export default function ClientGbpOptimize() {
       const added = item.action === 'ADD' && item.proposed_name ? [item.proposed_name] : []
       const scored = await api.gbpOptimizeApplyScore(token, clientId, activeLocation.location_id, '', added)
       applySnapshot(scored)
+      const afterName = item.proposed_name || item.current_name || ''
+      const beforeName = item.current_name || ''
+      const existing = (audit.services?.current || []).find((service) => service.displayName === beforeName)
+      await logApply({
+        kind: 'service',
+        before: [beforeName, existing?.description || ''].filter(Boolean).join(' — '),
+        after: [afterName, item.proposed_description || ''].filter(Boolean).join(' — '),
+        summary: item.action === 'ADD' ? `Added service: ${afterName}` : `Updated service: ${afterName}`,
+      })
       toast(saved.pending ? 'Saved. Google is still reviewing some edits.' : 'Updated on Google.', 'success')
     } catch (err) {
       toast(err.message, 'error')

@@ -13,6 +13,7 @@ from backend.tg.auth import get_current_user
 from backend.tg.database import (
     fetch_client_doc,
     fetch_topics,
+    append_gbp_apply_history,
     get_gbp_connection,
     get_gbp_location,
     get_gbp_optimize,
@@ -49,9 +50,11 @@ from backend.tg.services.gbp_api import (
     merge_metric_payloads,
     patch_local_post,
     patch_location,
+    percent_change,
     previous_window,
     require_selected_location,
     rollup_labels,
+    totals_between,
     appointment_link,
     list_place_action_links,
     save_appointment_link,
@@ -1021,6 +1024,118 @@ def gbp_optimize_apply_score(body: schemas.GbpOptimizeApplyRequest, current_user
         {"listing": listing, "potential_score": None, "suggested_description": body.description or optimize.get("suggested_description") or ""},
     )
     return _public_optimize(get_gbp_optimize(body.client_id, body.location_id))
+
+
+_APPLY_KINDS = {"description", "title", "service", "category"}
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _clip(value: str, limit: int = 2000) -> str:
+    return str(value or "").strip()[:limit]
+
+
+@router.post("/gbp.optimize.apply-log")
+def gbp_optimize_apply_log(body: schemas.GbpApplyLogRequest, current_user: dict = Depends(get_current_user)):
+    """Remember an Optimize Apply. A later Optimize run does not clear this list."""
+    _require_client(body.client_id, current_user["username"])
+    _location_or_400(body.client_id, body.location_id)
+    kind = (body.kind or "").strip().lower()
+    if kind not in _APPLY_KINDS:
+        raise HTTPException(status_code=400, detail="Unknown apply type.")
+    now = datetime.now(_IST)
+    item = {
+        "applied_on": now.date().isoformat(),
+        "applied_at": now.isoformat(),
+        "kind": kind,
+        "before": _clip(body.before),
+        "after": _clip(body.after),
+        "summary": _clip(body.summary, 240) or f"Updated the {kind}",
+    }
+    history = append_gbp_apply_history(body.client_id, body.location_id, item)
+    return {"apply_history": history}
+
+
+def _optional_range(start_date: str, end_date: str):
+    if not (start_date or "").strip() and not (end_date or "").strip():
+        return None
+    start, end = _parse_range(start_date, end_date)
+    if (end - start).days + 1 > 540:
+        raise HTTPException(status_code=400, detail="Pick a range of 18 months or less.")
+    return start, end
+
+
+def _metric_rows(summary_a: dict, summary_b: dict, days_a: int, days_b: int) -> list[dict]:
+    specs = [
+        ("search_views", "Search views", "search_impressions"),
+        ("maps_views", "Maps views", "maps_impressions"),
+        ("calls", "Calls", "calls"),
+        ("website_clicks", "Website clicks", "website_clicks"),
+        ("directions", "Direction requests", "direction_requests"),
+    ]
+    rows = []
+    for row_id, label, key in specs:
+        change = percent_change(summary_a.get(key) or 0, summary_b.get(key) or 0, days_a, days_b)
+        rows.append({"id": row_id, "label": label, "a": summary_a.get(key) or 0, "b": summary_b.get(key) or 0, **change})
+    for row_id, label, key in (("bookings", "Bookings", "bookings"), ("chat", "Chat clicks", "chat_clicks")):
+        left = summary_a.get(key) or 0
+        right = summary_b.get(key) or 0
+        if left or right:
+            change = percent_change(left, right, days_a, days_b)
+            rows.append({"id": row_id, "label": label, "a": left, "b": right, **change})
+    views_a = (summary_a.get("search_impressions") or 0) + (summary_a.get("maps_impressions") or 0)
+    views_b = (summary_b.get("search_impressions") or 0) + (summary_b.get("maps_impressions") or 0)
+    if views_a and views_b:
+        actions = ("website_clicks", "calls", "direction_requests", "chat_clicks", "bookings")
+        rate_a = sum(summary_a.get(key) or 0 for key in actions) / views_a
+        rate_b = sum(summary_b.get(key) or 0 for key in actions) / views_b
+        change = percent_change(rate_a, rate_b, days_a, days_a)
+        rows.append({
+            "id": "action_rate",
+            "label": "Views that led to a call, click, or direction",
+            "a": round(rate_a * 100, 1),
+            "b": round(rate_b * 100, 1),
+            "percent": change["percent"],
+            "basis": "rate",
+            "days_a": days_a,
+            "days_b": days_b,
+            "unit": "percent",
+        })
+    return rows
+
+
+@router.post("/gbp.results.get")
+def gbp_results_get(body: schemas.GbpResultsRequest, current_user: dict = Depends(get_current_user)):
+    _require_client(body.client_id, current_user["username"])
+    row = _location_or_400(body.client_id, body.location_id)
+    history = [item for item in (row.get("apply_history") or []) if isinstance(item, dict)]
+    range_a = _optional_range(body.range_a_start, body.range_a_end)
+    range_b = _optional_range(body.range_b_start, body.range_b_end)
+    payload = {
+        "location_id": row["location_id"],
+        "apply_history": history,
+        "range_a": None,
+        "range_b": None,
+        "rows": [],
+        "error": "",
+    }
+    if not range_a or not range_b:
+        return payload
+    start = min(range_a[0], range_b[0])
+    end = max(range_a[1], range_b[1])
+    try:
+        fetched = fetch_daily_metrics(_creds(body.client_id), row["location_id"], start, end)
+    except GbpApiError as exc:
+        payload["error"] = exc.message
+        return payload
+    series = fetched.get("series") or {}
+    summary_a = rollup_labels(totals_between(series, range_a[0], range_a[1]))
+    summary_b = rollup_labels(totals_between(series, range_b[0], range_b[1]))
+    days_a = (range_a[1] - range_a[0]).days + 1
+    days_b = (range_b[1] - range_b[0]).days + 1
+    payload["range_a"] = {"start": range_a[0].isoformat(), "end": range_a[1].isoformat(), "days": days_a}
+    payload["range_b"] = {"start": range_b[0].isoformat(), "end": range_b[1].isoformat(), "days": days_b}
+    payload["rows"] = _metric_rows(summary_a, summary_b, days_a, days_b)
+    return payload
 
 
 @router.post("/gbp.reviews.themes")

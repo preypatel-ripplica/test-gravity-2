@@ -1,7 +1,7 @@
 """GBP helpers and routes with Google HTTP mocked out."""
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +13,9 @@ from backend.tg.services.gbp_api import (
     build_location_patch,
     build_local_post_body,
     merge_metric_payloads,
+    percent_change,
     search_categories,
+    totals_between,
 )
 from backend.tg.services.gbp_optimize import (
     build_audit,
@@ -620,6 +622,40 @@ def test_enqueue_appends_and_keeps_edited_text(tmp_path, monkeypatch):
     assert second["queue_order"] == 2
     due = posts_due_for_publish("c1", "loc-1", {"posts_per_day": 1, "autopublish": True})
     assert [item["id"] for item in due] == ["a"]
+
+
+def test_apply_history_stays_when_optimize_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.tg.database._use_mongo", lambda: False)
+    monkeypatch.setattr("backend.tg.database.DB_FILE", tmp_path / "db.json")
+    from backend.tg.database import append_gbp_apply_history, get_gbp_location, merge_gbp_optimize, upsert_gbp_location
+
+    upsert_gbp_location("c1", "loc-1", {"selected": True, "title": "Clinic"})
+    append_gbp_apply_history("c1", "loc-1", {"applied_on": "2026-11-23", "kind": "description", "before": "Old", "after": "New"})
+    merge_gbp_optimize("c1", "loc-1", {"keywords": [{"keyword": "stone"}], "gaps_status": "ready"})
+    row = get_gbp_location("c1", "loc-1")
+    assert row["optimize"]["gaps_status"] == "ready"
+    assert row["apply_history"][0]["after"] == "New"
+    assert "apply_history" not in row["optimize"]
+
+
+def test_result_windows_use_per_day_when_lengths_differ():
+    series = {
+        "CALL_CLICKS": [
+            {"date": "2026-11-01", "value": 10},
+            {"date": "2026-11-02", "value": 10},
+            {"date": "2026-11-03", "value": 30},
+        ]
+    }
+    short = totals_between(series, date(2026, 11, 1), date(2026, 11, 2))
+    long = totals_between(series, date(2026, 11, 1), date(2026, 11, 3))
+    assert short["CALL_CLICKS"] == 20
+    assert long["CALL_CLICKS"] == 50
+    same = percent_change(20, 40, 2, 2)
+    assert same["percent"] == 100
+    assert same["basis"] == "total"
+    uneven = percent_change(20, 50, 2, 3)
+    assert uneven["basis"] == "per_day"
+    assert uneven["percent"] == round(((50 / 3) - 10) / 10 * 100)
 
 
 def test_post_cron_rejects_a_bad_secret():

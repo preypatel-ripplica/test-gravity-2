@@ -2872,6 +2872,19 @@ def get_gbp_optimize(client_id: str, location_id: str) -> dict:
     return dict(row.get("optimize") or {})
 
 
+def append_gbp_apply_history(client_id: str, location_id: str, item: dict) -> list[dict]:
+    """Append one Optimize Apply. Does not touch the optimize snapshot."""
+    row = get_gbp_location(client_id, location_id) or {
+        "client_id": client_id,
+        "location_id": location_id,
+        "selected": True,
+    }
+    history = [entry for entry in (row.get("apply_history") or []) if isinstance(entry, dict)]
+    history.append(item)
+    saved = upsert_gbp_location(client_id, location_id, {**row, "apply_history": history})
+    return list(saved.get("apply_history") or history)
+
+
 def reply_slot_decision(current: int | None, *, phrase_fits: bool) -> tuple[int, bool]:
     """Return (new counter, include a gap phrase).
 
