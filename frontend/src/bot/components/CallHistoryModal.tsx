@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CallRecord, Lead } from "../types";
-import { Avatar, Icon } from "../lib/ui";
+import { Avatar, Icon, portalRoot } from "../lib/ui";
 import * as api from "../api";
 import { CallHistoryList } from "./CallList";
 
@@ -34,6 +34,6 @@ export default function CallHistoryModal({ lead, onClose }: { lead: Lead; onClos
         </div>
       </div>
     </div>,
-    document.body,
+    portalRoot(),
   );
 }

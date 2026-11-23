@@ -47,7 +47,7 @@ const PAINS = ["Low back pain / sciatica", "Knee pain", "Neck pain & headache", 
 const DOCTORS = ["Dr. Ashu Kumar Jain", "Dr. Tariq", "Dr. Kamal Aggarwal", "Dr. Ankit Chawla"];
 const CAMPAIGNS = ["Advanced Pain Care Q3", "Knee Relief", "Back Pain Awareness"];
 const HEADLINES = ["Knee pain? Book a consult today", "Advanced back pain treatment in Gurugram", "Say goodbye to sciatica"];
-const DISPOSITIONS: (Disposition | "")[] = ["DID_NOT_CONNECT", "FOLLOW_UP_REQUIRED", "INTERESTED", "APPOINTMENT_REQUESTED", "NOT_INTERESTED", "Repeated", "", ""];
+const DISPOSITIONS: (Disposition | "")[] = ["DID_NOT_CONNECT", "FOLLOW_UP_REQUIRED", "INTERESTED", "APPOINTMENT_REQUESTED", "NOT_INTERESTED", "Repeated", "STALLED", "LEAD SAID DNC", "", ""];
 
 // ---- tiny real assets so media actually renders/plays ----
 /** A short WAV tone as a data URI (playable in <audio>). */

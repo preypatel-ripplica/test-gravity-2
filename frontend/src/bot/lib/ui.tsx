@@ -81,6 +81,16 @@ export const DENSITY: Record<Density, { pad: string; text: string }> = {
 export const MOBILE_QUERY = "(max-width: 47.999rem), (max-height: 31.999rem)";
 export const isMobile = () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches;
 
+/**
+ * Mount target for createPortal overlays. Bot tokens (`bg-panel`, `text-ink`, …)
+ * live on `.bot-app`; portaling to `document.body` escapes that scope and the
+ * cards render transparent / “invisible” over the grid.
+ */
+export function portalRoot(): HTMLElement {
+  if (typeof document === "undefined") return null as unknown as HTMLElement;
+  return (document.querySelector(".bot-app") as HTMLElement | null) ?? document.body;
+}
+
 export function Badge({ color, children }: { color: string; children: React.ReactNode }) {
   return (
     <span

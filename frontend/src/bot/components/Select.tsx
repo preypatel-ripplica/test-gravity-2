@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Icon, isMobile } from "../lib/ui";
+import { Icon, isMobile, portalRoot } from "../lib/ui";
 
 export interface SelectOption {
   value: string;
@@ -140,7 +140,7 @@ export default function Select({
             {rows(false)}
           </div>
         ),
-        document.body,
+        portalRoot(),
       )}
     </>
   );
