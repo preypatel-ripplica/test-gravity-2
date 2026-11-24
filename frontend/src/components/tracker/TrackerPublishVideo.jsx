@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { apiFetchProgress } from '../../api'
 import VideoUrlAttachField from '../VideoUrlAttachField'
 import PublishProgressBusy from '../PublishProgressBusy'
+import { notifyConnectionExpired } from '../ConnectionExpiryBanner'
 import { LANG_LABELS, localeHasTitle, maybeAdvanceStage } from './trackerUtils'
 
 function languageLabel(key) {
@@ -137,6 +138,7 @@ export default function TrackerPublishVideo({ card, weekContext, onChange }) {
         onChange(maybeAdvanceStage({ ...card, stage: 'posted' }))
       }
     } catch (err) {
+      notifyConnectionExpired(err.message, clientId)
       toast(err.message, 'error')
       try {
         await weekContext.reloadWeek?.()
@@ -159,18 +161,24 @@ export default function TrackerPublishVideo({ card, weekContext, onChange }) {
         <>
           <p className="tracker-publish-label">Where do you want to post?</p>
           <div className="tracker-platform-picks">
+            {(!weekContext.postingMix?.saved || weekContext.postingMix.include?.youtube) && (
             <label className={`tracker-platform-pick${postToYT ? ' is-on' : ''}`}>
               <input type="checkbox" checked={postToYT} onChange={(e) => setPostToYT(e.target.checked)} />
               <i className="fa-brands fa-youtube" style={{ color: '#ff0000' }} />
             </label>
+            )}
+            {(!weekContext.postingMix?.saved || weekContext.postingMix.include?.instagram) && (
             <label className={`tracker-platform-pick${postToIG ? ' is-on' : ''}`}>
               <input type="checkbox" checked={postToIG} onChange={(e) => setPostToIG(e.target.checked)} />
               <i className="fa-brands fa-instagram" style={{ color: '#E1306C' }} />
             </label>
+            )}
+            {(!weekContext.postingMix?.saved || weekContext.postingMix.include?.facebook) && (
             <label className={`tracker-platform-pick${postToFB ? ' is-on' : ''}`}>
               <input type="checkbox" checked={postToFB} onChange={(e) => setPostToFB(e.target.checked)} />
               <i className="fa-brands fa-facebook" style={{ color: '#1877F2' }} />
             </label>
+            )}
           </div>
 
           {postToYT && (

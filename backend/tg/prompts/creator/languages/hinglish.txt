@@ -1,0 +1,7 @@
+Write the title and description in Hinglish — a natural, conversational mix of Hindi (Devanagari) and English. Use Hindi for conversational tone and English for the topic keywords.
+
+Example title: "Budget Travel: सस्ता ticket कैसे मिले?" — NOT pure English or pure Hindi.
+
+Tags should mix Hindi and English keyword phrases.
+No clinic, doctor, patient, or clinical-fact wording.
+Language label for this output: Hinglish.

@@ -25,6 +25,13 @@ export default function ConnectionTabs({ clientId }) {
         <i className="fa-brands fa-facebook" />
         Facebook
       </NavLink>
+      <NavLink
+        to={`${base}/posting-mix`}
+        className={({ isActive }) => `connection-tab ${isActive ? 'active' : ''}`}
+      >
+        <i className="fa-solid fa-table-cells" />
+        Posting mix
+      </NavLink>
     </nav>
   )
 }

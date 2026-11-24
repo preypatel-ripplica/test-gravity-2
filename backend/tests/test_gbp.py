@@ -27,10 +27,12 @@ from backend.tg.services.gbp_optimize import (
     sanitize_service_suggestions,
 )
 from backend.tg.services.gbp_posts import (
+    GBP_SUMMARY_MAX,
     absolute_public_url,
     build_post_prompt,
     compose_drafts,
     enqueue_gbp_draft,
+    ensure_gbp_summary_limit,
     normalize_schedule,
     posts_due_for_publish,
     run_scheduled_posts,
@@ -453,6 +455,8 @@ def test_post_prompt_includes_clinic_context_and_image_model(monkeypatch):
     assert "sciatica specialist" in prompt
     assert "We are open on Saturday" in prompt
     assert "Do not invent" in prompt
+    assert "under 500 characters" in prompt
+    assert "Never exceed 500 characters." in prompt
 
     captured = {}
 
@@ -699,6 +703,68 @@ def test_optimize_audit_route_returns_score(monkeypatch):
     assert any(item["name"] == "Sciatica consult" for item in body["services"]["suggested"])
     assert body["categories"]["suggestion"]["displayName"] == "Pain management physician"
     assert any(item["keyword"] == "sciatica specialist" and item["action"] == "suggest_service" for item in body["keywords"])
+
+
+def test_ensure_gbp_summary_limit_skips_llm_when_short(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_compress(text):
+        calls["n"] += 1
+        return text
+
+    monkeypatch.setattr("backend.tg.services.gbp_posts.compress_gbp_summary", fake_compress)
+    text = "Clinic hours updated this week."
+    assert ensure_gbp_summary_limit(text) == text
+    assert calls["n"] == 0
+
+
+def test_ensure_gbp_summary_limit_uses_compress_then_retries(monkeypatch):
+    long = "x" * 620
+    calls = {"n": 0}
+
+    def fake_compress(text):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "y" * 510
+        return "Google Update under the limit."
+
+    monkeypatch.setattr("backend.tg.services.gbp_posts.compress_gbp_summary", fake_compress)
+    assert ensure_gbp_summary_limit(long) == "Google Update under the limit."
+    assert calls["n"] == 2
+
+
+def test_ensure_gbp_summary_limit_clips_after_retries(monkeypatch):
+    long = "word " * 200
+
+    monkeypatch.setattr("backend.tg.services.gbp_posts.compress_gbp_summary", lambda text: text)
+    result = ensure_gbp_summary_limit(long)
+    assert len(result) <= GBP_SUMMARY_MAX
+    assert result
+
+
+def test_gbp_post_draft_save_allows_over_500(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_client_doc", lambda client_id, username=None: {"id": client_id})
+    monkeypatch.setattr(
+        "backend.tg.routes.gbp.get_gbp_post_draft",
+        lambda draft_id: {"id": draft_id, "client_id": "c1", "summary": "old"},
+    )
+
+    def fake_save(draft_id, payload):
+        captured["payload"] = payload
+        return payload
+
+    monkeypatch.setattr("backend.tg.routes.gbp.save_gbp_post_draft", fake_save)
+    text = "x" * 520
+    response = _client().post(
+        "/gbp.posts.drafts.save",
+        json={"client_id": "c1", "location_id": "loc-1", "draft_id": "d1", "summary": text},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["over_limit"] is True
+    assert captured["payload"]["summary"] == text
+    assert len(captured["payload"]["summary"]) > GBP_SUMMARY_MAX
 
 
 def test_all_locations_metric_rollup():

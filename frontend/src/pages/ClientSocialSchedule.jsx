@@ -32,7 +32,6 @@ export default function ClientSocialSchedule() {
   const [festiveAutoPublish, setFestiveAutoPublish] = useState(false)
 
   const [queuedPosts, setQueuedPosts] = useState([])
-  const [festivePosts, setFestivePosts] = useState([])
   const [editingPostId, setEditingPostId] = useState(null)
   const [editingCaption, setEditingCaption] = useState('')
   const [savingCaption, setSavingCaption] = useState(false)
@@ -51,10 +50,9 @@ export default function ClientSocialSchedule() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [scheduleRes, queueRes, festiveRes] = await Promise.all([
+      const [scheduleRes, queueRes] = await Promise.all([
         api.getSocialSchedule(token, clientId),
         api.listSocialPostQueue(token, clientId),
-        api.getFestivePosts(token, clientId)
       ])
       
       if (scheduleRes && Object.keys(scheduleRes).length > 0) {
@@ -78,7 +76,6 @@ export default function ClientSocialSchedule() {
         festiveFacebookAutoPublish: !!scheduleRes.festive_facebook_auto_publish,
       })
       setQueuedPosts(queueRes.posts || [])
-      setFestivePosts(festiveRes.posts || [])
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -611,7 +608,7 @@ export default function ClientSocialSchedule() {
                 
                 <div style={{ height: '280px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                   {post.image_url ? (
-                    <img src={assetUrl(post.image_url)} alt="Draft" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={assetUrl(post.image_url)} alt="Draft" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     <i className="fa-solid fa-image" style={{ fontSize: '32px', color: '#cbd5e1' }} />
                   )}

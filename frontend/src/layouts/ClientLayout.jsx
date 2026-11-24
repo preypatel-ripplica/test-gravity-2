@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
+import { Link, Outlet, useNavigate, useParams } from 'react-router-dom'
 import api from '../api'
 import BrandLockup from '../components/BrandLockup'
+import ConnectionExpiryBanner from '../components/ConnectionExpiryBanner'
 import { NavItem, NavSection } from '../components/NavSection'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -9,7 +10,7 @@ import { useUI } from '../context/UIContext'
 export default function ClientLayout() {
   const { clientId, channelId: activeChannelId } = useParams()
   const { token, user, logout, patchUser } = useAuth()
-  const { toast, confirm } = useUI()
+  const { toast } = useUI()
   const navigate = useNavigate()
 
   const [channels, setChannels] = useState([])
@@ -73,57 +74,6 @@ export default function ClientLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on client change
   }, [token, clientId])
 
-  async function handleDeleteClient() {
-    const label = client?.name || clientId
-    const isConfirmed = await confirm({
-      title: 'Delete Client Account',
-      message: `Are you sure you want to delete client "${label}"? They will be removed from Active and Inactive lists. Their data is kept in the database and is not permanently erased.`,
-      isDanger: true,
-    })
-    if (!isConfirmed) return
-
-    try {
-      await api.deleteClient(token, clientId)
-      const clientData = await api.listClients(token)
-      patchUser({
-        clients: clientData.clients,
-        channels: [],
-        has_clients: clientData.clients.length > 0,
-        active_client_id: clientData.active_client_id,
-        active_channel_id: clientData.active_channel_id,
-      })
-      toast(`Client "${label}" deleted.`, 'success')
-      navigate('/clients', { replace: true })
-    } catch (err) {
-      toast(err.message, 'error')
-    }
-  }
-
-  async function handleDisconnectChannel(channelId) {
-    const channel = channels.find((c) => c.id === channelId)
-    const label = channel?.title || channelId
-    const isConfirmed = await confirm({
-      title: 'Unlink YouTube Channel',
-      message: `Are you sure you want to remove and unlink YouTube channel "${label}" from this client? Stats will be preserved in your database.`,
-      isDanger: true,
-    })
-    if (!isConfirmed) return
-
-    try {
-      const data = await api.deleteChannel(token, channelId, clientId)
-      const list = data.channels || []
-      setChannels(list)
-      patchUser({
-        channels: list.map((c) => ({ id: c.id, title: c.title })),
-        active_channel_id: data.active_channel_id,
-      })
-      toast(`YouTube channel "${label}" unlinked.`, 'success')
-      navigate(`/clients/${clientId}/videos`, { replace: true })
-    } catch (err) {
-      toast(err.message, 'error')
-    }
-  }
-
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
@@ -177,7 +127,7 @@ export default function ClientLayout() {
           {!inChannel && (
             <NavSection title="Client">
               <NavItem to={base} end icon={<i className="fa-solid fa-chart-pie" />}>
-                Overview
+                Analytics
               </NavItem>
               <NavItem to={`${base}/library`} icon={<i className="fa-solid fa-film" />}>
                 Videos
@@ -225,55 +175,6 @@ export default function ClientLayout() {
             </NavSection>
           )}
 
-          <NavSection title="Channels">
-            {loadingChannels && (
-              <div className="nav-empty text-muted">Loading…</div>
-            )}
-            {!loadingChannels && channels.length === 0 && (
-              <div className="nav-empty text-muted">No channels linked</div>
-            )}
-            {channels.map((ch) => (
-              <NavLink
-                key={ch.id}
-                to={`${base}/channels/${ch.id}`}
-                className={({ isActive }) =>
-                  `menu-item menu-item-channel ${isActive ? 'active' : ''}`
-                }
-              >
-                <i className="fa-brands fa-youtube" />
-                <span className="menu-item-label">{ch.title || ch.id}</span>
-              </NavLink>
-            ))}
-          </NavSection>
-
-          <NavSection title="Actions">
-            <NavItem
-              to={`/clients/${clientId}/profile/connections/youtube`}
-              icon={<i className="fa-solid fa-link" />}
-            >
-              Connections
-            </NavItem>
-            {inChannel && (
-              <button
-                type="button"
-                className="menu-item menu-item-btn danger-text"
-                onClick={() => handleDisconnectChannel(activeChannelId)}
-              >
-                <i className="fa-solid fa-link-slash" />
-                <span>Unlink Channel</span>
-              </button>
-            )}
-            {!inChannel && (
-              <button
-                type="button"
-                className="menu-item menu-item-btn danger-text"
-                onClick={handleDeleteClient}
-              >
-                <i className="fa-solid fa-trash-can" />
-                <span>Delete Client</span>
-              </button>
-            )}
-          </NavSection>
         </nav>
 
         <div className="sidebar-footer">
@@ -284,6 +185,7 @@ export default function ClientLayout() {
       </aside>
 
       <main className="main-content">
+        <ConnectionExpiryBanner clientId={clientId} />
         <Outlet
           context={{
             client,
@@ -291,7 +193,6 @@ export default function ClientLayout() {
             channels,
             loadingChannels,
             loadChannels,
-            handleDisconnectChannel,
           }}
         />
       </main>

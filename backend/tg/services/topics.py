@@ -94,7 +94,7 @@ def _copy_trend_fields(target: dict, source: dict | None) -> dict:
     if not isinstance(source, dict):
         return target
     for field in SCORE_FIELDS:
-        if field in source and source[field] is not None:
+        if field in source and source[field] is not None and target.get(field) is None:
             target[field] = source[field]
     return target
 
@@ -129,6 +129,34 @@ def apply_recommendation_scores(
         row = dict(topic)
         scores = recommendation_score_for(row)
         row.update(scores)
+        row["recommendation_saved_at"] = stamp
+        updated.append(row)
+    updated.sort(
+        key=lambda t: (
+            -(float(t.get("recommendation_score") or 0)),
+            (t.get("text") or "").lower(),
+        )
+    )
+    return updated
+
+
+def apply_stored_recommendation_scores(
+    topics: list[dict],
+    *,
+    saved_at: str | None = None,
+) -> list[dict]:
+    """Keep the score already on each topic. Do not add priority or trend points."""
+    stamp = saved_at or datetime.now(timezone.utc).isoformat()
+    updated: list[dict] = []
+    for topic in topics:
+        row = dict(topic)
+        raw = row.get("recommendation_score")
+        try:
+            score = float(raw) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            score = 0.0
+        row["recommendation_score"] = max(0.0, min(100.0, round(score, 1)))
+        row["trend_points"] = 0.0
         row["recommendation_saved_at"] = stamp
         updated.append(row)
     updated.sort(
@@ -467,6 +495,9 @@ def generate_auto_topics(
     existing_auto_topics: list | None = None,
     user_prompt: str | None = None,
     use_openai: bool = True,
+    niche: str | None = None,
+    topic_systems: dict | None = None,
+    include_recommendation_score: bool = False,
 ) -> tuple[list[dict], dict]:
     """
     OpenAI topic pipeline:
@@ -532,6 +563,9 @@ def generate_auto_topics(
         "manual_topics": normalize_topics(manual_topics or []),
         "existing_auto_topics": normalize_topics(existing_auto_topics or []),
         "user_prompt": (user_prompt or "").strip() or None,
+        "niche": (niche or "").strip() or None,
+        "topic_systems": topic_systems or None,
+        "include_recommendation_score": bool(include_recommendation_score),
     }
 
     if not use_openai:

@@ -72,6 +72,63 @@ function postKindLabel(kind) {
   return POST_KINDS.find((item) => item.id === kind)?.label || 'Update'
 }
 
+const GBP_SUMMARY_MAX = 500
+
+function DraftSummaryEditor({
+  draft,
+  editing,
+  editingText,
+  saving,
+  onEdit,
+  onChange,
+  onSave,
+  onCancel,
+}) {
+  const saved = draft.summary || ''
+  const count = editing ? editingText.length : saved.length
+  const over = count > GBP_SUMMARY_MAX
+  return (
+    <>
+      {editing ? (
+        <>
+          <textarea
+            className="gbp-reply"
+            rows={4}
+            value={editingText}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <div className={`gbp-char-count${over ? ' is-over' : ''}`}>
+            {count}/{GBP_SUMMARY_MAX}
+          </div>
+          {over && (
+            <p className="gbp-over-limit-note">
+              This is over 500 characters. You can still save it. Google will receive a compressed version if you publish.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="gbp-draft-summary">{saved || 'No text yet.'}</p>
+      )}
+      <div className="gbp-draft-edit-actions">
+        {editing ? (
+          <>
+            <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={saving}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>
+            Edit
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function ClientGbpPosts() {
   const { client, clientId, connected, activeLocation, loadingBundle } = useOutletContext()
   const { token } = useAuth()
@@ -80,7 +137,9 @@ export default function ClientGbpPosts() {
   const [drafts, setDrafts] = useState([])
   const [queue, setQueue] = useState([])
   const [draggedIdx, setDraggedIdx] = useState(null)
-  const [draftText, setDraftText] = useState({})
+  const [editingDraftId, setEditingDraftId] = useState(null)
+  const [editingText, setEditingText] = useState('')
+  const [savingDraftId, setSavingDraftId] = useState(null)
   const [schedule, setSchedule] = useState(EMPTY_SCHEDULE)
   const [form, setForm] = useState(EMPTY)
   const [file, setFile] = useState(null)
@@ -197,10 +256,46 @@ export default function ClientGbpPosts() {
     }
   }
 
+  function currentDraftSummary(draft) {
+    if (editingDraftId === draft.id) return editingText
+    return draft.summary || ''
+  }
+
+  function startEditDraft(draft) {
+    setEditingDraftId(draft.id)
+    setEditingText(draft.summary || '')
+  }
+
+  function cancelEditDraft() {
+    setEditingDraftId(null)
+    setEditingText('')
+  }
+
+  async function saveDraft(draft) {
+    setSavingDraftId(draft.id)
+    try {
+      const result = await api.gbpSavePostDraft(token, clientId, draft.id, editingText)
+      const saved = result.draft || { ...draft, summary: editingText }
+      setDrafts((prev) => prev.map((row) => (row.id === draft.id ? saved : row)))
+      setEditingDraftId(null)
+      setEditingText('')
+      if (result.over_limit) {
+        toast('Draft saved. It is over 500 characters; Google will receive a compressed version if you publish.', 'error')
+      } else {
+        toast('Draft saved.', 'success')
+      }
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setSavingDraftId(null)
+    }
+  }
+
   async function addToQueue(draft) {
     try {
-      await api.gbpQueuePostDraft(token, clientId, draft.id, draftText[draft.id] ?? draft.summary)
+      await api.gbpQueuePostDraft(token, clientId, draft.id, currentDraftSummary(draft))
       toast('Added to the publishing queue.', 'success')
+      cancelEditDraft()
       await load()
     } catch (err) {
       toast(err.message, 'error')
@@ -243,8 +338,9 @@ export default function ClientGbpPosts() {
 
   async function publishDraft(draft) {
     try {
-      await api.gbpPublishPostDraft(token, clientId, draft.id, draftText[draft.id] ?? draft.summary)
+      await api.gbpPublishPostDraft(token, clientId, draft.id, currentDraftSummary(draft))
       toast('Draft published to Google.', 'success')
+      cancelEditDraft()
       await load()
     } catch (err) {
       toast(err.message, 'error')
@@ -530,11 +626,15 @@ export default function ClientGbpPosts() {
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => retryImage(draft)}>Retry photo</button>
                   </p>
                 )}
-                <textarea
-                  className="gbp-reply"
-                  rows={4}
-                  value={draftText[draft.id] ?? draft.summary ?? ''}
-                  onChange={(event) => setDraftText((prev) => ({ ...prev, [draft.id]: event.target.value }))}
+                <DraftSummaryEditor
+                  draft={draft}
+                  editing={editingDraftId === draft.id}
+                  editingText={editingText}
+                  saving={savingDraftId === draft.id}
+                  onEdit={() => startEditDraft(draft)}
+                  onChange={setEditingText}
+                  onSave={() => saveDraft(draft)}
+                  onCancel={cancelEditDraft}
                 />
                 <div className="gbp-post-actions">
                   <button type="button" className="btn btn-primary btn-sm" onClick={() => addToQueue(draft)}>Add to queue</button>

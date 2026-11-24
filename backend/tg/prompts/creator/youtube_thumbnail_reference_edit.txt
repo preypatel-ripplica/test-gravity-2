@@ -1,0 +1,23 @@
+Use the reference image ONLY as a style template.
+{layout_keep}
+
+BRANDING IS FROZEN. Reproduce these exactly as they appear in the reference — same glyphs, same Latin spelling, same position, same size, same colours:
+  • the brand logo / emblem — copy it precisely, do not redraw, restyle or simplify it
+  • the brand name — if it reads a proper name it must still read that same name
+  • the creator's name card
+  • any website or handle
+These are proper nouns and brand assets. They are NEVER translated, NEVER transliterated into {language} script, and NEVER re-spelled. They stay in the Latin alphabet exactly as given.
+
+REPLACE everything else. None of the reference's wording may survive — it belongs to a different video.
+Specifically remove: {forbid}.
+
+The new video is about: {topic}.
+Replace the illustration with a clear picture of that subject. No clinic, doctor, patient, or clinical-fact imagery.
+
+ALL new text must be in {language}.
+Headline, exactly and only: "{headline}"
+Sub-banner, exactly: "{sub_banner}"
+Do not paraphrase, translate, shorten or fix any of the text supplied above.
+Do not include any bullet points, icon pills, or feature callouts. If the reference has them, remove those elements and leave clean background. Do not invent replacement text for them.
+
+Composition: {composition}. {safe_zone}

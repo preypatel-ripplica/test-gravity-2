@@ -12,16 +12,18 @@ from urllib.parse import urlencode
 
 import httpx
 import holidays
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, RedirectResponse
 
 from backend.tg import schemas
 from backend.tg.auth import get_current_user
 from backend.tg.config import settings
+from backend.tg.professions import profession_for
 from backend.tg.openai_log import log_openai_error
 from backend.tg.database import (
     delete_social_post,
     fetch_client_bundle,
+    fetch_client_doc,
     fetch_social_post,
     fetch_social_posts_for_source,
     fetch_scheduled_posts,
@@ -48,7 +50,7 @@ from backend.tg.services.gcs_storage import upload_bytes, delete_file
 from backend.tg.services.youtube_api import IG_CAPTION_MAX, fit_social_caption
 
 router = APIRouter(tags=["social"])
-PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts" / "doctor"
 SOCIAL_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "social_assets"
 
 
@@ -69,6 +71,19 @@ def _public_social_image_url(image_url_path: str, *, base_url: str = "") -> str:
     if not path.startswith("/"):
         path = "/" + path
     return f"{base}/api{path}" if base else path
+
+
+def _publish_gbp_standard(client_id: str, caption: str, image_url: str) -> dict:
+    from backend.tg.services.gbp_api import GbpApiError
+    from backend.tg.services.gbp_posts import publish_standard_local_post
+
+    try:
+        return publish_standard_local_post(client_id, caption, image_url)
+    except GbpApiError as exc:
+        status_code = exc.status_code if 400 <= getattr(exc, "status_code", 502) < 500 else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _queue_should_publish(schedule: dict, today: datetime) -> bool:
@@ -108,9 +123,26 @@ def _festival_origin_for_topic(topic_id: str | None, incoming: str | None = None
     return ORIGIN_CRON_FESTIVAL
 
 
-def _read_prompt(name: str) -> str:
+def _client_brief_profile(client: dict) -> tuple[str, str, bool]:
+    """Name + specialty/niche for static briefs. Creator clients store niche, not specialty."""
+    name = (client.get("doctor_name") or client.get("name") or "").strip()
+    specialty = (client.get("specialty") or "").strip()
+    niche = (client.get("niche") or "").strip()
+    creator = (client.get("profession") or "").strip().lower() == "creator"
+    if not specialty:
+        specialty = niche
+    return name, specialty, creator
+
+
+def _read_prompt(name: str, prompts_dir=None) -> str:
+    if prompts_dir:
+        base = Path(prompts_dir)
+    else:
+        from backend.tg.professions.prompt_context import current_prompts_dir
+
+        base = current_prompts_dir()
     try:
-        return (PROMPTS_DIR / name).read_text(encoding="utf-8").strip()
+        return (Path(base) / name).read_text(encoding="utf-8").strip()
     except OSError:
         return ""
 
@@ -223,22 +255,26 @@ async def _build_brief(
     custom_prompt: str | None = None,
     festive: bool = False,
 ) -> dict:
-    name = client.get("doctor_name") or client.get("name") or ""
-    specialty = client.get("specialty") or ""
+    name, specialty, creator = _client_brief_profile(client)
     
     # Fallback default structure if AI fails
     brief = {
         "headline": topic_text[:46],
-        "subheadline": f"A quick {specialty} insight",
+        "subheadline": f"A quick {specialty} insight" if specialty else "A quick insight",
         "supporting_text": "A concise educational post.",
         "caption": "",
-        "cta": "Save this post and consult a professional.",
+        "cta": (
+            "Follow for the next one"
+            if creator
+            else "Save this post and consult a professional."
+        ),
     }
 
     if settings.OPENAI_API_KEY:
         prompt_file = "instagram_festive_brief.txt" if festive else "instagram_post_brief.txt"
         system_prompt = _read_prompt(prompt_file)
-        system_prompt += f"\nClient: {name}, Specialty: {specialty}\nTopic: {topic_text}"
+        profile_label = "Niche" if creator else "Specialty"
+        system_prompt += f"\nClient: {name}, {profile_label}: {specialty}\nTopic: {topic_text}"
         if script:
             system_prompt += f"\nScript/Source Content: {script}"
         
@@ -403,6 +439,11 @@ async def _refresh_instagram_token_if_needed(client_id: str, connection: dict) -
     return save_instagram_connection(client_id, refreshed)
 
 
+def _instagram_auth_failure(response) -> bool:
+    text = response.text or ""
+    return "OAuthException" in text or '"code":190' in text or '"code": 190' in text
+
+
 async def _fetch_instagram_media(client_id: str, limit: int = 12, after: str = None) -> tuple[list[dict], list[dict], str | None]:
     connection = await _refresh_instagram_token_if_needed(
         client_id,
@@ -503,11 +544,12 @@ def _image_prompt(*, client: dict, brief: dict, references: list[dict], custom_p
         f"- {ref.get('id')}: {ref.get('media_type')} {ref.get('permalink') or ''}".strip()
         for ref in references
     )
+    name, specialty, creator = _client_brief_profile(client)
     parts = [
         _read_prompt("instagram_image_generation.txt"),
         "Client profile:",
-        f"Name: {client.get('name') or 'Client'}",
-        f"Specialty: {client.get('specialty') or ''}",
+        f"Name: {name or client.get('name') or 'Client'}",
+        f"{'Niche' if creator else 'Specialty'}: {specialty}",
         f"Designation: {client.get('designation') or ''}",
         "Approved post brief:",
         f"Headline: {brief.get('headline')}",
@@ -553,7 +595,7 @@ async def _generate_social_image(
 
     data = {
         "model": settings.OPENAI_IMAGE_MODEL,
-        "prompt": _image_prompt(client=client, brief=brief, references=references, custom_prompt=custom_prompt),
+        "prompt": profession_for(client.get("id"), None).static_image_prompt(client=client, brief=brief, references=references, custom_prompt=custom_prompt),
         "size": "1024x1024",
         "quality": "medium",
         "n": "1",
@@ -1081,7 +1123,8 @@ def social_post_sources_get(
         scripts_generated_at=suggestions.get("scripts_generated_at"),
         scripted_items=[schemas.SocialScriptedItem(**item) for item in _scripted_items(client)],
         recommended_keywords=[
-            schemas.SocialKeywordItem(**item) for item in _recommended_keywords(client)
+            schemas.SocialKeywordItem(**item)
+            for item in profession_for(body.client_id, current_user["username"]).pick_static_keywords(client)
         ],
     )
 
@@ -1092,15 +1135,25 @@ def social_keywords_pick(
     current_user: dict = Depends(get_current_user),
 ):
     client = _require_client(current_user["username"], body.client_id)
-    keywords = _recommended_keywords(client)
-    if not keywords:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No recommendation keywords found with score >= 50.",
-        )
+    profession = profession_for(body.client_id, current_user["username"])
+    keywords = profession.pick_static_keywords(client)
+    if getattr(profession, "key", "") == "creator":
+        if not keywords:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No keywords yet. Refresh topics in Settings first.",
+            )
+        selected = profession.sample_static_keywords(keywords, body.count)
+    else:
+        if not keywords:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No recommendation keywords found with score >= 50.",
+            )
+        selected = _weighted_sample(keywords, body.count)
     return schemas.SocialKeywordPickResponse(
         selected_keywords=[
-            schemas.SocialKeywordItem(**item) for item in _weighted_sample(keywords, body.count)
+            schemas.SocialKeywordItem(**item) for item in selected
         ]
     )
 
@@ -1114,8 +1167,8 @@ def social_posts_source_get(
     posts = _posts_for_source(body)
     current = _current_version(posts)
     return schemas.SocialPostVersionsResponse(
-        posts=[schemas.SocialPostDraft(**post) for post in posts],
-        current_post=schemas.SocialPostDraft(**current) if current else None,
+        posts=[_coerce_social_draft(post) for post in posts],
+        current_post=_coerce_social_draft(current) if current else None,
     )
 
 
@@ -1140,8 +1193,8 @@ def social_post_select(
     posts = _posts_for_source(source_body)
     current = _current_version(posts)
     return schemas.SocialPostVersionsResponse(
-        posts=[schemas.SocialPostDraft(**post) for post in posts],
-        current_post=schemas.SocialPostDraft(**current) if current else None,
+        posts=[_coerce_social_draft(post) for post in posts],
+        current_post=_coerce_social_draft(current) if current else None,
     )
 
 
@@ -1166,8 +1219,8 @@ def social_post_delete(
     posts = _posts_for_source(source_body)
     current = _current_version(posts)
     return schemas.SocialPostVersionsResponse(
-        posts=[schemas.SocialPostDraft(**row) for row in posts],
-        current_post=schemas.SocialPostDraft(**current) if current else None,
+        posts=[_coerce_social_draft(row) for row in posts],
+        current_post=_coerce_social_draft(current) if current else None,
     )
 
 
@@ -1202,7 +1255,7 @@ async def social_post_draft_generate(
     elif source_type in {"smart_pick", "manual_pick"}:
         if not body.topic_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select a keyword first")
-        match = next((item for item in _recommended_keywords(client) if item["topic_id"] == body.topic_id), None)
+        match = next((item for item in profession_for(body.client_id, current_user["username"]).pick_static_keywords(client) if item["topic_id"] == body.topic_id), None)
         if not match:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Keyword not found")
         topic_id = match.get("topic_id")
@@ -1254,7 +1307,7 @@ async def social_post_draft_generate(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No suitable static Instagram posts found for style references.",
         )
-    brief = await _build_brief(
+    brief = await profession_for(body.client_id, current_user["username"]).build_static_brief(
         client=client, 
         topic_text=topic_text or "Untitled", 
         script=script, 
@@ -1364,7 +1417,7 @@ async def social_post_publish(
     
     if not body.targets:
         body.targets = ["instagram"]
-    if len(body.caption or "") > IG_CAPTION_MAX:
+    if "instagram" in body.targets and len(body.caption or "") > IG_CAPTION_MAX:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Caption must be {IG_CAPTION_MAX} characters or fewer for Instagram.",
@@ -1376,6 +1429,12 @@ async def social_post_publish(
         conn = get_facebook_connection(body.client_id)
         if not conn or not conn.get("access_token") or not conn.get("selected_page_id"):
             raise HTTPException(status_code=400, detail="Facebook Page is not connected.")
+    if "gbp" in body.targets:
+        from backend.tg.database import get_gbp_connection
+
+        gbp_conn = get_gbp_connection(body.client_id)
+        if not gbp_conn or gbp_conn.get("status") == "expired":
+            raise HTTPException(status_code=400, detail="Google Business Profile is not connected.")
     
     post = fetch_social_post(body.post_id)
     if not post or post.get("client_id") != body.client_id:
@@ -1385,10 +1444,6 @@ async def social_post_publish(
     if not image_url_path:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Post does not have an image yet")
         
-    conn = get_instagram_connection(body.client_id)
-    access_token = conn["access_token"]
-    ig_user_id = conn["instagram_user_id"]
-    
     base_url = settings.BASE_URL.rstrip("/")
     full_image_url = _public_social_image_url(image_url_path, base_url=base_url)
     if not image_url_path.startswith("http"):
@@ -1412,9 +1467,15 @@ async def social_post_publish(
         fb_post_id = None
         ig_permalink = ""
         fb_permalink = ""
+        gbp_post_name = None
+        gbp_search_url = None
+        gbp_summary = None
         
         if "instagram" in body.targets:
-            conn = get_instagram_connection(body.client_id)
+            conn = await _refresh_instagram_token_if_needed(
+                body.client_id,
+                _require_instagram_connection(body.client_id),
+            )
             access_token = conn["access_token"]
             ig_user_id = conn["instagram_user_id"]
             
@@ -1427,6 +1488,11 @@ async def social_post_publish(
                 },
             )
             if not media_resp.is_success:
+                if _instagram_auth_failure(media_resp):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Instagram token expired. Reconnect Instagram from Connections.",
+                    )
                 raise HTTPException(status_code=502, detail=f"Instagram media upload failed: {media_resp.text[:500]}")
                 
             creation_id = media_resp.json().get("id")
@@ -1491,6 +1557,12 @@ async def social_post_publish(
                         fb_permalink = f"https://www.facebook.com/{fb_post_id}"
                     else:
                         fb_permalink = f"https://www.facebook.com/{page_id}_{fb_post_id}"
+
+        if "gbp" in body.targets:
+            gbp_result = _publish_gbp_standard(body.client_id, body.caption, full_image_url)
+            gbp_post_name = gbp_result.get("gbp_post_name")
+            gbp_search_url = gbp_result.get("gbp_search_url")
+            gbp_summary = gbp_result.get("summary")
     
     post["publish_status"] = "published"
     post["publish_targets"] = body.targets
@@ -1500,6 +1572,13 @@ async def social_post_publish(
     if fb_post_id:
         post["facebook_post_id"] = fb_post_id
         post["facebook_permalink"] = fb_permalink or post.get("facebook_permalink")
+    if "gbp" in body.targets:
+        if gbp_post_name:
+            post["gbp_post_name"] = gbp_post_name
+        if gbp_search_url:
+            post["gbp_search_url"] = gbp_search_url
+        if gbp_summary:
+            post["gbp_summary"] = gbp_summary
     save_social_post(body.post_id, post)
 
     from backend.tg.routes.tracker import sync_social_publish_to_tracker
@@ -1523,6 +1602,9 @@ async def social_post_publish(
         "facebook_post_id": fb_post_id,
         "instagram_permalink": ig_permalink or None,
         "facebook_permalink": fb_permalink or None,
+        "gbp_post_name": gbp_post_name,
+        "gbp_search_url": gbp_search_url,
+        "gbp_summary": gbp_summary,
     }
 
 @router.post("/social.schedule.save", response_model=schemas.SocialScheduleResponse)
@@ -1810,7 +1892,7 @@ async def cron_social_generate_festivals(request: Request):
             if not auto_references:
                 continue
                 
-            brief = await _build_brief(
+            brief = await profession_for(cid, None).build_static_brief(
                 client=client,
                 topic_text=f"{festival_name} Festival",
                 custom_prompt=f"Create a very engaging and celebratory post for {festival_name}.",
@@ -1884,10 +1966,14 @@ async def _publish_post_internal(request: Request, cid: str, target_post: dict) 
             ig_permalink = ""
             fb_post_id = None
             fb_permalink = ""
+            gbp_post_name = None
+            gbp_search_url = None
+            gbp_summary = None
 
             if "instagram" in targets:
                 conn = get_instagram_connection(cid)
                 if conn and conn.get("access_token"):
+                    conn = await _refresh_instagram_token_if_needed(cid, conn)
                     access_token = conn["access_token"]
                     ig_user_id = conn["instagram_user_id"]
                     
@@ -1960,6 +2046,20 @@ async def _publish_post_internal(request: Request, cid: str, target_post: dict) 
                                     fb_permalink = f"https://www.facebook.com/{fb_post_id}"
                                 else:
                                     fb_permalink = f"https://www.facebook.com/{page_id}_{fb_post_id}"
+
+            if "gbp" in targets:
+                try:
+                    gbp_result = _publish_gbp_standard(
+                        cid,
+                        target_post.get("brief", {}).get("caption", "") or target_post.get("gbp_summary") or "",
+                        full_image_url,
+                    )
+                    success_count += 1
+                    gbp_post_name = gbp_result.get("gbp_post_name")
+                    gbp_search_url = gbp_result.get("gbp_search_url")
+                    gbp_summary = gbp_result.get("summary")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Failed to publish GBP internal {cid}: {exc}", flush=True)
             
             if success_count > 0:
                 target_post["publish_status"] = "published"
@@ -1969,6 +2069,13 @@ async def _publish_post_internal(request: Request, cid: str, target_post: dict) 
                 if fb_post_id:
                     target_post["facebook_post_id"] = fb_post_id
                     target_post["facebook_permalink"] = fb_permalink or target_post.get("facebook_permalink")
+                if "gbp" in targets:
+                    if gbp_post_name:
+                        target_post["gbp_post_name"] = gbp_post_name
+                    if gbp_search_url:
+                        target_post["gbp_search_url"] = gbp_search_url
+                    if gbp_summary:
+                        target_post["gbp_summary"] = gbp_summary
                 save_social_post(target_post["id"], target_post)
                 from backend.tg.routes.tracker import sync_social_publish_to_tracker
                 sync_social_publish_to_tracker(cid, target_post)
@@ -2069,3 +2176,111 @@ async def cron_social_publish_scheduled(request: Request, force: bool = False):
                 save_social_schedule(cid, schedule)
 
     return {"status": "success", "published_count": published_count}
+
+
+@router.post("/client.instagram-analytics")
+async def client_instagram_analytics(
+    body: dict = Body(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Same Instagram insights payload as Plug, read from this client's project_secrets."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.tg.plug.instagram_analytics import (
+        InstagramTokenExpired,
+        clamp_analytics_window,
+        fetch_plug_analytics,
+    )
+
+    body = body or {}
+    client_id = body.get("client_id")
+    if not client_id or not fetch_client_doc(client_id, username=current_user["username"]):
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    now = datetime.now(timezone.utc)
+    try:
+        if body.get("since") and body.get("until"):
+            since_dt = datetime.strptime(body["since"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            until_dt = datetime.strptime(body["until"], "%Y-%m-%d").replace(
+                tzinfo=timezone.utc, hour=23, minute=59, second=59
+            )
+        else:
+            since_dt = now - timedelta(days=7)
+            until_dt = now
+        since_dt, until_dt = clamp_analytics_window(since_dt, until_dt)
+    except (ValueError, TypeError):
+        since_dt = now - timedelta(days=7)
+        until_dt = now
+
+    conn = get_instagram_connection(client_id)
+    connected = bool(conn and conn.get("access_token") and conn.get("instagram_user_id"))
+    token_expired = False
+    metrics = None
+    time_series = None
+    views_by_follow_type = None
+    views_by_content_type = None
+    interactions_by_content_type = None
+    reels = []
+    reel_summary = None
+    if connected:
+        try:
+            conn = await _refresh_instagram_token_if_needed(client_id, conn)
+            payload = await fetch_plug_analytics(
+                ig_id=conn["instagram_user_id"],
+                token=conn["access_token"],
+                since_dt=since_dt,
+                until_dt=until_dt,
+            )
+            metrics = payload.get("metrics")
+            time_series = payload.get("time_series")
+            views_by_follow_type = payload.get("views_by_follow_type")
+            views_by_content_type = payload.get("views_by_content_type")
+            interactions_by_content_type = payload.get("interactions_by_content_type")
+            reels = payload.get("reels") or []
+            reel_summary = payload.get("reel_summary")
+        except InstagramTokenExpired:
+            token_expired = True
+        except HTTPException as exc:
+            detail = str(exc.detail or "")
+            if "expired" in detail.lower() or "reconnect" in detail.lower():
+                token_expired = True
+            else:
+                raise
+
+    return {
+        "instagram_connected": connected and not token_expired,
+        "instagram": (conn or {}).get("instagram_username") or "",
+        "token_expired": token_expired,
+        "since": since_dt.strftime("%Y-%m-%d"),
+        "until": until_dt.strftime("%Y-%m-%d"),
+        "message": (
+            "Instagram token expired. Reconnect Instagram from Connections."
+            if token_expired
+            else (
+                "Instagram insights will show here after the connection is live."
+                if connected
+                else "Connect Instagram to unlock analytics."
+            )
+        ),
+        "metrics": metrics,
+        "time_series": time_series,
+        "views_by_follow_type": views_by_follow_type,
+        "views_by_content_type": views_by_content_type,
+        "interactions_by_content_type": interactions_by_content_type,
+        "reels": reels,
+        "reel_summary": reel_summary,
+    }
+
+
+@router.post("/client.connection-health")
+def client_connection_health(
+    body: dict = Body(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    from backend.tg.services.connection_health import connection_health
+
+    body = body or {}
+    client_id = body.get("client_id")
+    if not client_id or not fetch_client_doc(client_id, username=current_user["username"]):
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"expired": connection_health(client_id)}

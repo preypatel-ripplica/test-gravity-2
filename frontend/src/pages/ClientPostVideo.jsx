@@ -50,7 +50,9 @@ function mapPlanItem(i) {
 }
 
 export default function ClientPostVideo() {
-  const { clientId, channels = [], activeChannelId } = useOutletContext()
+  const { clientId, channels = [], activeChannelId, client } = useOutletContext()
+  const mixSaved = Boolean(client?.posting_mix?.saved)
+  const include = client?.posting_mix?.include || {}
   const { token } = useAuth()
   const { toast } = useUI()
   const [searchParams] = useSearchParams()
@@ -611,18 +613,24 @@ export default function ClientPostVideo() {
                       Where do you want to post?
                     </p>
                     <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', alignItems: 'center', flexWrap: 'nowrap' }}>
+                      {(!mixSaved || include.youtube) && (
                       <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px 18px', background: 'var(--bg-light)', border: '1px solid var(--border-dark, #000)', borderRadius: '12px' }}>
                         <input type="checkbox" checked={postToYT} onChange={(e) => setPostToYT(e.target.checked)} />
                         <i className="fa-brands fa-youtube" style={{ color: '#ff0000', fontSize: '1.8em' }} />
                       </label>
+                      )}
+                      {(!mixSaved || include.instagram) && (
                       <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px 18px', background: 'var(--bg-light)', border: '1px solid var(--border-dark, #000)', borderRadius: '12px' }}>
                         <input type="checkbox" checked={postToIG} onChange={(e) => setPostToIG(e.target.checked)} />
                         <i className="fa-brands fa-instagram" style={{ color: '#E1306C', fontSize: '1.8em' }} />
                       </label>
+                      )}
+                      {(!mixSaved || include.facebook) && (
                       <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px 18px', background: 'var(--bg-light)', border: '1px solid var(--border-dark, #000)', borderRadius: '12px' }}>
                         <input type="checkbox" checked={postToFB} onChange={(e) => setPostToFB(e.target.checked)} />
                         <i className="fa-brands fa-facebook" style={{ color: '#1877F2', fontSize: '1.8em' }} />
                       </label>
+                      )}
                     </div>
                   </div>
 

@@ -70,7 +70,7 @@ TRACKER_DELAY_PROOF_REQUIRED = _env_bool("TRACKER_DELAY_PROOF_REQUIRED", False)
 FRONTEND_URL = _env("FRONTEND_URL", "http://localhost:5173")
 CORS_ORIGINS = _env(
     "CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,http://localhost:5175,https://plugai.ripplica.com",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://localhost:5175,https://plugai.ripplica.com",
 )
 
 

@@ -22,14 +22,15 @@ export function UIProvider({ children }) {
   })
 
   // Toasts
-  const toast = useCallback((message, type = 'success') => {
-    const id = Date.now() + Math.random().toString(36).substr(2, 5)
-    setToasts((prev) => [...prev, { id, message, type }])
-  }, [])
-
   const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  const toast = useCallback((message, type = 'success') => {
+    const id = Date.now() + Math.random().toString(36).substr(2, 5)
+    setToasts((prev) => [...prev, { id, message, type }])
+    window.setTimeout(() => removeToast(id), type === 'error' ? 8000 : 5000)
+  }, [removeToast])
 
   // Confirm Modal
   const confirm = useCallback(({ title, message, onConfirm, isDanger = false }) => {

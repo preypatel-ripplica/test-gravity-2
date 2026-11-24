@@ -4,14 +4,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.tg.prompts.monthly_report import (
-    NARRATIVE_SCHEMA,
-    POLISH_SCHEMA,
-    build_generate_messages,
-    build_polish_messages,
-    build_refine_messages,
-)
+import importlib.util
+
 from backend.tg.services.openai_content_plan import _call_openai
+
+_MONTHLY_MODULES: dict[str, object] = {}
+
+
+def _monthly_prompts():
+    """Load monthly_report.py from the active profession folder. Default is doctor."""
+    from backend.tg.professions.prompt_context import current_prompts_dir
+
+    path = current_prompts_dir() / "monthly_report.py"
+    key = str(path)
+    cached = _MONTHLY_MODULES.get(key)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(f"profession_monthly_{abs(hash(key))}", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load monthly report prompts from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _MONTHLY_MODULES[key] = module
+    return module
 
 _NARRATIVE_KEYS = (
     "executive_summary",
@@ -32,10 +47,11 @@ def generate_report_narrative(
     client_name: str,
     metrics: dict[str, Any],
 ) -> dict[str, Any]:
-    messages = build_generate_messages(client_name=client_name, metrics=metrics)
+    prompts = _monthly_prompts()
+    messages = prompts.build_generate_messages(client_name=client_name, metrics=metrics)
     return _call_openai(
         messages=messages,
-        schema=NARRATIVE_SCHEMA,
+        schema=prompts.NARRATIVE_SCHEMA,
         schema_name="monthly_report_narrative",
         effort="medium",
         stage="monthly-report-generate",
@@ -50,7 +66,8 @@ def refine_report_narrative(
     prior_narrative: dict[str, Any] | None,
     refine_prompt: str,
 ) -> dict[str, Any]:
-    messages = build_refine_messages(
+    prompts = _monthly_prompts()
+    messages = prompts.build_refine_messages(
         client_name=client_name,
         metrics=metrics,
         prior_narrative=prior_narrative,
@@ -58,7 +75,7 @@ def refine_report_narrative(
     )
     return _call_openai(
         messages=messages,
-        schema=NARRATIVE_SCHEMA,
+        schema=prompts.NARRATIVE_SCHEMA,
         schema_name="monthly_report_narrative_refine",
         effort="medium",
         stage="monthly-report-refine",
@@ -73,14 +90,15 @@ def polish_report_narrative(
     base_narrative: dict[str, Any],
 ) -> dict[str, Any]:
     """Second AI pass: bias editor over draft + raw metrics."""
-    messages = build_polish_messages(
+    prompts = _monthly_prompts()
+    messages = prompts.build_polish_messages(
         client_name=client_name,
         metrics=metrics,
         base_narrative=base_narrative,
     )
     return _call_openai(
         messages=messages,
-        schema=POLISH_SCHEMA,
+        schema=prompts.POLISH_SCHEMA,
         schema_name="monthly_report_polish",
         effort="medium",
         stage="monthly-report-polish",

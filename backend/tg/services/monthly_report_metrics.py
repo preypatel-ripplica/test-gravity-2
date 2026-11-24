@@ -1136,6 +1136,18 @@ def fetch_and_compute_metrics(
 def metrics_summary_for_api(metrics: dict[str, Any] | None) -> dict[str, Any] | None:
     if not metrics:
         return None
+    if (metrics.get("platform") or "").strip().lower() == "instagram":
+        current = metrics.get("current") or {}
+        return {
+            "report_month": metrics.get("report_month"),
+            "previous_month": metrics.get("previous_month"),
+            "current": current,
+            "previous": metrics.get("previous") or {},
+            "mom": metrics.get("mom") or {},
+            "chart_count": len(metrics.get("charts") or []),
+            "reel_count": current.get("reel_count") or len(metrics.get("reels") or []),
+            "fetched_at": metrics.get("fetched_at"),
+        }
     combined = metrics.get("combined") or {}
     return {
         "report_month": metrics.get("report_month"),

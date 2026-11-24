@@ -430,7 +430,9 @@ def gbp_posts_list(body: schemas.GbpActiveLocationRequest, current_user: dict = 
 def gbp_posts_create(body: schemas.GbpPostWriteRequest, current_user: dict = Depends(get_current_user)):
     _require_client(body.client_id, current_user["username"])
     row = _location_or_400(body.client_id, body.location_id)
-    summary = (body.summary or "").strip()
+    from backend.tg.services.gbp_posts import ensure_gbp_summary_limit
+
+    summary = ensure_gbp_summary_limit((body.summary or "").strip())
     if not summary:
         raise HTTPException(status_code=400, detail="Post text is required.")
     try:
@@ -1276,6 +1278,20 @@ def gbp_posts_drafts_generate(body: schemas.GbpActiveLocationRequest, current_us
     except GbpApiError as exc:
         raise _google(exc) from exc
     return {"drafts": drafts}
+
+
+@router.post("/gbp.posts.drafts.save")
+def gbp_posts_drafts_save(body: schemas.GbpPostDraftRequest, current_user: dict = Depends(get_current_user)):
+    _require_client(body.client_id, current_user["username"])
+    draft = get_gbp_post_draft(body.draft_id)
+    if not draft or draft.get("client_id") != body.client_id:
+        raise HTTPException(status_code=404, detail="Post draft not found.")
+    text = (body.summary if body.summary is not None else draft.get("summary") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Post text is required.")
+    now = datetime.now(timezone.utc).isoformat()
+    saved = save_gbp_post_draft(body.draft_id, {**draft, "summary": text, "updated_at": now})
+    return {"draft": saved, "over_limit": len(text) > 500}
 
 
 @router.post("/gbp.posts.drafts.publish")

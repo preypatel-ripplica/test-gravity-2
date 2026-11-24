@@ -18,9 +18,10 @@ router = APIRouter(tags=["channel"])
 
 
 def _channel_to_info(channel: dict) -> schemas.YouTubeChannelInfo:
-    language = (channel.get("language") or "").strip().lower() or None
-    if language not in ("hinglish", "arabic", "russian"):
-        language = None
+    from backend.tg.posting_mix import language_key
+
+    raw = (channel.get("language") or "").strip().lower()
+    language = language_key(raw) if raw else None
     return schemas.YouTubeChannelInfo(
         id=channel["id"],
         title=channel.get("title") or channel["id"],
@@ -140,11 +141,29 @@ def channel_disconnect(
 _YT_LANGUAGES = ("hinglish", "arabic", "russian")
 
 
+def _assign_channel(channel_to_lang: dict[str, str], known_ids: set[str], channel_id: str, lang: str) -> None:
+    if channel_id not in known_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Channel '{channel_id}' is not linked to this client.",
+        )
+    previous = channel_to_lang.get(channel_id)
+    if previous and previous != lang:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Channel '{channel_id}' cannot be assigned to more than one language.",
+        )
+    channel_to_lang[channel_id] = lang
+
+
 @router.post("/channel.set-languages", response_model=schemas.YouTubeChannelListResponse)
 def channel_set_languages(
     body: schemas.ChannelSetLanguagesRequest,
     current_user: dict = Depends(get_current_user),
 ):
+    from backend.tg.database import update_client_fields
+    from backend.tg.posting_mix import language_key, language_label
+
     username = current_user["username"]
     client_id = body.client_id
     if not fetch_client_doc(client_id, username=username):
@@ -156,22 +175,34 @@ def channel_set_languages(
     channels = list_channels_meta(client_id)
     known_ids = {c["id"] for c in channels}
     channel_to_lang: dict[str, str] = {}
-    for lang in _YT_LANGUAGES:
-        for cid in getattr(body.assignments, lang, None) or []:
-            if not cid:
+    chips: list[dict] = []
+    if body.languages is not None:
+        seen_keys: set[str] = set()
+        for chip in body.languages:
+            key = language_key(chip.key, label=chip.label)
+            if not key:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Language needs a name.")
+            if key in seen_keys:
                 continue
-            if cid not in known_ids:
+            ids = [cid for cid in (chip.channel_ids or []) if cid]
+            if not ids:
+                label = language_label(key, chip.label)
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Channel '{cid}' is not linked to this client.",
+                    detail=f"Assign at least one YouTube channel to {label}.",
                 )
-            previous = channel_to_lang.get(cid)
-            if previous and previous != lang:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Channel '{cid}' cannot be assigned to more than one language.",
-                )
-            channel_to_lang[cid] = lang
+            for cid in ids:
+                _assign_channel(channel_to_lang, known_ids, cid, key)
+            seen_keys.add(key)
+            chips.append({"key": key, "label": language_label(key, chip.label)})
+    else:
+        assignments = body.assignments or schemas.ChannelLanguageAssignments()
+        for lang in _YT_LANGUAGES:
+            ids = [cid for cid in (getattr(assignments, lang, None) or []) if cid]
+            for cid in ids:
+                _assign_channel(channel_to_lang, known_ids, cid, lang)
+            if ids:
+                chips.append({"key": lang, "label": language_label(lang)})
 
     for ch in channels:
         update_channel_fields(
@@ -179,10 +210,12 @@ def channel_set_languages(
             client_id,
             {"language": channel_to_lang.get(ch["id"])},
         )
+    update_client_fields(client_id, username, {"youtube_languages": chips})
 
     user = fetch_user(username) or {}
     return schemas.YouTubeChannelListResponse(
         channels=[_channel_to_info(c) for c in list_channels_meta(client_id)],
         active_client_id=user.get("active_client_id"),
         active_channel_id=user.get("active_channel_id"),
+        youtube_languages=chips,
     )

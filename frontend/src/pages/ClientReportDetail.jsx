@@ -94,7 +94,7 @@ export default function ClientReportDetail() {
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
-      a.download = `${report?.report_month || 'report'}-youtube-report.pdf`
+      a.download = `${report?.report_month || 'report'}-${report?.platform === 'instagram' ? 'instagram' : 'youtube'}-report.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -147,7 +147,8 @@ export default function ClientReportDetail() {
             {statusChip(report.status)}
           </div>
           <p className="text-muted" style={{ margin: 0 }}>
-            Compared with {monthLabel(report.previous_month)}
+            {report.platform === 'instagram' ? 'Instagram' : 'YouTube'}
+            {report.previous_month ? ` · compared with ${monthLabel(report.previous_month)}` : ''}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -180,12 +181,20 @@ export default function ClientReportDetail() {
             marginBottom: 22,
           }}
         >
-          {[
-            ['Views', Math.round(cur.views || 0).toLocaleString()],
-            ['Watch (min)', Math.round(cur.estimatedMinutesWatched || 0).toLocaleString()],
-            ['Net subs', Math.round(cur.netSubscribers || 0).toLocaleString()],
-            ['Charts', String(summary.chart_count ?? '—')],
-          ].map(([label, value], i) => (
+          {(report.platform === 'instagram'
+            ? [
+                ['Views', Math.round(cur.views || 0).toLocaleString()],
+                ['Reach', Math.round(cur.reach || 0).toLocaleString()],
+                ['Interactions', Math.round(cur.total_interactions || 0).toLocaleString()],
+                ['Reels', Math.round(cur.reel_count || summary.reel_count || 0).toLocaleString()],
+              ]
+            : [
+                ['Views', Math.round(cur.views || 0).toLocaleString()],
+                ['Watch (min)', Math.round(cur.estimatedMinutesWatched || 0).toLocaleString()],
+                ['Net subs', Math.round(cur.netSubscribers || 0).toLocaleString()],
+                ['Charts', String(summary.chart_count ?? '—')],
+              ]
+          ).map(([label, value], i) => (
             <div
               key={label}
               style={{

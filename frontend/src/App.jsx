@@ -50,6 +50,7 @@ import ClientSocialGenerate from './pages/ClientSocialGenerate'
 import ClientSocialInstagram from './pages/ClientSocialInstagram'
 import ClientSocialFacebook from './pages/ClientSocialFacebook'
 import ClientYoutubeConnection from './pages/ClientYoutubeConnection'
+import ClientPostingMix from './pages/ClientPostingMix'
 import ClientSocialSchedule from './pages/ClientSocialSchedule'
 import ClientSocialFestivals from './pages/ClientSocialFestivals'
 import WebsiteOverview from './pages/WebsiteOverview'
@@ -379,6 +380,7 @@ export default function App() {
           <Route path="connections/youtube" element={<ClientYoutubeConnection />} />
           <Route path="connections/instagram" element={<ClientSocialInstagram />} />
           <Route path="connections/facebook" element={<ClientSocialFacebook />} />
+          <Route path="connections/posting-mix" element={<ClientPostingMix />} />
           <Route path="keywords" element={<ClientSettings />} />
           <Route path="youtube-settings" element={<RedirectToKeywords />} />
           <Route path="script-references" element={<ClientExampleScripts />} />

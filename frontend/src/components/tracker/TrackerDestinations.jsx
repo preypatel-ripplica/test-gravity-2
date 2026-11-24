@@ -6,6 +6,9 @@ import {
   destRows,
   destsFor,
   filledDestCount,
+  sharedMixSlots,
+  mixPlatforms,
+  mixRows,
   newId,
 } from './trackerUtils'
 
@@ -13,6 +16,7 @@ const PLATFORM_ICONS = {
   youtube: 'fa-brands fa-youtube',
   facebook: 'fa-brands fa-facebook',
   instagram: 'fa-brands fa-instagram',
+  gbp: 'fa-solid fa-store',
   website: 'fa-solid fa-globe',
 }
 
@@ -159,11 +163,13 @@ function EmptySlot({ onCreate }) {
   )
 }
 
-export default function TrackerDestinations({ card, languages, onChange }) {
-  const { filled, total } = filledDestCount(card, languages)
+export default function TrackerDestinations({ card, languages, onChange, postingMix = null, languageLabels = null }) {
+  const mix = postingMix?.saved ? postingMix : null
+  const { filled, total } = filledDestCount(card, languages, mix)
   const [editingStructure, setEditingStructure] = useState(false)
-  const platforms = destPlatforms(card)
-  const rows = destRows(card, languages)
+  const platforms = mix ? mixPlatforms(card, mix) : destPlatforms(card)
+  const rows = mix ? mixRows(card, languages, mix) : destRows(card, languages)
+  const extraLabels = Object.fromEntries((mix?.extra_platforms || []).map((row) => [row.key, row.label]))
 
   function setDestinations(destinations) {
     onChange({ ...card, destinations })
@@ -178,9 +184,10 @@ export default function TrackerDestinations({ card, languages, onChange }) {
   }
 
   function addDest(language, platform, url = '') {
+    const shared = Boolean(mix && platform !== 'youtube')
     setDestinations([
       ...(card.destinations || []),
-      { id: newId('dest'), language: language || undefined, platform, url },
+      { id: newId('dest'), language: shared ? undefined : (language || undefined), platform, url },
     ])
   }
 
@@ -207,23 +214,27 @@ export default function TrackerDestinations({ card, languages, onChange }) {
                     {PLATFORM_ICONS[platform] && (
                       <i className={PLATFORM_ICONS[platform]} aria-hidden />
                     )}
-                    {PLATFORM_LABELS[platform] || platform}
+                    {extraLabels[platform] || PLATFORM_LABELS[platform] || platform}
                   </span>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((language) => (
+            {rows.map((language, rowIndex) => (
               <tr key={language || 'row'}>
                 <th scope="row" className="tracker-dest-lang">
-                  {language ? (LANG_LABELS[language] || language) : '—'}
+                  {language ? (languageLabels?.[language] || LANG_LABELS[language] || language) : '—'}
                 </th>
                 {platforms.map((platform) => {
-                  const slots = destsFor(card, language, platform)
+                  const shared = Boolean(mix && platform !== 'youtube')
+                  if (shared && rowIndex > 0) return null
+                  const slots = shared
+                    ? sharedMixSlots(card, platform)
+                    : destsFor(card, language, platform)
                   const filledCount = slots.filter((d) => (d.url || '').trim()).length
                   return (
-                    <td key={platform} className="tracker-dest-td">
+                    <td key={platform} className="tracker-dest-td" rowSpan={shared && rows.length > 1 ? rows.length : undefined}>
                       <div className="tracker-dest-cell">
                         {slots.length === 0 ? (
                           <EmptySlot onCreate={(url) => addDest(language, platform, url)} />

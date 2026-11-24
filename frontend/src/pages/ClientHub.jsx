@@ -41,12 +41,12 @@ export default function ClientHub() {
 
         {showVideos ? (
         <Link to={`/clients/${clientId}/videos`} className="workspace-card card">
-          <div className="workspace-card-icon youtube">
-            <i className="fa-brands fa-youtube" />
+          <div className="workspace-card-icon videos">
+            <i className="fa-solid fa-play" />
           </div>
           <div className="workspace-card-body">
             <h2>Videos</h2>
-            <p>YouTube analytics, content planning, scripts, reports, and channel management.</p>
+            <p>YouTube and Instagram analytics, video library, content planning, and reports.</p>
           </div>
           <span className="btn btn-primary btn-sm">Open Videos</span>
         </Link>
@@ -54,8 +54,8 @@ export default function ClientHub() {
 
         {showStatics ? (
         <Link to={`/clients/${clientId}/social`} className="workspace-card card">
-          <div className="workspace-card-icon instagram">
-            <i className="fa-brands fa-instagram" />
+          <div className="workspace-card-icon statics">
+            <i className="fa-solid fa-image" />
           </div>
           <div className="workspace-card-body">
             <h2>Static Posts</h2>

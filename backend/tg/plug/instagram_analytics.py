@@ -17,6 +17,17 @@ GRAPH_TIMEOUT = 30.0
 MAX_ANALYTICS_DAYS = 366
 
 
+class InstagramTokenExpired(Exception):
+    """Meta rejected the user token. Caller should ask for a reconnect."""
+
+
+def _auth_failure(status_code: int, err: str) -> bool:
+    text = (err or "").lower()
+    return status_code in {400, 401, 403} and (
+        "expired" in text or "validating access token" in text or "oauth" in text
+    )
+
+
 def clamp_analytics_window(
     since_dt: datetime, until_dt: datetime
 ) -> tuple[datetime, datetime]:
@@ -223,7 +234,7 @@ async def _account_totals(
     until_ts: int,
 ) -> tuple[dict[str, int], dict[str, list[dict]]]:
     base = f"https://graph.instagram.com/{ig_id}/insights"
-    ts_status, ts_payload, _ = await _get_json(
+    ts_status, ts_payload, ts_err = await _get_json(
         client,
         base,
         {
@@ -234,6 +245,8 @@ async def _account_totals(
             "access_token": token,
         },
     )
+    if _auth_failure(ts_status, ts_err):
+        raise InstagramTokenExpired(ts_err or "Instagram token expired")
     tv_status, tv_payload, _ = await _get_json(
         client,
         base,

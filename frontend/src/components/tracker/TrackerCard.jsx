@@ -7,8 +7,11 @@ import TrackerPublishVideo from './TrackerPublishVideo'
 import TrackerScriptSlot from './TrackerScriptSlot'
 import TrackerStaticGenerate from './TrackerStaticGenerate'
 import TrackerYtMetadata from './TrackerYtMetadata'
+import { presentationFromClient } from '../../hooks/useClientPresentation'
 import {
   COMPLETE_STAGE,
+  completeStageId,
+  isLinkSharedStage,
   cardStatus,
   confirmChecklist,
   hasDelayProof,
@@ -31,6 +34,10 @@ import {
   templateKind,
   templateMessage,
 } from './trackerUtils'
+
+function audienceNoun(weekContext) {
+  return presentationFromClient(weekContext?.client).audienceNoun
+}
 
 function StatusBadge({ card, weekContext }) {
   const status = cardStatus(card, weekContext)
@@ -114,7 +121,7 @@ function VideoAssetRow({ card, value, onSave, weekContext }) {
   if (uploading) {
     return (
       <div className="tracker-asset-row is-video is-uploading" data-tracker-section="video">
-        <span className="tracker-kicker">Video for the doctor</span>
+        <span className="tracker-kicker">Video for the {audienceNoun(weekContext)}</span>
         <em><i className="fa-solid fa-spinner fa-spin" /> Uploading…</em>
       </div>
     )
@@ -123,7 +130,7 @@ function VideoAssetRow({ card, value, onSave, weekContext }) {
   if (editing) {
     return (
       <div className="tracker-asset-row is-editing" data-tracker-section="video">
-        <span className="tracker-kicker">Video for the doctor</span>
+        <span className="tracker-kicker">Video for the {audienceNoun(weekContext)}</span>
         <input className="form-control" autoFocus value={draft} placeholder="Paste Drive URL" onChange={(e) => setDraft(e.target.value)} />
         <button type="button" className="btn btn-primary btn-sm" onClick={() => { onSave(draft.trim()); setEditing(false) }}>Save</button>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setDraft(value || ''); setEditing(false) }}>Cancel</button>
@@ -133,7 +140,7 @@ function VideoAssetRow({ card, value, onSave, weekContext }) {
 
   return (
     <div className="tracker-asset-row is-video" data-tracker-section="video">
-      <span className="tracker-kicker">Video for the doctor</span>
+      <span className="tracker-kicker">Video for the {audienceNoun(weekContext)}</span>
       <em>{value || 'Not added yet — paste a link or upload'}</em>
       <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setDraft(value || ''); setEditing(true) }}>
         Paste link
@@ -437,9 +444,13 @@ export default function TrackerCard({
     tabGate.current = { tab: selectedTab, done, videoDone }
     if (shared) {
       if (!wasVideoDone && videoDone) {
-        const nextDone = stageCheckpointDone(card, 'shared_with_doctor')
-        tabGate.current = { tab: 'shared_with_doctor', done: nextDone, videoDone }
-        setSelectedTab('shared_with_doctor')
+        const stages = stageList(card.type).map((row) => row.id)
+        const next = stages[stages.indexOf('video_edited') + 1]
+        if (next) {
+          const nextDone = stageCheckpointDone(card, next)
+          tabGate.current = { tab: next, done: nextDone, videoDone }
+          setSelectedTab(next)
+        }
       }
       return undefined
     }
@@ -471,8 +482,9 @@ export default function TrackerCard({
   }
 
   function confirmLinkShared() {
-    if ((card.stage || '') === COMPLETE_STAGE) return
-    onChange({ ...card, stage: COMPLETE_STAGE })
+    const doneId = completeStageId(card.type)
+    if ((card.stage || '') === doneId) return
+    onChange({ ...card, stage: doneId })
   }
 
   function handleSelectStage(stageId) {
@@ -480,7 +492,7 @@ export default function TrackerCard({
       selectVideoTab(stageId)
       return
     }
-    if (stageId === COMPLETE_STAGE) {
+    if (stageId === completeStageId(card.type)) {
       confirmLinkShared()
       return
     }
@@ -499,7 +511,7 @@ export default function TrackerCard({
       if (nextVideoTab) selectVideoTab(nextVideoTab)
       return
     }
-    if (nextStageId(card) === COMPLETE_STAGE) {
+    if (nextStageId(card) === completeStageId(card.type)) {
       confirmLinkShared()
       return
     }
@@ -564,8 +576,8 @@ export default function TrackerCard({
     } else if (tab === 'shared_with_doctor') {
       body = (
         <TrackerNotes
-          title="From the doctor"
-          hint="Photos or files the doctor gave us for this one."
+          title={`From the ${audienceNoun(weekContext)}`}
+          hint={`Photos or files the ${audienceNoun(weekContext)} gave us for this one.`}
           section="doctor"
           card={card}
           languages={languages}
@@ -582,11 +594,13 @@ export default function TrackerCard({
             card={card}
             languages={languages}
             onChange={handleDestinationsChange}
+            postingMix={weekContext.postingMix}
+            languageLabels={weekContext.languageLabels}
           />
         </>
       )
-    } else if (tab === COMPLETE_STAGE) {
-      const complete = stageCheckpointDone(card, COMPLETE_STAGE)
+    } else if (isLinkSharedStage(tab) || tab === COMPLETE_STAGE) {
+      const complete = stageCheckpointDone(card, tab)
       body = (
         <>
           <ConfirmChecklist card={card} />
@@ -601,6 +615,20 @@ export default function TrackerCard({
             </button>
           </div>
         </>
+      )
+    } else {
+      body = (
+        <div data-tracker-section="notes">
+          <TrackerNotes
+            title="Notes"
+            hint="Notes for this step."
+            section="feedback"
+            card={card}
+            languages={languages}
+            weekContext={weekContext}
+            onWeekUpdate={weekContext.onWeekUpdate}
+          />
+        </div>
       )
     }
 
@@ -754,7 +782,7 @@ export default function TrackerCard({
       )}
 
       {useVideoTabs ? (
-        <>
+        <div data-tracker-section="notes">
           <CollapsedBlock title="Feedback" count={(card.feedback_notes || []).length}>
             <TrackerNotes
               title="Feedback"
@@ -777,7 +805,7 @@ export default function TrackerCard({
               onWeekUpdate={weekContext.onWeekUpdate}
             />
           </CollapsedBlock>
-        </>
+        </div>
       ) : null}
       {!useVideoTabs && (isVideoCard(card.type) || card.type === 'paid_ads') ? (
         <TrackerNotes
@@ -808,8 +836,8 @@ export default function TrackerCard({
       {editorView || useVideoTabs ? null : (
         <div data-tracker-section="doctor">
           <TrackerNotes
-            title="From the doctor"
-            hint="Photos or files the doctor gave us for this one."
+            title={`From the ${audienceNoun(weekContext)}`}
+            hint={`Photos or files the ${audienceNoun(weekContext)} gave us for this one.`}
             section="doctor"
             card={card}
             languages={languages}
@@ -826,6 +854,8 @@ export default function TrackerCard({
             card={card}
             languages={languages}
             onChange={handleDestinationsChange}
+            postingMix={weekContext.postingMix}
+            languageLabels={weekContext.languageLabels}
           />
           {card.type === 'static_post' || card.type === 'blog' ? (
             <div className="tracker-stage-confirm-block">

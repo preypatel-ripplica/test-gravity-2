@@ -23,6 +23,7 @@ from backend.tg.gbp_oauth import router as gbp_oauth_router
 from backend.tg.google_oauth import router as google_oauth_router
 from backend.tg.routes.gbp import router as gbp_router
 from backend.tg.routes.channel import router as tg_channel_router
+from backend.tg.routes.posting_mix import router as tg_posting_mix_router
 from backend.tg.routes.client import router as tg_client_router
 from backend.tg.routes.client_profile import router as tg_client_profile_router
 from backend.tg.routes.report import router as tg_report_router
@@ -116,6 +117,7 @@ app.include_router(gbp_router)
 app.include_router(tg_video_router)
 app.include_router(tg_channel_router)
 app.include_router(tg_client_router)
+app.include_router(tg_posting_mix_router)
 app.include_router(tg_client_profile_router)
 app.include_router(tg_report_router)
 app.include_router(tg_social_router)

@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
+
+const PROFESSIONS = [
+  { key: 'doctor', label: 'Doctor', enabled: true },
+  { key: 'creator', label: 'Creator', enabled: true },
+]
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import api from '../api'
 import Breadcrumbs from '../components/Breadcrumbs'
 import ProfileTabs from '../components/client-profile/ProfileTabs'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-
 export default function ClientPracticeDetails() {
   const { client, clientId } = useOutletContext()
   const { token, patchUser } = useAuth()
@@ -17,6 +21,8 @@ export default function ClientPracticeDetails() {
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [specialty, setSpecialty] = useState('')
   const [designation, setDesignation] = useState('')
+  const [profession, setProfession] = useState('doctor')
+  const isCreator = profession === 'creator'
   const [saving, setSaving] = useState(false)
   const [scraping, setScraping] = useState(false)
   const [scrapeHint, setScrapeHint] = useState(null)
@@ -27,11 +33,15 @@ export default function ClientPracticeDetails() {
     setWebsiteUrl(client.website_url || '')
     setSpecialty(client.specialty || '')
     setDesignation(client.designation || '')
+    setProfession(client.profession || 'doctor')
     setScrapeHint(null)
-  }, [clientId, client?.id])
+  }, [clientId, client?.id, client?.profession])
 
   async function handleScrape() {
-    if (!websiteUrl.trim() && !specialty.trim() && !(client?.reference_youtube_channel || '').trim()) {
+    const hasWebsite = Boolean(websiteUrl.trim())
+    const hasSpecialty = Boolean(specialty.trim())
+    const hasRefYt = Boolean((client?.reference_youtube_channel || '').trim())
+    if (!hasWebsite && !hasSpecialty && !hasRefYt) {
       toast('Enter a website URL or specialty first', 'error')
       return
     }
@@ -41,7 +51,6 @@ export default function ClientPracticeDetails() {
       const data = await api.scrapeClientProfile(token, clientId, {
         website_url: websiteUrl.trim() || undefined,
         specialty: specialty.trim() || undefined,
-        reference_youtube_channel: client?.reference_youtube_channel || undefined,
       })
       if (data.clients?.length) {
         patchUser({
@@ -61,7 +70,6 @@ export default function ClientPracticeDetails() {
         data.suggested_topics?.length
           ? `Saved practice details · ${data.suggested_topics.length} topic ideas ready in Keywords and topics`
           : 'Practice details saved',
-        'success',
       )
     } catch (err) {
       toast(err.message, 'error')
@@ -126,18 +134,22 @@ export default function ClientPracticeDetails() {
     }
     setSaving(true)
     try {
-      const data = await api.updateClient(token, clientId, {
+      const payload = {
         name: name.trim(),
         website_url: websiteUrl.trim(),
-        specialty: specialty.trim(),
-        designation: designation.trim(),
-      })
+        profession,
+      }
+      if (!isCreator) {
+        payload.specialty = specialty.trim()
+        payload.designation = designation.trim()
+      }
+      const data = await api.updateClient(token, clientId, payload)
       patchUser({
         clients: data.clients,
         active_client_id: data.active_client_id,
         active_channel_id: data.active_channel_id,
       })
-      toast('Practice details saved', 'success')
+      toast(isCreator ? 'Profile details saved' : 'Practice details saved', 'success')
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -159,10 +171,14 @@ export default function ClientPracticeDetails() {
             ]}
           />
           <h1>
-            Practice details
+            {isCreator ? 'Profile details' : 'Practice details'}
             {!isActive && <span className="client-status-badge">Inactive</span>}
           </h1>
-          <p>Name, website, specialty, and designation for this doctor.</p>
+          <p>
+            {isCreator
+              ? 'Name and website. Set niche and keywords under Keywords and topics.'
+              : 'Name, website, specialty, and designation for this doctor.'}
+          </p>
         </div>
       </header>
 
@@ -178,47 +194,67 @@ export default function ClientPracticeDetails() {
       <form className="profile-form card animate-fade-in" onSubmit={handleSave}>
         <section className="profile-section">
           <div className="input-group">
+            <label htmlFor="client-profession">Profession</label>
+            <select
+              id="client-profession"
+              value={profession}
+              onChange={(e) => setProfession(e.target.value)}
+            >
+              {PROFESSIONS.map((row) => (
+                <option key={row.key} value={row.key} disabled={!row.enabled}>
+                  {row.label}{row.enabled ? '' : ' (not built yet)'}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              Doctor keeps keyword mapping and Google Trends. Creator uses a niche, AI keyword scores, and titles without a keyword map.
+            </span>
+          </div>
+          <div className="input-group">
             <label htmlFor="client-name">Name</label>
             <input
               id="client-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Dr. Jane Smith"
+              placeholder={isCreator ? 'Channel or creator name' : 'Dr. Jane Smith'}
               required
             />
           </div>
 
           <div className="input-group">
-            <label htmlFor="client-website">Practice website</label>
+            <label htmlFor="client-website">{isCreator ? 'Website' : 'Practice website'}</label>
             <div className="input-with-action">
               <input
                 id="client-website"
                 type="url"
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
-                placeholder="https://www.exampleclinic.com"
+                placeholder={isCreator ? 'https://yoursite.com' : 'https://www.exampleclinic.com'}
               />
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleScrape}
-                disabled={scraping}
-              >
-                {scraping ? (
-                  <>
-                    <i className="fa-solid fa-spinner fa-spin" /> Scraping…
-                  </>
-                ) : (
-                  <>
-                    <i className="fa-solid fa-globe" /> Scrape
-                  </>
-                )}
-              </button>
+              {isCreator ? null : (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleScrape}
+                  disabled={scraping}
+                >
+                  {scraping ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin" /> Scraping…
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-globe" /> Scrape
+                    </>
+                  )}
+                </button>
+              )}
             </div>
             <span className="field-hint">
-              Deep-scrapes the site for specialty signals and topic ideas. Review topics in Keywords
-              and topics.
+              {isCreator
+                ? 'Optional. Sent as context when searching topics. Not crawled. Search from Keywords and topics.'
+                : 'Deep-scrapes the site for specialty signals and topic ideas. Review topics in Keywords and topics.'}
             </span>
           </div>
 
@@ -232,27 +268,31 @@ export default function ClientPracticeDetails() {
             </div>
           )}
 
-          <div className="input-group">
-            <label htmlFor="client-specialty">Specialty</label>
-            <input
-              id="client-specialty"
-              type="text"
-              value={specialty}
-              onChange={(e) => setSpecialty(e.target.value)}
-              placeholder="e.g. Cardiology, Dermatology, Pediatrics"
-            />
-          </div>
+          {!isCreator ? (
+            <>
+              <div className="input-group">
+                <label htmlFor="client-specialty">Specialty</label>
+                <input
+                  id="client-specialty"
+                  type="text"
+                  value={specialty}
+                  onChange={(e) => setSpecialty(e.target.value)}
+                  placeholder="e.g. Cardiology, Dermatology, Pediatrics"
+                />
+              </div>
 
-          <div className="input-group">
-            <label htmlFor="client-designation">Designation</label>
-            <input
-              id="client-designation"
-              type="text"
-              value={designation}
-              onChange={(e) => setDesignation(e.target.value)}
-              placeholder="e.g. Chairman, Pain Medicine & Palliative Care"
-            />
-          </div>
+              <div className="input-group">
+                <label htmlFor="client-designation">Designation</label>
+                <input
+                  id="client-designation"
+                  type="text"
+                  value={designation}
+                  onChange={(e) => setDesignation(e.target.value)}
+                  placeholder="e.g. Chairman, Pain Medicine & Palliative Care"
+                />
+              </div>
+            </>
+          ) : null}
 
           <div style={{ marginTop: '24px' }}>
             <button type="submit" className="btn btn-primary" disabled={saving || scraping}>
@@ -262,7 +302,8 @@ export default function ClientPracticeDetails() {
                 </>
               ) : (
                 <>
-                  <i className="fa-solid fa-floppy-disk" /> Save practice details
+                  <i className="fa-solid fa-floppy-disk" />{' '}
+                  {isCreator ? 'Save profile details' : 'Save practice details'}
                 </>
               )}
             </button>

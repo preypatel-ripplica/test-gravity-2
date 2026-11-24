@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import CustomSelect from '../CustomSelect'
 import api from '../../api'
+import { presentationFromClient } from '../../hooks/useClientPresentation'
 import { LANG_LABELS, parseTimecode } from './trackerUtils'
 
 const PAGE_SIZE = 8
@@ -63,6 +64,7 @@ export default function TrackerNotes({
   showDoctorFiles = false,
 }) {
   const { token, clientId, year, month, week, toast } = weekContext
+  const audienceNoun = presentationFromClient(weekContext?.client).audienceNoun
   const [text, setText] = useState('')
   const [language, setLanguage] = useState('all')
   const [pending, setPending] = useState([])
@@ -184,7 +186,7 @@ export default function TrackerNotes({
         className="form-control"
         rows={3}
         value={text}
-        placeholder={section === 'feedback' ? 'Type 2:30 the broll is wrong and the timecode is picked up automatically.' : 'Anything the editor or the doctor said that isn’t a stage change.'}
+        placeholder={section === 'feedback' ? 'Type 2:30 the broll is wrong and the timecode is picked up automatically.' : `Anything the editor or the ${audienceNoun} said that isn’t a stage change.`}
         onChange={(e) => setText(e.target.value)}
         onPaste={handlePaste}
       />

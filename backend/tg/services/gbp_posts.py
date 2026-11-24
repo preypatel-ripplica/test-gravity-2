@@ -26,6 +26,62 @@ from backend.tg.services.gbp_optimize import classify_keyword, keyword_month_win
 FREQUENCIES = {"off", "daily", "weekdays", "once_a_week", "twice_a_week"}
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 IST = timezone(timedelta(hours=5, minutes=30))
+GBP_SUMMARY_MAX = 500
+
+
+def _clip_gbp_summary(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if len(cleaned) <= GBP_SUMMARY_MAX:
+        return cleaned
+    clipped = cleaned[:GBP_SUMMARY_MAX].rstrip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped[:GBP_SUMMARY_MAX]
+
+
+def compress_gbp_summary(text: str) -> str:
+    """Rewrite a long caption into a Google Business Update under 500 characters."""
+    source = str(text or "").strip()
+    if not source:
+        return ""
+    if not (settings.OPENAI_API_KEY or "").strip():
+        return _clip_gbp_summary(source)
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            reasoning_effort=(settings.OPENAI_REASONING_EFFORT or "medium").strip() or "medium",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Rewrite the caption as a Google Business Profile Update. "
+                        "Keep the meaning. Do not invent offers, events, or claims. "
+                        "Reply with the post text only. It must be under 500 characters."
+                    ),
+                },
+                {"role": "user", "content": source},
+            ],
+        )
+        rewritten = (response.choices[0].message.content or "").strip().strip('"')
+        return rewritten or source
+    except Exception as exc:  # noqa: BLE001
+        print(f"[gbp] summary compress failed: {exc}", flush=True)
+        return source
+
+
+def ensure_gbp_summary_limit(text: str) -> str:
+    """Guarantee Google never receives more than 500 characters."""
+    current = str(text or "").strip()
+    if len(current) <= GBP_SUMMARY_MAX:
+        return current
+    for _ in range(2):
+        current = compress_gbp_summary(current)
+        if len(current) <= GBP_SUMMARY_MAX:
+            return current
+    return _clip_gbp_summary(current)
 
 
 def schedule_runs_today(schedule: dict, today: datetime) -> bool:
@@ -101,6 +157,7 @@ def build_post_prompt(*, services: list[str], description: str, keyword_themes: 
             "Do not invent a treatment, event, offer, coupon, or staff member.",
             "Do not repeat a recent post.",
             "Each post is a short useful update under 500 characters.",
+            "Never exceed 500 characters.",
             "Reply as JSON: {\"posts\": [\"...\"]}.",
             "",
             "Confirmed services:",
@@ -142,7 +199,7 @@ def parse_post_texts(raw: str, count: int) -> list[str]:
     for item in posts or []:
         line = str(item or "").strip()
         if line:
-            cleaned.append(line[:500])
+            cleaned.append(line)
         if len(cleaned) >= count:
             break
     return cleaned
@@ -154,9 +211,13 @@ def fallback_posts(*, services: list[str], description: str, count: int) -> list
     first = f"Our clinic provides {focus}."
     if summary:
         first = f"{first} {summary}"
-    posts = [first[:500]]
+    posts = [ensure_gbp_summary_limit(first)]
     if count > 1 and services:
-        posts.append(f"Patients can ask us about {services[0]}. Call or use the appointment link on our profile."[:500])
+        posts.append(
+            ensure_gbp_summary_limit(
+                f"Patients can ask us about {services[0]}. Call or use the appointment link on our profile."
+            )
+        )
     return posts[:count]
 
 
@@ -401,6 +462,7 @@ def generate_location_drafts(
     summaries = _chat_posts(prompt, count)
     if not summaries:
         summaries = fallback_posts(services=services, description=description, count=count)
+    summaries = [ensure_gbp_summary_limit(row) for row in summaries if str(row or "").strip()]
     return compose_drafts(
         client_id,
         location["location_id"],
@@ -414,10 +476,35 @@ def generate_location_drafts(
     )
 
 
+def publish_standard_local_post(client_id: str, summary: str, source_url: str | None = None) -> dict:
+    """Same STANDARD update path as the GBP Posts card, with the 500-character gate."""
+    from backend.tg.gbp_oauth import ensure_gbp_credentials
+    from backend.tg.services.gbp_api import require_selected_location
+
+    text = ensure_gbp_summary_limit(summary)
+    if not text:
+        raise ValueError("Post text is required.")
+    creds = ensure_gbp_credentials(client_id)
+    location = require_selected_location(client_id, None)
+    body = build_local_post_body(
+        summary=text,
+        topic_type="STANDARD",
+        source_url=absolute_public_url(source_url),
+    )
+    created = create_local_post(creds, location["account_id"], location["location_id"], body)
+    return {
+        "post": created,
+        "summary": text,
+        "location_id": location.get("location_id"),
+        "gbp_post_name": (created or {}).get("name"),
+        "gbp_search_url": (created or {}).get("searchUrl") or (created or {}).get("search_url"),
+    }
+
+
 def publish_gbp_draft(client_id: str, location: dict, creds, draft: dict, summary: str | None = None) -> dict:
     from backend.tg.database import save_gbp_post_draft
 
-    text = (summary if summary is not None else draft.get("summary") or "").strip()
+    text = ensure_gbp_summary_limit((summary if summary is not None else draft.get("summary") or "").strip())
     if not text:
         raise ValueError("Post text is required.")
     source = absolute_public_url(draft.get("source_url"))

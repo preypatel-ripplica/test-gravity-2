@@ -109,9 +109,18 @@ class Project(BaseModel):
     owner_user_id: Optional[str] = None
     website_url: Optional[str] = None
     specialty: Optional[str] = None
+    niche: Optional[str] = None
+    niche_details: Optional[str] = None
+    example_topics: list[str] = Field(default_factory=list)
+    example_scripts: list[str] = Field(default_factory=list)
+    reference_videos: list[Any] = Field(default_factory=list)
+    migrated_from_plug: Optional[str] = None
     designation: Optional[str] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
+    profession: str = "doctor"
+    youtube_languages: list[dict[str, Any]] = Field(default_factory=list)
+    posting_mix: Optional[dict[str, Any]] = None
     ai_videos_started_from: Optional[str] = None
     # Soft-delete timestamp; inactive uses status=archived
     deleted_at: Optional[datetime] = None

@@ -14,7 +14,19 @@ from backend.tg.openai_log import call_with_openai_retry, log_openai_error
 from backend.tg.services.content_formats import VIDEO_TYPE_NAMES, catalog_for_prompt
 from backend.tg.services.script_templates import catalog_for_script_prompt, template_for
 
-PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts" / "doctor"
+
+
+def _prompts_dir(explicit=None) -> Path:
+    if explicit:
+        return Path(explicit)
+    from backend.tg.professions.prompt_context import current_prompts_dir
+
+    return current_prompts_dir()
+
+
+def _creator_voice() -> bool:
+    return _prompts_dir().name == "creator"
 
 MAP_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -130,8 +142,8 @@ SCRIPT_REFINE_SCHEMA: dict[str, Any] = {
 }
 
 
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
+def _load_prompt(name: str, prompts_dir=None) -> str:
+    path = _prompts_dir(prompts_dir) / name
     return path.read_text(encoding="utf-8").strip()
 
 
@@ -395,14 +407,28 @@ def enrich_suggestions(
             "recent_video_types": list(dict.fromkeys(recent_video_types or []))[:15],
             "user_prompt": (user_prompt or "").strip(),
             "note": (
-                "REFINE MODE: keep the previous_items list (same count). "
-                "Rewrite titles / video_type / reasoning using user_prompt. "
-                "Only swap a keyword if user_prompt requires it — and only from extra_keywords. "
-                "Keep each item's Long/Short format unless the user asks to change it. "
-                "Titles: strong clickbait + medical keyword, simple to read. "
-                "title_hinglish must mix Latin English letters + Devanagari (not romanized-only). "
-                "video_types is the catalog; recent_* is last ~20 public videos for mix context. "
-                "Return title_en + title_hinglish + short reasoning."
+                (
+                    "REFINE MODE: keep the previous_items list (same count). "
+                    "Rewrite titles / video_type / reasoning using user_prompt. "
+                    "Only swap a keyword if user_prompt requires it — and only from extra_keywords. "
+                    "Keep each item's Long/Short format unless the user asks to change it. "
+                    "Titles: strong clickbait + the topic keyword, simple to read. "
+                    "No clinic, doctor, patient, or clinical-fact wording. "
+                    "title_hinglish must mix Latin English letters + Devanagari (not romanized-only). "
+                    "video_types is the catalog; recent_* is last ~20 public videos for mix context. "
+                    "Return title_en + title_hinglish + short reasoning."
+                )
+                if _creator_voice()
+                else (
+                    "REFINE MODE: keep the previous_items list (same count). "
+                    "Rewrite titles / video_type / reasoning using user_prompt. "
+                    "Only swap a keyword if user_prompt requires it — and only from extra_keywords. "
+                    "Keep each item's Long/Short format unless the user asks to change it. "
+                    "Titles: strong clickbait + medical keyword, simple to read. "
+                    "title_hinglish must mix Latin English letters + Devanagari (not romanized-only). "
+                    "video_types is the catalog; recent_* is last ~20 public videos for mix context. "
+                    "Return title_en + title_hinglish + short reasoning."
+                )
             ),
         }
     else:
@@ -426,15 +452,29 @@ def enrich_suggestions(
             "recent_video_types": list(dict.fromkeys(recent_video_types or []))[:15],
             "slot_coverage": analysis_compact,
             "note": (
-                "Long/Short on each slot is fixed. "
-                "Pick video_type from the catalog to fit the topic; mix Long themes across the batch "
-                "(Disease explainer is only a soft option, not the default). "
-                "If channel_status is fresh or recent_library_topics is empty, treat as a new channel — "
-                "no need to avoid recent themes. "
-                "Titles: strong clickbait + medical keyword, simple to read. "
-                "title_hinglish must mix Latin English letters + Devanagari (not romanized-only). "
-                "Vary hooks across the batch — 'मत करें' / 'Don't ignore' are OK sparingly, not on most titles. "
-                "Return title_en + title_hinglish + short reasoning."
+                (
+                    "Long/Short on each slot is fixed. "
+                    "Pick video_type from the catalog to fit the topic; mix Long themes across the batch. "
+                    "If channel_status is fresh or recent_library_topics is empty, treat as a new channel — "
+                    "no need to avoid recent themes. "
+                    "Titles: strong clickbait + the topic keyword, simple to read. "
+                    "No clinic, doctor, patient, or clinical-fact wording. "
+                    "title_hinglish must mix Latin English letters + Devanagari (not romanized-only). "
+                    "Vary hooks across the batch. "
+                    "Return title_en + title_hinglish + short reasoning."
+                )
+                if _creator_voice()
+                else (
+                    "Long/Short on each slot is fixed. "
+                    "Pick video_type from the catalog to fit the topic; mix Long themes across the batch "
+                    "(Disease explainer is only a soft option, not the default). "
+                    "If channel_status is fresh or recent_library_topics is empty, treat as a new channel — "
+                    "no need to avoid recent themes. "
+                    "Titles: strong clickbait + medical keyword, simple to read. "
+                    "title_hinglish must mix Latin English letters + Devanagari (not romanized-only). "
+                    "Vary hooks across the batch — 'मत करें' / 'Don't ignore' are OK sparingly, not on most titles. "
+                    "Return title_en + title_hinglish + short reasoning."
+                )
             ),
         }
         if user_prompt:
@@ -492,7 +532,10 @@ def generate_scripts_batch(
         system += "\n\n═══════════════════════════════════════════════════════════════════\n"
         system += "REFERENCE EXAMPLES FOR STYLE AND TONE\n"
         system += "═══════════════════════════════════════════════════════════════════\n"
-        system += "The user has provided the following reference scripts. Analyze their formatting, tone, and clinical depth. You MUST match this exact style in your generated scripts.\n"
+        if _creator_voice():
+            system += "The user has provided the following reference scripts. Analyze their formatting, tone, and pacing. You MUST match this exact style in your generated scripts.\n"
+        else:
+            system += "The user has provided the following reference scripts. Analyze their formatting, tone, and clinical depth. You MUST match this exact style in your generated scripts.\n"
         for index, script in enumerate(refs, start=1):
             system += f"\n--- EXAMPLE {index} ---\n{script}\n"
 
@@ -533,6 +576,23 @@ def generate_scripts_batch(
         "catalog": catalog_for_script_prompt(),
         "items": slots,
         "note": (
+            (
+                "Generate a full spoken Hinglish script for EVERY item. "
+                "Follow each item.template timing_map, hook formula, and ending CTA. "
+                "Intro MUST be: greeting → मैं [Name], [Role] → plural invite "
+                "(आज समझेंगे / topic समझेंगे). Never solo 'समझाता हूं / clear करता हूं'. "
+                "The name and role come from doctor_name and doctor_designation. Treat them as the creator, not a doctor. "
+                "No clinic, doctor, patient, or clinical-fact wording. "
+                "CTA: comment, save, follow, or the creator's own next step. No appointments or phone numbers. "
+                "Never speak section titles as dialogue. "
+                "Always formal Hindi verbs (कीजिए / देखिए), never कर ले / देख ले. "
+                "Never use em dashes (—) or en dashes (–) in script text. "
+                "Pass the Script Checklist on every item. "
+                "Across the batch: rotate hooks, intros, transitions, and CTA wording. "
+                "Return the same ids, same count, same order."
+            )
+            if _creator_voice()
+            else (
             "Generate a full spoken Hinglish script for EVERY item. "
             "Follow each item.template timing_map, hook formula, and ending CTA. "
             "Doctor intro MUST be: greeting → मैं [Name], [Designation] → plural team invite "
@@ -548,6 +608,7 @@ def generate_scripts_batch(
             "Pass the Script Checklist on every item. "
             "Across the batch: rotate hooks, intros, transitions, and CTA wording. "
             "Return the same ids, same count, same order."
+            )
         ),
     }
     messages = [
@@ -608,15 +669,29 @@ def refine_single_script(
             "title_hinglish": title_hinglish or "",
         },
         "note": (
-            "SINGLE SCRIPT REFINE. Rewrite only this script using user_prompt. "
-            "Intro = greeting → name, designation → plural team invite (समझेंगे), "
-            "not समझाता हूं / clear करता हूं. "
-            "No hospital names. "
-            "CTA bias: call / नीचे दिए हुए नंबर / consultation / appointment / evaluation "
-            "with urgency (अभी…). Never insert a phone number. "
-            "No spoken section titles. Soft specialty-treatment bias when fitting. "
-            "Formal verbs only (कीजिए / देखिए), never कर ले / देख ले. "
-            "Never use em dashes (—) or en dashes (–) in script text."
+            (
+                "SINGLE SCRIPT REFINE. Rewrite only this script using user_prompt. "
+                "Intro = greeting → name, role → plural invite (समझेंगे), "
+                "not समझाता हूं / clear करता हूं. "
+                "doctor_name and doctor_designation are the creator's name and role. "
+                "No clinic, doctor, patient, or clinical-fact wording. "
+                "CTA: comment, save, follow, or the creator's next step. No phone number. "
+                "No spoken section titles. "
+                "Formal verbs only (कीजिए / देखिए), never कर ले / देख ले. "
+                "Never use em dashes (—) or en dashes (–) in script text."
+            )
+            if _creator_voice()
+            else (
+                "SINGLE SCRIPT REFINE. Rewrite only this script using user_prompt. "
+                "Intro = greeting → name, designation → plural team invite (समझेंगे), "
+                "not समझाता हूं / clear करता हूं. "
+                "No hospital names. "
+                "CTA bias: call / नीचे दिए हुए नंबर / consultation / appointment / evaluation "
+                "with urgency (अभी…). Never insert a phone number. "
+                "No spoken section titles. Soft specialty-treatment bias when fitting. "
+                "Formal verbs only (कीजिए / देखिए), never कर ले / देख ले. "
+                "Never use em dashes (—) or en dashes (–) in script text."
+            )
         ),
     }
     if not payload["user_prompt"]:

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
+import { notifyConnectionExpired } from '../components/ConnectionExpiryBanner'
 import ConfirmModal from '../components/ConfirmModal'
 import CaptionCount, { captionTooLong } from '../components/CaptionCount'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
+import { useClientPresentation } from '../hooks/useClientPresentation'
 
 function clampCount(value, max) {
   const parsed = Number.parseInt(value, 10)
@@ -88,6 +90,10 @@ export default function ClientSocialGenerate() {
   const { client, clientId } = useOutletContext()
   const { token } = useAuth()
   const { toast } = useUI()
+  const aiRankedKeywords = useClientPresentation(client).aiRankedKeywords
+  const keywordEmptyText = aiRankedKeywords
+    ? 'No keywords yet. Refresh topics in Settings first.'
+    : 'No recommendation keywords found with score 50 or higher.'
 
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState('script')
@@ -121,6 +127,7 @@ export default function ClientSocialGenerate() {
 
   const [postCaption, setPostCaption] = useState('')
   const [publishTargets, setPublishTargets] = useState(['instagram', 'facebook'])
+  const [gbpReady, setGbpReady] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [editingCaptionPostId, setEditingCaptionPostId] = useState(null)
   const [editingCaptionText, setEditingCaptionText] = useState('')
@@ -195,6 +202,24 @@ export default function ClientSocialGenerate() {
   useEffect(() => {
     if (token && clientId) void loadSources()
   }, [token, clientId, loadSources])
+
+  useEffect(() => {
+    if (!token || !clientId) return
+    let cancelled = false
+    api
+      .gbpConnectionGet(token, clientId)
+      .then((data) => {
+        if (cancelled) return
+        const selected = (data?.locations || []).some((row) => row.selected)
+        setGbpReady(Boolean(data?.connected && selected))
+      })
+      .catch(() => {
+        if (!cancelled) setGbpReady(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [token, clientId])
 
   const recommendedKeywords = data.recommended_keywords || []
   const maxKeywordCount = recommendedKeywords.length || 1
@@ -398,7 +423,7 @@ export default function ClientSocialGenerate() {
       toast('Please select at least one platform.', 'error')
       return
     }
-    if (captionTooLong(postCaption)) {
+    if (publishTargets.includes('instagram') && captionTooLong(postCaption)) {
       toast('Caption is over Instagram’s 2,200 character limit.', 'error')
       return
     }
@@ -418,6 +443,7 @@ export default function ClientSocialGenerate() {
       setSavedPosts(result.posts || [])
       setDraft(result.current_post || null)
     } catch (err) {
+      notifyConnectionExpired(err.message, clientId)
       toast(err.message, 'error')
     } finally {
       setPublishing(false)
@@ -557,8 +583,8 @@ export default function ClientSocialGenerate() {
               { label: 'Static Posts' },
             ]}
           />
-          <h1>Generate Instagram Post</h1>
-          <p>Select a scripted topic or pick recommended keywords for a static Instagram post.</p>
+          <h1>Generate Static Post</h1>
+          <p>Select a scripted topic or pick recommended keywords, then post to Instagram, Facebook, or Google Business.</p>
         </div>
       </header>
 
@@ -650,7 +676,9 @@ export default function ClientSocialGenerate() {
               <div className="profile-section">
                 <h2>Smart Pick</h2>
                 <p className="profile-section-desc">
-                  Picks from recommendation keywords with score 50 or higher, weighted by score.
+                  {aiRankedKeywords
+                    ? 'Picks the top keywords from Settings, ranked by score.'
+                    : 'Picks from recommendation keywords with score 50 or higher, weighted by score.'}
                 </p>
                 <div className="pick-count-row">
                   <span>Keyword count</span>
@@ -700,6 +728,7 @@ export default function ClientSocialGenerate() {
                       activeTopicId={activeTopicId}
                       onActiveSelect={setActiveTopicId}
                       name="picked_topic"
+                      emptyText={keywordEmptyText}
                     />
                   </>
                 )}
@@ -710,7 +739,9 @@ export default function ClientSocialGenerate() {
               <div className="profile-section">
                 <h2>Manual Pick</h2>
                 <p className="profile-section-desc">
-                  Manually select recommendation keywords with score 50 or higher.
+                  {aiRankedKeywords
+                    ? 'Manually select any keyword from Settings, ranked by score.'
+                    : 'Manually select recommendation keywords with score 50 or higher.'}
                 </p>
                 <details className="keyword-dropdown-card" open>
                   <summary>
@@ -724,6 +755,7 @@ export default function ClientSocialGenerate() {
                     activeTopicId={activeManualTopicId}
                     onActiveSelect={setActiveManualTopicId}
                     name="manual_keyword"
+                    emptyText={keywordEmptyText}
                   />
                 </details>
               </div>
@@ -930,7 +962,7 @@ export default function ClientSocialGenerate() {
                     <img
                       className="draft-generated-image"
                       src={assetUrl(draft.image_url)}
-                      alt={`Generated Instagram post for ${draft.topic_text}`}
+                      alt={`Generated static post for ${draft.topic_text}`}
                     />
                   ) : (
                     <div className="draft-image-placeholder">
@@ -1135,6 +1167,19 @@ export default function ClientSocialGenerate() {
                               >
                                 <i className="fa-brands fa-instagram"></i>
                               </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleToggleTarget(post, 'gbp'); }}
+                                title={(post.publish_targets || []).includes('gbp') ? "Scheduled for Google Business (Click to Unschedule)" : "Not scheduled for Google Business (Click to Schedule)"}
+                                style={{
+                                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                  color: (post.publish_targets || []).includes('gbp') ? '#188038' : '#cbd5e1',
+                                  transition: 'color 0.2s', fontSize: '18px'
+                                }}
+                                disabled={generating || !gbpReady}
+                              >
+                                <i className="fa-solid fa-store"></i>
+                              </button>
                             </div>
                             <button
                               type="button"
@@ -1282,7 +1327,24 @@ export default function ClientSocialGenerate() {
                   />
                   <span><i className="fa-brands fa-facebook" style={{ color: '#1877F2' }}></i> Facebook</span>
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: gbpReady ? 'pointer' : 'not-allowed' }}>
+                  <input
+                    type="checkbox"
+                    disabled={!gbpReady}
+                    checked={publishTargets.includes('gbp')}
+                    onChange={(e) => {
+                      if (e.target.checked) setPublishTargets([...publishTargets, 'gbp'])
+                      else setPublishTargets(publishTargets.filter((t) => t !== 'gbp'))
+                    }}
+                  />
+                  <span><i className="fa-solid fa-store" style={{ color: '#188038' }}></i> Google Business</span>
+                </label>
               </div>
+              {!gbpReady && (
+                <p className="text-muted" style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>
+                  Connect Google Business and select a location to enable this.
+                </p>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button 
@@ -1295,7 +1357,7 @@ export default function ClientSocialGenerate() {
               <button 
                 className="btn btn-primary" 
                 onClick={handleConfirmPublish}
-                disabled={publishing || captionTooLong(postCaption)}
+                disabled={publishing || (publishTargets.includes('instagram') && captionTooLong(postCaption))}
               >
                 {publishing ? 'Processing...' : (targetAction === 'schedule' ? 'Schedule Post' : 'Publish Now')}
               </button>
@@ -1336,7 +1398,24 @@ export default function ClientSocialGenerate() {
                   />
                   <span><i className="fa-brands fa-facebook" style={{ color: '#1877F2' }}></i> Facebook</span>
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: gbpReady ? 'pointer' : 'not-allowed' }}>
+                  <input
+                    type="checkbox"
+                    disabled={!gbpReady}
+                    checked={publishTargets.includes('gbp')}
+                    onChange={(e) => {
+                      if (e.target.checked) setPublishTargets([...publishTargets, 'gbp'])
+                      else setPublishTargets(publishTargets.filter((t) => t !== 'gbp'))
+                    }}
+                  />
+                  <span><i className="fa-solid fa-store" style={{ color: '#188038' }}></i> Google Business</span>
+                </label>
               </div>
+              {!gbpReady && (
+                <p className="text-muted" style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>
+                  Connect Google Business and select a location to enable this.
+                </p>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button 

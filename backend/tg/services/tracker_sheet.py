@@ -21,6 +21,7 @@ STAGE_LABELS = {
     "posted": "Posted",
     "published": "Published",
     "link_shared_with_doctor": "Link shared with doctor",
+    "link_shared_with_client": "Link shared with client",
     "creatives_checked": "Creatives checked",
     "balance_checked": "Balance checked",
     "next_2_weeks_planned": "Next 2 weeks planned",
