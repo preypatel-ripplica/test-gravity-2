@@ -211,6 +211,8 @@ def update_client(
     website_url: str | None = None,
     specialty: str | None = None,
     niche: str | None = None,
+    niche_details: str | None = None,
+    example_topics: list | None = None,
     designation: str | None = None,
     description: str | None = None,
     reference_youtube_channel: str | None = None,
@@ -259,6 +261,14 @@ def update_client(
         fields["specialty"] = specialty.strip() or None
     if niche is not None:
         fields["niche"] = niche.strip() or None
+    if niche_details is not None:
+        fields["niche_details"] = niche_details.strip() or None
+    if example_topics is not None:
+        fields["example_topics"] = [
+            str(topic).strip()
+            for topic in example_topics
+            if topic is not None and str(topic).strip()
+        ]
     if designation is not None:
         fields["designation"] = designation.strip() or None
     if description is not None:
@@ -404,6 +414,8 @@ def refresh_client_topics(
     website_url: str | None = None,
     specialty: str | None = None,
     niche: str | None = None,
+    niche_details: str | None = None,
+    example_topics: list | None = None,
     description: str | None = None,
     reference_youtube_channel: str | None = None,
     topics: list | None = None,
@@ -432,6 +444,14 @@ def refresh_client_topics(
         fields["specialty"] = specialty.strip() or None
     if niche is not None:
         fields["niche"] = niche.strip() or None
+    if niche_details is not None:
+        fields["niche_details"] = niche_details.strip() or None
+    if example_topics is not None:
+        fields["example_topics"] = [
+            str(topic).strip()
+            for topic in example_topics
+            if topic is not None and str(topic).strip()
+        ]
     if description is not None:
         fields["description"] = description.strip() or None
     if reference_youtube_channel is not None:

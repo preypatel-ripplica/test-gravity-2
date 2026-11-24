@@ -417,6 +417,10 @@ def generate_creator_keywords(
         profile["website_url"] = kwargs.get("website_url")
     if kwargs.get("niche") is not None:
         profile["niche"] = kwargs.get("niche")
+    if kwargs.get("niche_details") is not None:
+        profile["niche_details"] = kwargs.get("niche_details")
+    if kwargs.get("example_topics") is not None:
+        profile["example_topics"] = kwargs.get("example_topics")
     if kwargs.get("description") is not None:
         profile["description"] = kwargs.get("description")
     detail = search_profile_error(profile)
@@ -456,6 +460,8 @@ def refresh_creator_keywords(
     *,
     website_url: str | None = None,
     niche: str | None = None,
+    niche_details: str | None = None,
+    example_topics: list | None = None,
     description: str | None = None,
     topics: list | None = None,
     user_prompt: str | None = None,
@@ -483,6 +489,14 @@ def refresh_creator_keywords(
         fields["website_url"] = website_url.strip() or None
     if niche is not None:
         fields["niche"] = niche.strip() or None
+    if niche_details is not None:
+        fields["niche_details"] = niche_details.strip() or None
+    if example_topics is not None:
+        fields["example_topics"] = [
+            str(topic).strip()
+            for topic in example_topics
+            if topic is not None and str(topic).strip()
+        ]
     if description is not None:
         fields["description"] = description.strip() or None
     if fields:
@@ -496,6 +510,9 @@ def refresh_creator_keywords(
         client=client,
         client_id=client_id,
         user_prompt=user_prompt,
+        niche=niche if niche is not None else client.get("niche"),
+        niche_details=niche_details if niche_details is not None else client.get("niche_details"),
+        example_topics=example_topics if example_topics is not None else client.get("example_topics"),
     )
     client = fetch_client_doc(client_id, username=username) or client
     existing_now = normalize_topics(fetch_topics(client_id))

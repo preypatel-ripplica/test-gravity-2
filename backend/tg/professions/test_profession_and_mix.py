@@ -292,6 +292,23 @@ def test_creator_search_payload_and_keyword_mapping():
     )
     assert search_profile_error({"niche": "food", "niche_details": "late night eats"}) is None
 
+    from backend.tg.schemas import ClientRefreshTopicsRequest, ClientUpdateRequest
+
+    update = ClientUpdateRequest(
+        client_id="c1",
+        niche="royal gt",
+        niche_details="motogp educational content",
+        example_topics=["bike reviews"],
+    )
+    assert update.niche_details == "motogp educational content"
+    assert update.example_topics == ["bike reviews"]
+    refresh = ClientRefreshTopicsRequest(
+        client_id="c1",
+        niche="royal gt",
+        niche_details="motogp educational content",
+    )
+    assert refresh.niche_details == "motogp educational content"
+
     payload = build_search_payload(
         {
             "name": "Jigar",

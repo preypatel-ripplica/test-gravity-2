@@ -47,6 +47,8 @@ class ClientSummary(BaseModel):
     website_url: Optional[str] = None
     specialty: Optional[str] = None
     niche: Optional[str] = None
+    niche_details: Optional[str] = None
+    example_topics: List[str] = []
     designation: Optional[str] = None
     description: Optional[str] = None
     # Public channel URL/@handle for keyword planning (no OAuth)
@@ -147,6 +149,8 @@ class ClientUpdateRequest(BaseModel):
     website_url: Optional[str] = None
     specialty: Optional[str] = None
     niche: Optional[str] = None
+    niche_details: Optional[str] = None
+    example_topics: Optional[List[str]] = None
     designation: Optional[str] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
@@ -201,6 +205,8 @@ class ClientRefreshTopicsRequest(BaseModel):
     website_url: Optional[str] = None
     specialty: Optional[str] = None
     niche: Optional[str] = None
+    niche_details: Optional[str] = None
+    example_topics: Optional[List[str]] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
     topics: Optional[List[TopicItem]] = None  # current form state; manuals preserved
