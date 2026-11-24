@@ -180,6 +180,47 @@ def render_report_html(
     )
 
 
+def render_instagram_report_html(
+    *,
+    client_name: str,
+    metrics: dict[str, Any],
+    narrative: dict[str, Any],
+) -> str:
+    env = Environment(
+        loader=FileSystemLoader(str(TEMPLATES_DIR)),
+        autoescape=select_autoescape(["html", "xml"]),
+    )
+    env.globals["fmt_int"] = _fmt_int
+    env.globals["fmt_pct"] = _fmt_pct
+    template = env.get_template("instagram_monthly_report.html")
+    current = metrics.get("current") or {}
+    previous = metrics.get("previous") or {}
+    charts = metrics.get("charts") or []
+    reels = list(metrics.get("reels") or [])[:12]
+    for reel in reels:
+        caption = " ".join(str(reel.get("caption") or "").split())
+        reel["caption"] = (caption[:72] + "…") if len(caption) > 72 else caption
+    return template.render(
+        client_name=client_name,
+        handle=metrics.get("instagram_username") or "",
+        report_month_label=_month_label(metrics.get("report_month")),
+        previous_month_label=_month_label(metrics.get("previous_month")),
+        current=current,
+        previous=previous,
+        mom=metrics.get("mom") or {},
+        narrative={
+            "executive_summary": narrative.get("executive_summary") or "",
+            "strong_callout": narrative.get("strong_callout") or "",
+            "highlights": [str(item) for item in (narrative.get("highlights") or []) if str(item).strip()],
+            "previous_month_blurb": narrative.get("previous_month_blurb") or "",
+            "reel_story": narrative.get("reel_story") or "",
+            "next_steps": narrative.get("next_steps") or "",
+        },
+        reels=reels,
+        charts_json=json.dumps(charts),
+    )
+
+
 def export_html_to_pdf(html: str, pdf_path: Path) -> Path:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)

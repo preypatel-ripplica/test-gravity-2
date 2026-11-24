@@ -14,6 +14,7 @@ from backend.tg.auth import get_current_user
 from backend.tg.database import (
     fetch_custom_trackers_by_client_ids,
     fetch_weekly_trackers_by_ids,
+    is_plug_migrated,
     list_clients_for_user,
     list_sheet_comments_for_month,
     require_domain_for_user,
@@ -95,7 +96,11 @@ def _tasks_from_doc(doc: dict | None) -> list[dict]:
 
 @router.post("/tracker.sheet.clients")
 def tracker_sheet_clients(current_user: dict = Depends(get_current_user)):
-    clients = list_clients_for_user(current_user["username"], with_topics=False)
+    clients = [
+        client
+        for client in list_clients_for_user(current_user["username"], with_topics=False)
+        if not is_plug_migrated(client)
+    ]
     rows = sorted(
         [
             {
@@ -316,7 +321,7 @@ def tracker_sheet_all(
     clients = [
         client
         for client in list_clients_for_user(username, with_topics=False)
-        if client.get("is_active") is not False
+        if client.get("is_active") is not False and not is_plug_migrated(client)
     ]
     past_weeks = _past_week_keys(current, last, clients)
     week_keys = list(dict.fromkeys([current, nxt, *past_weeks]))

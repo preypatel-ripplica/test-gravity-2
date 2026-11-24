@@ -96,6 +96,10 @@ class ProjectUpdateBody(BaseModel):
     status: Optional[ProjectStatus] = None
     website_url: Optional[str] = None
     specialty: Optional[str] = None
+    niche: Optional[str] = None
+    niche_details: Optional[str] = None
+    example_topics: Optional[list[str]] = None
+    profession: Optional[str] = None
     designation: Optional[str] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
@@ -206,6 +210,7 @@ def auth_me(auth: dict = Depends(current_user)):
     if str(user.get("type") or "") == UserType.EDITOR.value:
         return out
 
+    from backend.tg.professions import client_profession_fields
     from backend.trackers.tracker_settings import stored_monthly_slots
 
     data = project_list(auth)
@@ -221,6 +226,8 @@ def auth_me(auth: dict = Depends(current_user)):
                 "website_url": p.get("website_url"),
                 "specialty": p.get("specialty"),
                 "designation": p.get("designation"),
+                **client_profession_fields(p),
+                "migrated_from_plug": p.get("migrated_from_plug") or None,
                 "description": p.get("description"),
                 "reference_youtube_channel": p.get("reference_youtube_channel"),
                 "ai_videos_started_from": p.get("ai_videos_started_from"),
@@ -449,6 +456,21 @@ def project_update(body: ProjectUpdateBody, auth: dict = Depends(current_user)):
         val = getattr(body, key)
         if val is not None:
             updates[key] = val
+    if body.niche is not None:
+        updates["niche"] = body.niche.strip() or None
+    if body.niche_details is not None:
+        updates["niche_details"] = body.niche_details.strip() or None
+    if body.example_topics is not None:
+        updates["example_topics"] = [
+            str(topic).strip() for topic in body.example_topics if str(topic).strip()
+        ]
+    if body.profession is not None:
+        from backend.tg.professions import SELECTABLE_PROFESSIONS, normalize_profession_key
+
+        key = normalize_profession_key(body.profession)
+        if key not in SELECTABLE_PROFESSIONS:
+            raise HTTPException(400, "That profession is not available yet.")
+        updates["profession"] = key
     if (
         body.tracker_start_year is not None
         or body.tracker_start_month is not None

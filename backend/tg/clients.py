@@ -210,6 +210,7 @@ def update_client(
     name: str | None = None,
     website_url: str | None = None,
     specialty: str | None = None,
+    niche: str | None = None,
     designation: str | None = None,
     description: str | None = None,
     reference_youtube_channel: str | None = None,
@@ -220,6 +221,7 @@ def update_client(
     tracker_start_week: int | None = None,
     tracker_deliverables: list | None = None,
     is_active: bool | None = None,
+    profession: str | None = None,
     topics: list | None = None,
 ) -> dict:
     from backend.main.models import ProjectStatus
@@ -255,6 +257,8 @@ def update_client(
         fields["website_url"] = website_url.strip() or None
     if specialty is not None:
         fields["specialty"] = specialty.strip() or None
+    if niche is not None:
+        fields["niche"] = niche.strip() or None
     if designation is not None:
         fields["designation"] = designation.strip() or None
     if description is not None:
@@ -310,6 +314,16 @@ def update_client(
         fields["status"] = (
             ProjectStatus.ACTIVE.value if is_active else ProjectStatus.ARCHIVED.value
         )
+    if profession is not None:
+        from backend.tg.professions import SELECTABLE_PROFESSIONS, normalize_profession_key
+
+        key = normalize_profession_key(profession)
+        if key not in SELECTABLE_PROFESSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="That profession is not available yet.",
+            )
+        fields["profession"] = key
 
     client = update_client_fields(client_id, username, fields) or {}
     if sync_deliverables:
@@ -389,10 +403,13 @@ def refresh_client_topics(
     *,
     website_url: str | None = None,
     specialty: str | None = None,
+    niche: str | None = None,
     description: str | None = None,
     reference_youtube_channel: str | None = None,
     topics: list | None = None,
     user_prompt: str | None = None,
+    topic_systems: dict | None = None,
+    include_recommendation_score: bool = False,
 ) -> dict:
     """Regenerate auto topics; preserve manually added topics."""
     from .services.topics import generate_auto_topics, merge_topics
@@ -413,6 +430,8 @@ def refresh_client_topics(
         fields["website_url"] = website_url.strip() or None
     if specialty is not None:
         fields["specialty"] = specialty.strip() or None
+    if niche is not None:
+        fields["niche"] = niche.strip() or None
     if description is not None:
         fields["description"] = description.strip() or None
     if reference_youtube_channel is not None:
@@ -457,10 +476,13 @@ def refresh_client_topics(
     )
 
     print("[topics] generate_auto_topics …", flush=True)
+    ai_specialty = client.get("specialty")
+    if topic_systems:
+        ai_specialty = (client.get("niche") or "").strip() or ai_specialty
     auto, scrape_meta = generate_auto_topics(
         client_id=client.get("id"),
         client_name=client.get("name"),
-        specialty=client.get("specialty"),
+        specialty=ai_specialty,
         description=client.get("description"),
         website_url=client.get("website_url"),
         video_titles=video_titles,
@@ -468,6 +490,9 @@ def refresh_client_topics(
         manual_topics=manual,
         existing_auto_topics=existing_auto,
         user_prompt=user_prompt,
+        niche=client.get("niche"),
+        topic_systems=topic_systems,
+        include_recommendation_score=include_recommendation_score,
     )
     print(
         f"[topics] generate_auto_topics DONE auto={len(auto)} "
@@ -494,9 +519,14 @@ def refresh_client_topics(
         flush=True,
     )
 
-    # Prefer AI/scrape specialty when the client still has none
+    # Prefer AI/scrape specialty when the client still has none.
+    # Creator refreshes store a detected niche and leave specialty alone.
     detected = scrape_meta.get("specialty")
-    if detected and not client.get("specialty"):
+    if topic_systems:
+        if detected and not (client.get("niche") or "").strip():
+            client = update_client_fields(client_id, username, {"niche": detected}) or client
+            print(f"[topics] niche set from AI: {detected!r}", flush=True)
+    elif detected and not client.get("specialty"):
         client = update_client_fields(client_id, username, {"specialty": detected}) or client
         print(f"[topics] specialty set from AI: {detected!r}", flush=True)
 

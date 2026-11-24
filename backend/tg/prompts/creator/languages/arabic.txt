@@ -1,0 +1,7 @@
+Write the title and description in Modern Standard Arabic that a general audience would understand, using Arabic script throughout. Keep widely searched English topic terms only where Arabic viewers actually search for them.
+
+Do NOT write in Hinglish, Hindi, or English-only copy. The description should read naturally right-to-left.
+
+Tags should mix Arabic phrases and English topic keywords for SEO (YouTube tags are not RTL-sensitive).
+No clinic, doctor, patient, or clinical-fact wording.
+Language label for this output: Arabic.

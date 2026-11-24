@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ client_name }} — {{ report_month_label }} Instagram Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --bg: #f8fafc;
+      --accent: #be185d;
+      --accent-2: #db2777;
+      --accent-soft: #fdf2f8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 420px at 10% -10%, #fce7f3 0%, transparent 55%),
+        linear-gradient(180deg, #f8fafc 0%, var(--bg) 240px);
+      line-height: 1.5;
+    }
+    .page { max-width: 960px; margin: 0 auto; padding: 32px 28px 56px; }
+    h1 { font-size: 30px; letter-spacing: -0.03em; margin: 4px 0 6px; font-weight: 700; }
+    h2 {
+      font-size: 15px;
+      margin: 28px 0 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .eyebrow {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      margin: 0 0 22px;
+      background: rgba(255,255,255,0.65);
+    }
+    .kpi { padding: 16px 14px 18px; border-right: 1px solid var(--line); }
+    .kpi:last-child { border-right: 0; }
+    .kpi .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+    .kpi .value { font-size: 24px; font-weight: 700; margin-top: 6px; letter-spacing: -0.02em; }
+    .kpi .delta { font-size: 12px; color: var(--accent-2); margin-top: 4px; font-weight: 500; }
+    .lead { font-size: 16px; margin: 0 0 14px; max-width: 72ch; }
+    .callout { margin: 14px 0 18px; padding: 0 0 0 14px; border-left: 3px solid var(--accent); }
+    p { margin: 0 0 10px; font-size: 14px; max-width: 78ch; }
+    ul { margin: 0 0 12px; padding-left: 18px; }
+    li { margin: 0 0 6px; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 6px; }
+    th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .section-note { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
+    .charts { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 8px; }
+    .chart-wrap { position: relative; height: 240px; }
+    @media print {
+      body { background: white; }
+      .page { max-width: none; padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="eyebrow">Monthly Instagram performance</div>
+    <h1>{{ client_name }}</h1>
+    <p class="sub">
+      {{ report_month_label }}
+      {% if handle %}· @{{ handle }}{% endif %}
+      {% if previous_month_label %}· compared with {{ previous_month_label }}{% endif %}
+    </p>
+
+    <div class="kpis">
+      <div class="kpi">
+        <div class="label">Views</div>
+        <div class="value">{{ fmt_int(current.views) }}</div>
+        <div class="delta">{% if mom.views_pct is not none %}{{ fmt_pct(mom.views_pct) }} vs prior month{% else %}{{ report_month_label }} total{% endif %}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Reach</div>
+        <div class="value">{{ fmt_int(current.reach) }}</div>
+        <div class="delta">{% if mom.reach_pct is not none %}{{ fmt_pct(mom.reach_pct) }} vs prior month{% else %}{{ report_month_label }} total{% endif %}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Interactions</div>
+        <div class="value">{{ fmt_int(current.total_interactions) }}</div>
+        <div class="delta">{{ fmt_int(current.likes) }} likes · {{ fmt_int(current.comments) }} comments</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Reels</div>
+        <div class="value">{{ fmt_int(current.reel_count) }}</div>
+        <div class="delta">{{ fmt_int(current.saves) }} saves · {{ fmt_int(current.shares) }} shares</div>
+      </div>
+    </div>
+
+    <h2>Executive summary</h2>
+    <p class="lead">{{ narrative.executive_summary }}</p>
+    {% if narrative.strong_callout %}
+    <div class="callout"><p>{{ narrative.strong_callout }}</p></div>
+    {% endif %}
+
+    {% if narrative.highlights %}
+    <h2>Highlights</h2>
+    <ul>
+      {% for item in narrative.highlights %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if narrative.previous_month_blurb %}
+    <h2>Vs previous month</h2>
+    <p>{{ narrative.previous_month_blurb }}</p>
+    {% endif %}
+
+    {% if narrative.reel_story %}
+    <h2>Reels</h2>
+    <p>{{ narrative.reel_story }}</p>
+    {% endif %}
+
+    {% if reels %}
+    <table>
+      <thead>
+        <tr>
+          <th>Reel</th>
+          <th>Views</th>
+          <th>Reach</th>
+          <th>Likes</th>
+          <th>Comments</th>
+          <th>Saves</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for reel in reels %}
+        <tr>
+          <td>{{ reel.caption or 'Reel' }}</td>
+          <td class="num">{{ fmt_int(reel.views) }}</td>
+          <td class="num">{{ fmt_int(reel.reach) }}</td>
+          <td class="num">{{ fmt_int(reel.likes) }}</td>
+          <td class="num">{{ fmt_int(reel.comments) }}</td>
+          <td class="num">{{ fmt_int(reel.saved) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if narrative.next_steps %}
+    <h2>What to do next</h2>
+    <p>{{ narrative.next_steps }}</p>
+    {% endif %}
+
+    <h2>Analytics graphs</h2>
+    <p class="section-note">Daily views and reach for the report month.</p>
+    <div class="charts" id="charts-root"></div>
+  </div>
+  <script>
+    window.__REPORT_CHARTS__ = {{ charts_json | safe }};
+    (function () {
+      const charts = window.__REPORT_CHARTS__ || [];
+      const root = document.getElementById('charts-root');
+      const palette = ['#be185d', '#db2777', '#9d174d', '#f472b6'];
+      charts.forEach(function (cfg, idx) {
+        const block = document.createElement('div');
+        block.className = 'chart-block';
+        block.innerHTML = '<h3 style="font-size:12px;color:#64748b;margin:0 0 8px;"></h3><div class="chart-wrap"><canvas></canvas></div>';
+        block.querySelector('h3').textContent = cfg.title || ('Chart ' + (idx + 1));
+        root.appendChild(block);
+        const ctx = block.querySelector('canvas').getContext('2d');
+        const datasets = (cfg.datasets || []).map(function (ds, i) {
+          return {
+            label: ds.label || '',
+            data: ds.data || [],
+            backgroundColor: palette[i % palette.length] + '22',
+            borderColor: palette[i % palette.length],
+            borderWidth: 2,
+            fill: true,
+            tension: 0.25,
+          };
+        });
+        new Chart(ctx, {
+          type: cfg.type || 'line',
+          data: { labels: cfg.labels || [], datasets: datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: datasets.length > 1 } },
+            scales: {
+              x: { grid: { color: '#eef2f6' }, ticks: { maxRotation: 0 } },
+              y: { grid: { color: '#eef2f6' }, beginAtZero: true },
+            },
+          },
+        });
+      });
+      window.__CHARTS_READY__ = true;
+    })();
+  </script>
+</body>
+</html>

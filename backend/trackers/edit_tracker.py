@@ -129,12 +129,14 @@ def _hydrate_card(card: dict, project: dict, late: bool, *, fill_editor: bool = 
 
 
 def _active_projects() -> list[dict]:
-    return list(
-        projects_col().find(
+    return [
+        row
+        for row in projects_col().find(
             {"status": {"$ne": ProjectStatus.ARCHIVED.value}},
             {"_id": 0},
         )
-    )
+        if not str(row.get("migrated_from_plug") or "").strip()
+    ]
 
 
 def _shift_week(year: int, month: int, week: int, delta: int = 1) -> tuple[int, int, int]:

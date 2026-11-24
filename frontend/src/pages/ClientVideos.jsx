@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import api from '../api'
 import Breadcrumbs from '../components/Breadcrumbs'
+import { notifyConnectionExpired } from '../components/ConnectionExpiryBanner'
+import SourceSwitcher from '../components/SourceSwitcher'
 import VideosPanel from '../components/VideosPanel'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -13,9 +15,41 @@ export default function ClientVideos() {
 
   const [videos, setVideos] = useState([])
   const [loading, setLoading] = useState(false)
+  const [source, setSource] = useState('youtube')
 
   const loadVideos = useCallback(async () => {
-    if (!token || !clientId || !channels?.length) {
+    if (!token || !clientId) return
+    if (source === 'instagram') {
+      setLoading(true)
+      try {
+        const [data, config] = await Promise.all([
+          api.listInstagramVideos(token, clientId),
+          api.getInstagramConfig(token, clientId).catch(() => null),
+        ])
+        const connection = config?.connection || {}
+        const accountId = connection.instagram_user_id || ''
+        const accountTitle = connection.instagram_username
+          ? `@${connection.instagram_username}`
+          : accountId
+        setVideos(
+          (data.videos || []).map((video) => {
+            const id = video.channel_id || video.channelId || accountId
+            return {
+              ...video,
+              channelId: id,
+              channelTitle: id === accountId && accountTitle ? accountTitle : id ? `@${id}` : accountTitle,
+            }
+          }),
+        )
+      } catch (err) {
+        toast(`Failed to load Instagram videos: ${err.message}`, 'error')
+        setVideos([])
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+    if (!channels?.length) {
       setVideos([])
       return
     }
@@ -42,13 +76,40 @@ export default function ClientVideos() {
     } finally {
       setLoading(false)
     }
-  }, [token, clientId, channels, toast])
+  }, [token, clientId, channels, toast, source])
 
   useEffect(() => {
     if (!loadingChannels) loadVideos()
   }, [loadingChannels, loadVideos])
 
   async function handleSync() {
+    if (source === 'instagram') {
+      toast('Syncing Instagram reels…', 'info')
+      try {
+        const [data, config] = await Promise.all([
+          api.syncInstagramVideos(token, clientId),
+          api.getInstagramConfig(token, clientId).catch(() => null),
+        ])
+        const connection = config?.connection || {}
+        const accountId = connection.instagram_user_id || ''
+        const accountTitle = connection.instagram_username
+          ? `@${connection.instagram_username}`
+          : accountId
+        const next = (data.videos || []).map((video) => {
+          const id = video.channel_id || video.channelId || accountId
+          return {
+            ...video,
+            channelId: id,
+            channelTitle: id === accountId && accountTitle ? accountTitle : id ? `@${id}` : accountTitle,
+          }
+        })
+        setVideos(next)
+        return next.length
+      } catch (err) {
+        notifyConnectionExpired(err.message, clientId)
+        throw err
+      }
+    }
     toast('Syncing all channels in parallel...', 'info')
     const syncPromises = channels.map((ch) =>
       api.syncVideos(token, clientId, ch.id).catch((err) => {
@@ -115,9 +176,13 @@ export default function ClientVideos() {
             ]}
           />
           <h1>Videos Database</h1>
-          <p>Consolidated videos across all channels</p>
+          <p>{source === 'youtube' ? 'Consolidated videos across all channels' : 'Published Instagram reels'}</p>
         </div>
       </header>
+
+      <div style={{ marginBottom: 16 }}>
+        <SourceSwitcher value={source} onChange={setSource} ariaLabel="Video library source" />
+      </div>
 
       {(loading || loadingChannels) && (
         <div className="loading-overlay inline-loading">
@@ -128,7 +193,7 @@ export default function ClientVideos() {
         </div>
       )}
 
-      {!loading && !loadingChannels && !hasChannels && (
+      {!loading && !loadingChannels && source === 'youtube' && !hasChannels && (
         <div className="connect-prompt-container card animate-fade-in">
           <div className="prompt-illustration">
             <i className="fa-brands fa-youtube illustration-icon red-icon" />
@@ -141,12 +206,19 @@ export default function ClientVideos() {
         </div>
       )}
 
-      {!loading && !loadingChannels && hasChannels && (
+      {!loading && !loadingChannels && (source === 'instagram' || hasChannels) && (
         <VideosPanel
           videos={videos}
           onSync={handleSync}
           onUpdate={handleUpdate}
           isClientLevel
+          libraryPlatform={source}
+          libraryHint={source === 'instagram' ? 'Instagram reels saved for this client' : ''}
+          emptyHint={
+            source === 'instagram'
+              ? 'Click Sync video stats to pull reels from Instagram.'
+              : 'Click Sync video stats to fetch videos from YouTube.'
+          }
         />
       )}
     </>

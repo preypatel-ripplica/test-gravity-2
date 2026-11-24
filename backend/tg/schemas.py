@@ -46,10 +46,16 @@ class ClientSummary(BaseModel):
     channel_count: int = 0
     website_url: Optional[str] = None
     specialty: Optional[str] = None
+    niche: Optional[str] = None
     designation: Optional[str] = None
     description: Optional[str] = None
     # Public channel URL/@handle for keyword planning (no OAuth)
     reference_youtube_channel: Optional[str] = None
+    profession: str = "doctor"
+    migrated_from_plug: Optional[str] = None
+    capabilities: dict = Field(default_factory=dict)
+    youtube_languages: List[dict] = []
+    posting_mix: Optional[dict] = None
     # YYYY-MM — videos published on/after this month count as AI/new
     ai_videos_started_from: Optional[str] = None
     onboarding_date: Optional[str] = None
@@ -140,6 +146,7 @@ class ClientUpdateRequest(BaseModel):
     name: Optional[str] = None
     website_url: Optional[str] = None
     specialty: Optional[str] = None
+    niche: Optional[str] = None
     designation: Optional[str] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
@@ -150,6 +157,7 @@ class ClientUpdateRequest(BaseModel):
     tracker_start_week: Optional[int] = None
     tracker_deliverables: Optional[List[TrackerDeliverableSlot]] = None
     is_active: Optional[bool] = None
+    profession: Optional[str] = None
     topics: Optional[List[TopicItem]] = None
 
 
@@ -192,6 +200,7 @@ class ClientRefreshTopicsRequest(BaseModel):
     client_id: str
     website_url: Optional[str] = None
     specialty: Optional[str] = None
+    niche: Optional[str] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
     topics: Optional[List[TopicItem]] = None  # current form state; manuals preserved
@@ -616,7 +625,7 @@ class SocialPostDraft(BaseModel):
     platform: str = "instagram"
     source_type: str
     topic_id: Optional[str] = None
-    topic_text: str
+    topic_text: str = ""
     content_plan_item_id: Optional[str] = None
     brief: SocialPostBrief
     image_status: str = "pending"
@@ -637,6 +646,9 @@ class SocialPostDraft(BaseModel):
     facebook_post_id: Optional[str] = None
     instagram_permalink: Optional[str] = None
     facebook_permalink: Optional[str] = None
+    gbp_post_name: Optional[str] = None
+    gbp_search_url: Optional[str] = None
+    gbp_summary: Optional[str] = None
 
 class SocialPostQueueAddRequest(BaseModel):
     post_id: str
@@ -715,6 +727,7 @@ class YouTubeChannelListResponse(BaseModel):
     channels: List[YouTubeChannelInfo]
     active_client_id: Optional[str] = None
     active_channel_id: Optional[str] = None
+    youtube_languages: List[dict] = []
 
 
 class ChannelListRequest(BaseModel):
@@ -742,9 +755,16 @@ class ChannelLanguageAssignments(BaseModel):
     russian: List[str] = []
 
 
+class YoutubeLanguageChip(BaseModel):
+    key: str = ""
+    label: str = ""
+    channel_ids: List[str] = []
+
+
 class ChannelSetLanguagesRequest(BaseModel):
     client_id: str
-    assignments: ChannelLanguageAssignments
+    assignments: Optional[ChannelLanguageAssignments] = None
+    languages: Optional[List[YoutubeLanguageChip]] = None
 
 
 # YouTube Video Schemas
@@ -764,10 +784,17 @@ class YouTubeVideoInfo(BaseModel):
     privacy_status: Optional[str] = "public"  # public | unlisted | private
     notes: Optional[str] = ""
     metadata_fields: Optional[dict] = {}
+    permalink: Optional[str] = None
+    platform: Optional[str] = None
+    channel_id: Optional[str] = None
 
 
 class YouTubeVideoListResponse(BaseModel):
     videos: List[YouTubeVideoInfo]
+
+
+class InstagramLibraryRequest(BaseModel):
+    client_id: str
 
 
 class VideoListRequest(BaseModel):
@@ -823,6 +850,7 @@ class GoogleLoginRequest(BaseModel):
 # Monthly YouTube AI reports
 class ReportListRequest(BaseModel):
     client_id: str
+    platform: Optional[str] = None
 
 
 class ReportGetRequest(BaseModel):
@@ -833,6 +861,7 @@ class ReportGenerateRequest(BaseModel):
     client_id: str
     report_month: Optional[str] = None  # YYYY-MM; default = previous calendar month
     channel_ids: Optional[List[str]] = None
+    platform: Optional[str] = None
 
 
 class ReportRefineRequest(BaseModel):
@@ -852,6 +881,7 @@ class ReportSummary(BaseModel):
     previous_month: Optional[str] = None
     ai_videos_started_from: Optional[str] = None
     channel_ids: List[str] = []
+    platform: str = "youtube"
     status: str
     error: Optional[str] = None
     has_metrics_cache: bool = False
@@ -871,6 +901,7 @@ class ReportDetailResponse(BaseModel):
     previous_month: Optional[str] = None
     ai_videos_started_from: Optional[str] = None
     channel_ids: List[str] = []
+    platform: str = "youtube"
     status: str
     error: Optional[str] = None
     has_metrics_cache: bool = False

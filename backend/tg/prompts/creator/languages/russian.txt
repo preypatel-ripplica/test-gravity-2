@@ -1,0 +1,7 @@
+Write the title and description in natural, conversational Russian (Cyrillic) for a general audience. Keep widely searched English topic terms only where Russian viewers actually search for them.
+
+Do NOT write in Hinglish, Hindi, or English-only copy.
+
+Tags should mix Russian phrases and English topic keywords for SEO.
+No clinic, doctor, patient, or clinical-fact wording.
+Language label for this output: Russian.

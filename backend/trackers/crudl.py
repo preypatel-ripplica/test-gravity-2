@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import uuid
 from calendar import monthrange
+from contextvars import ContextVar
 from datetime import datetime, timezone
+from functools import wraps
 from typing import Any, Optional
 
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
 from backend.main.access_guards import (
     editor_id_from_auth,
@@ -102,6 +105,44 @@ STAGES = {
     "blog": ["planned", "published", "link_shared_with_doctor"],
     "paid_ads": ["planned", "posted", "link_shared_with_doctor"],
 }
+_stage_orders: ContextVar[dict | None] = ContextVar("tracker_stage_orders", default=None)
+LINK_SHARED_STAGES = {"link_shared_with_doctor", "link_shared_with_client"}
+
+
+def _stage_order(card_type: str) -> list[str]:
+    custom = _stage_orders.get()
+    if custom and card_type in custom:
+        return list(custom[card_type])
+    return list(STAGES.get(card_type) or ["planned"])
+
+
+def _bind_project_stages(project_id: str):
+    """Doctor saves keep the existing stage ids. Other professions use their list."""
+    from backend.tg.professions import get_profession
+
+    project = projects_col().find_one({"id": project_id}, {"_id": 0, "profession": 1}) or {}
+    profession = get_profession(project)
+    if getattr(profession, "key", "doctor") == "doctor":
+        return _stage_orders.set(None)
+    orders = {
+        card_type: [row["id"] for row in profession.stages(card_type)]
+        for card_type in ("long_video", "short", "static_post", "blog", "paid_ads")
+    }
+    return _stage_orders.set(orders)
+
+
+def _with_project_stages(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        body = args[0] if args else kwargs.get("body")
+        project_id = _pid(body) if body is not None else ""
+        token = _bind_project_stages(project_id)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _stage_orders.reset(token)
+
+    return wrapped
 
 
 def _now_iso() -> str:
@@ -244,6 +285,23 @@ def _note_array_key(body: dict | None) -> str:
     return key
 
 
+def _destination_context(project_id: str) -> dict:
+    from backend.tg.posting_mix import tracker_destination_context
+
+    project = projects_col().find_one(
+        {"id": project_id},
+        {"_id": 0, "youtube_languages": 1, "posting_mix": 1},
+    ) or {}
+    return tracker_destination_context(project)
+
+
+def _week_languages(project_id: str) -> list[str]:
+    ctx = _destination_context(project_id)
+    if ctx["destinations_mode"] == "posting_mix":
+        return list(ctx["languages"])
+    return _assigned_languages(project_id)
+
+
 def _assigned_languages(project_id: str) -> list[str]:
     seen: set[str] = set()
     for ch in channels_col().find({"project_id": project_id}, {"language": 1}):
@@ -307,11 +365,18 @@ def seed_default_cards(slots=None) -> list[dict]:
     return [default_card(card_type, index, is_default=True) for index, card_type in enumerate(types)]
 
 
-def seed_destinations_for_card(card: dict, languages: list[str]) -> dict:
+def seed_destinations_for_card(card: dict, languages: list[str], mix: dict | None = None) -> dict:
     if card.get("destinations"):
         return card
     if card.get("type") == "paid_ads":
         card["destinations"] = []
+        return card
+    if mix and mix.get("saved"):
+        from backend.tg.posting_mix import seed_rows_for_mix
+
+        card["destinations"] = [
+            {"id": _new_id("dest"), **row} for row in seed_rows_for_mix(card.get("type") or "", languages, mix)
+        ]
         return card
     langs = languages or list(LANG_ORDER)
     destinations = []
@@ -374,7 +439,7 @@ def _week_summary_from_cards(week: int, cards: list[dict] | None, slots=None) ->
 
 
 def _stage_index(card_type: str, stage: str) -> int:
-    order = STAGES.get(card_type) or ["planned"]
+    order = _stage_order(card_type)
     try:
         return order.index(stage)
     except ValueError:
@@ -463,8 +528,8 @@ def _stage_reached(card: dict | None, stage: str) -> bool:
 def _can_confirm_complete(card: dict | None) -> bool:
     if not isinstance(card, dict):
         return False
-    stages = STAGES.get(str(card.get("type") or "")) or []
-    return bool(stages) and stages[-1] == COMPLETE_STAGE
+    stages = _stage_order(str(card.get("type") or ""))
+    return bool(stages) and stages[-1] in LINK_SHARED_STAGES
 
 
 def _advance_tracker_stage(card: dict | None) -> None:
@@ -472,7 +537,7 @@ def _advance_tracker_stage(card: dict | None) -> None:
     if not isinstance(card, dict):
         return
     card_type = str(card.get("type") or "")
-    stages = STAGES.get(card_type) or []
+    stages = _stage_order(card_type)
     if not stages:
         return
     last_id = stages[-1]
@@ -779,7 +844,7 @@ def _sync_posted_urls_from_destinations(project_id: str, previous: dict | None, 
 
 
 def _card_is_complete(card: dict) -> bool:
-    stages = STAGES.get(card.get("type") or "") or []
+    stages = _stage_order(card.get("type") or "")
     if not stages:
         return False
     return (card.get("stage") or "") == stages[-1]
@@ -804,7 +869,7 @@ def _mark_incomplete_untracked(doc: dict, *, by: str = "") -> bool:
 
 def _card_has_work(card: dict) -> bool:
     stage = str(card.get("stage") or "planned")
-    stages = STAGES.get(card.get("type") or "") or []
+    stages = _stage_order(card.get("type") or "")
     if stages and stage != stages[0]:
         return True
     if str(card.get("title") or "").strip():
@@ -887,14 +952,27 @@ def _stamp_week_slots(doc: dict, slots) -> bool:
     return True
 
 
-def _ensure_card_started(card: dict, languages: list[str]) -> bool:
+def _ensure_card_started(card: dict, languages: list[str], mix: dict | None = None) -> bool:
     changed = False
     if not card.get("started"):
         card["started"] = True
         changed = True
     if not card.get("destinations") and card.get("type") != "paid_ads":
-        seed_destinations_for_card(card, languages)
+        seed_destinations_for_card(card, languages, mix)
         changed = True
+    if mix and mix.get("saved") and card.get("type") != "paid_ads":
+        from backend.tg.posting_mix import collapse_mix_destinations
+
+        before = list(card.get("destinations") or [])
+        collapsed = collapse_mix_destinations(before, card.get("type") or "", languages, mix)
+        rows = []
+        for row in collapsed:
+            item = dict(row)
+            item.setdefault("id", _new_id("dest"))
+            rows.append(item)
+        if rows != before:
+            card["destinations"] = rows
+            changed = True
     return changed
 
 
@@ -907,7 +985,8 @@ def _ensure_week(project_id: str, year: int, month: int, week: int, actor: str) 
     project = projects_col().find_one({"id": project_id}, {"_id": 0}) or {}
     client = _project_client_view(project)
     slots = slots_for_week(client, year, month, week)
-    languages = _assigned_languages(project_id)
+    ctx = _destination_context(project_id)
+    languages = _week_languages(project_id)
     doc_id = weekly_doc_id(project_id, year, month, week)
     if week_is_before_start(client, year, month, week):
         return {
@@ -935,11 +1014,20 @@ def _ensure_week(project_id: str, year: int, month: int, week: int, actor: str) 
                 {"id": doc_id},
                 {"$set": {"deliverable_slots": existing.get("deliverable_slots")}},
             )
+        mix = ctx.get("posting_mix")
+        languages = _week_languages(project_id)
+        changed = False
+        for card in existing.get("cards") or []:
+            if isinstance(card, dict) and _ensure_card_started(card, languages, mix):
+                changed = True
+        if changed:
+            existing["updated_at"] = _now_iso()
+            weekly_trackers_col().replace_one({"id": existing["id"]}, existing)
         return existing
     cards = seed_default_cards(slots)
 
     for card in cards:
-        _ensure_card_started(card, languages)
+        _ensure_card_started(card, languages, ctx.get("posting_mix"))
         if str(card.get("type") or "") in VIDEO_TYPES:
             card["editor_id"] = default_editor_id(project, late=late)
             card["edit_hours"] = edit_hours_for(project, card.get("type"))
@@ -965,7 +1053,8 @@ def _ensure_week(project_id: str, year: int, month: int, week: int, actor: str) 
 def sync_weeks_from_deliverable_change(project_id: str, actor: str, from_week: tuple[int, int, int]) -> None:
     project = projects_col().find_one({"id": project_id}, {"_id": 0}) or {}
     client = _project_client_view(project)
-    languages = _assigned_languages(project_id)
+    ctx = _destination_context(project_id)
+    languages = _week_languages(project_id)
     from_year, from_month, from_week_n = from_week
     for doc in weekly_trackers_col().find({"project_id": project_id}, {"_id": 0}):
         try:
@@ -984,12 +1073,23 @@ def sync_weeks_from_deliverable_change(project_id: str, actor: str, from_week: t
         changed = _sync_week_cards(doc, slots)
         changed = _stamp_week_slots(doc, slots) or changed
         for card in doc.get("cards") or []:
-            if isinstance(card, dict) and _ensure_card_started(card, languages):
+            if isinstance(card, dict) and _ensure_card_started(card, languages, ctx.get("posting_mix")):
                 changed = True
         if changed:
             doc["updated_at"] = _now_iso()
             doc["updated_by"] = actor
             weekly_trackers_col().replace_one({"id": doc["id"]}, doc, upsert=True)
+
+
+def _profession_stage_catalog(project_id: str) -> dict:
+    from backend.tg.professions import get_profession
+
+    project = projects_col().find_one({"id": project_id}, {"_id": 0, "profession": 1}) or {}
+    profession = get_profession(project)
+    return {
+        card_type: profession.stages(card_type)
+        for card_type in ("long_video", "short", "static_post", "blog", "paid_ads")
+    }
 
 
 def _weekly_response(doc: dict, languages: list[str]) -> dict:
@@ -999,6 +1099,9 @@ def _weekly_response(doc: dict, languages: list[str]) -> dict:
     project = projects_col().find_one({"id": project_id}, {"_id": 0, "name": 1}) or {}
     from backend.main.config import TRACKER_DELAY_PROOF_REQUIRED
 
+    ctx = _destination_context(project_id)
+    if ctx["destinations_mode"] == "posting_mix":
+        languages = list(ctx["languages"])
     return {
         "tracker": {
             "id": doc.get("id"),
@@ -1014,7 +1117,11 @@ def _weekly_response(doc: dict, languages: list[str]) -> dict:
             "updated_by": doc.get("updated_by"),
         },
         "languages": languages,
+        "language_labels": ctx.get("language_labels") or {},
+        "destinations_mode": ctx.get("destinations_mode") or "legacy",
+        "posting_mix": ctx.get("posting_mix"),
         "delay_proof_required": bool(TRACKER_DELAY_PROOF_REQUIRED),
+        "stages": _profession_stage_catalog(project_id),
     }
 
 
@@ -1074,7 +1181,7 @@ def weekly_tracker_get(body: WeeklyGetBody, auth: dict = Depends(current_user)):
     project_id = _pid(body)
     _validate_week(body.year, body.month, body.week)
     _require_tracker_project(auth, project_id)
-    languages = _assigned_languages(project_id)
+    languages = _week_languages(project_id)
     doc = _ensure_week(
         project_id, body.year, body.month, body.week, auth.get("email") or auth["user_id"]
     )
@@ -1129,7 +1236,11 @@ def weekly_tracker_month_summary(
 def weekly_tracker_poc_summary(body: WeeklyPocBody, auth: dict = Depends(current_user)):
     _validate_month(body.year, body.month)
     week_ids = _weeks_in_month(body.year, body.month)
-    projects = project_list(auth)["projects"]
+    projects = [
+        project
+        for project in project_list(auth)["projects"]
+        if not str(project.get("migrated_from_plug") or "").strip()
+    ]
     clients_out = []
     totals = {week: {"week": week, "out": 0, "total": 0, "to_start": 0} for week in week_ids}
     for project in projects:
@@ -1171,6 +1282,7 @@ def weekly_tracker_poc_summary(body: WeeklyPocBody, auth: dict = Depends(current
 
 
 @router.post("/weekly.tracker.mark-missed")
+@_with_project_stages
 def weekly_tracker_mark_missed(body: WeeklyClientBody, auth: dict = Depends(current_user)):
     require_internal(auth)
     project_id = _pid(body)
@@ -1210,13 +1322,14 @@ def weekly_tracker_mark_missed(body: WeeklyClientBody, auth: dict = Depends(curr
 
 
 @router.post("/weekly.tracker.save")
+@_with_project_stages
 def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)):
     if not (is_internal(auth) or is_editor(auth)):
         raise HTTPException(403, "Internal or editor users only")
     project_id = _pid(body)
     _validate_week(body.year, body.month, body.week)
     _require_tracker_project(auth, project_id)
-    languages = _assigned_languages(project_id)
+    languages = _week_languages(project_id)
     actor = auth.get("email") or auth["user_id"]
     existing = _ensure_week(project_id, body.year, body.month, body.week, actor)
     existing_by_id = {
@@ -1258,7 +1371,7 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             card["sort_order"] = index if card.get("sort_order") is None else card["sort_order"]
             card["marking"] = normalize_marking(card.get("marking"))
             if card.get("started") and not card.get("destinations"):
-                seed_destinations_for_card(card, languages)
+                seed_destinations_for_card(card, languages, _destination_context(project_id).get("posting_mix"))
             card.pop("generated_posts", None)
             card.pop("live_posts", None)
             card.pop("template_topic", None)
@@ -1268,7 +1381,7 @@ def weekly_tracker_save(body: WeeklySaveBody, auth: dict = Depends(current_user)
             if requested_complete and (
                 _can_confirm_complete(card) or (previous and _card_is_complete(previous))
             ):
-                stages = STAGES.get(str(card.get("type") or "")) or []
+                stages = _stage_order(str(card.get("type") or ""))
                 if stages:
                     card["stage"] = stages[-1]
             cards.append(card)
@@ -1370,6 +1483,7 @@ def weekly_tracker_script_links_get(
 
 
 @router.post("/weekly.tracker.attach-script")
+@_with_project_stages
 def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user)):
     require_internal(auth)
     project_id = (body or {}).get("project_id") or (body or {}).get("client_id")
@@ -1380,7 +1494,7 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
     card_id = (body or {}).get("card_id")
     _validate_week(year, month, week)
     _require_project(auth, project_id)
-    languages = _assigned_languages(project_id)
+    languages = _week_languages(project_id)
     doc = _ensure_week(project_id, year, month, week, auth.get("email") or auth["user_id"])
     cards = list(doc.get("cards") or [])
 
@@ -1455,7 +1569,7 @@ def weekly_tracker_attach_script(body: dict, auth: dict = Depends(current_user))
         target["title"] = title
     target["started"] = True
     if not target.get("destinations"):
-        seed_destinations_for_card(target, languages)
+        seed_destinations_for_card(target, languages, _destination_context(project_id).get("posting_mix"))
     if not already:
         # New script: drop the previous custom-script timeline. Hydrate can bump
         # metadata/posted again if this topic already has them.
@@ -1488,7 +1602,7 @@ def weekly_tracker_note_add(body: dict, auth: dict = Depends(current_user)):
     text = str((body or {}).get("text") or "")
     _validate_week(year, month, week)
     _require_tracker_project(auth, project_id)
-    languages = _assigned_languages(project_id)
+    languages = _week_languages(project_id)
     doc = _ensure_week(project_id, year, month, week, auth.get("email") or auth["user_id"])
     cards = list(doc.get("cards") or [])
     card = next((c for c in cards if c.get("id") == card_id), None)
@@ -1561,7 +1675,7 @@ async def weekly_tracker_file_upload(
     _validate_week(year, month, week)
     _require_tracker_project(auth, client_id)
     actor = auth.get("email") or auth["user_id"]
-    languages = _assigned_languages(client_id)
+    languages = _week_languages(client_id)
     doc = _ensure_week(client_id, year, month, week, actor)
     cards = list(doc.get("cards") or [])
     card = next((row for row in cards if str(row.get("id")) == str(card_id)), None)
@@ -1666,7 +1780,16 @@ def _ensure_custom(project_id: str, actor: str) -> dict:
         "updated_at": _now_iso(),
         "updated_by": actor,
     }
-    custom_trackers_col().insert_one(doc)
+    try:
+        custom_trackers_col().insert_one(doc)
+    except DuplicateKeyError:
+        existing = custom_trackers_col().find_one({"id": doc_id}, {"_id": 0})
+        if not existing:
+            raise
+        existing["tasks"] = [
+            _clean_task(t) for t in (existing.get("tasks") or []) if isinstance(t, dict)
+        ]
+        return existing
     doc.pop("_id", None)
     return doc
 

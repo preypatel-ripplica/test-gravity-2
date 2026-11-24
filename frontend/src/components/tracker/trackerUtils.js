@@ -198,6 +198,7 @@ export const PLATFORM_LABELS = {
   youtube: 'YouTube',
   facebook: 'Facebook',
   instagram: 'Instagram',
+  gbp: 'Google Business',
   website: 'Website',
   other: 'Other',
 }
@@ -614,9 +615,48 @@ export function applyCardHistory(previous, incoming, by = '') {
   }
 }
 
-export function seedDestinations(card, languages = []) {
+export function mixPlatforms(card, mix) {
+  if (!mix?.saved) return destPlatforms(card)
+  if (card.type === 'blog') return ['website']
+  if (card.type === 'paid_ads') return []
+  const include = mix.include || {}
+  const platforms = []
+  if (isVideoCard(card.type) && include.youtube) platforms.push('youtube')
+  if (include.facebook) platforms.push('facebook')
+  if (include.instagram) platforms.push('instagram')
+  for (const extra of mix.extra_platforms || []) {
+    if (extra?.key) platforms.push(extra.key)
+  }
+  return platforms
+}
+
+export function mixRows(card, languages = [], mix) {
+  if (!mix?.saved) return destRows(card, languages)
+  if (!isVideoCard(card.type) || !(mix.include || {}).youtube) return [null]
+  return languages.length ? languages : [null]
+}
+
+export function seedDestinations(card, languages = [], mix = null) {
   const destinations = []
   if (card.type === 'paid_ads') return destinations
+  if (mix?.saved) {
+    const platforms = mixPlatforms(card, mix)
+    const rows = mixRows(card, languages, mix)
+    if (isVideoCard(card.type)) {
+      for (const language of rows) {
+        if (language && platforms.includes('youtube')) {
+          destinations.push({ id: newId('dest'), language, platform: 'youtube', url: '' })
+        }
+      }
+      for (const platform of platforms) {
+        if (platform === 'youtube') continue
+        destinations.push({ id: newId('dest'), platform, url: '' })
+      }
+    } else {
+      for (const platform of platforms) destinations.push({ id: newId('dest'), platform, url: '' })
+    }
+    return destinations
+  }
   if (isVideoCard(card.type)) {
     const langs = displayLanguages(languages)
     for (const language of langs) {
@@ -633,13 +673,34 @@ export function seedDestinations(card, languages = []) {
   return destinations
 }
 
-export function startCard(card, languages) {
-  const destinations = card.destinations?.length ? card.destinations : seedDestinations(card, languages)
+export function startCard(card, languages, mix = null) {
+  const destinations = card.destinations?.length ? card.destinations : seedDestinations(card, languages, mix)
   return { ...card, started: true, destinations }
 }
 
+let professionStages = null
+
+/** Weekly tracker sends the profession's stage lists. Missing lists keep the doctor constants. */
+export function setProfessionStages(stages) {
+  professionStages = stages && typeof stages === 'object' ? stages : null
+}
+
 export function stageList(type) {
+  const custom = professionStages?.[type]
+  if (Array.isArray(custom) && custom.length && custom.every((row) => row && row.id)) {
+    return custom
+  }
   return STAGES[type] || STAGES.blog
+}
+
+export function isLinkSharedStage(stageId) {
+  return stageId === 'link_shared_with_doctor' || stageId === 'link_shared_with_client'
+}
+
+export function completeStageId(type) {
+  const stages = stageList(type)
+  const last = stages[stages.length - 1]?.id
+  return isLinkSharedStage(last) ? last : COMPLETE_STAGE
 }
 
 export function nextStage(card) {
@@ -667,8 +728,8 @@ export function sectionForStage(card, stageId) {
   if (stageId === 'video_edited') return 'video'
   if (stageId === 'shared_with_doctor') return 'doctor'
   if (stageId === 'posted') return 'publish'
-  if (stageId === 'link_shared_with_doctor') return 'destinations'
-  return 'destinations'
+  if (isLinkSharedStage(stageId)) return 'destinations'
+  return 'notes'
 }
 
 export function nextStageSection(card) {
@@ -729,18 +790,20 @@ export function canMarkSharedWithDoctor(card) {
 
 export function canConfirmLinkShared(card) {
   const stages = stageList(card?.type).map((row) => row.id)
-  return stages[stages.length - 1] === COMPLETE_STAGE
+  return isLinkSharedStage(stages[stages.length - 1])
 }
 
 export function confirmChecklist(card) {
+  const allowed = new Set(stageList(card?.type).map((row) => row.id))
+  const keep = (rows) => rows.filter((row) => allowed.has(row.id))
   if (isVideoCard(card?.type)) {
-    return [
+    return keep([
       { id: 'script_generated', label: 'Script generated', done: hasTrackerScript(card) },
       { id: 'video_edited', label: 'Video edited', done: hasVideoFile(card) },
       { id: 'shared_with_doctor', label: 'Shared with doctor', done: hasDoctorShare(card) },
       { id: 'yt_metadata_generated', label: 'Metadata generated', done: localeHasTitle(card?.yt_locales || {}) },
       { id: 'posted', label: 'Posted', done: hasLiveDestination(card) },
-    ]
+    ])
   }
   if (card?.type === 'blog') {
     return [{ id: 'published', label: 'Published', done: hasLiveDestination(card) }]
@@ -791,7 +854,7 @@ export function stageCheckpointDone(card, stageId) {
   if (stageId === 'video_edited') return hasVideoFile(card)
   if (stageId === 'shared_with_doctor') return hasDoctorShare(card)
   if (stageId === 'posted' || stageId === 'published') return hasLiveDestination(card)
-  if (stageId === COMPLETE_STAGE) return isCompletedCard(card)
+  if (isLinkSharedStage(stageId)) return isCompletedCard(card)
   return stageReached(card, stageId)
 }
 
@@ -891,14 +954,27 @@ export function destsFor(card, language, platform) {
   ))
 }
 
-export function filledDestCount(card, languages = []) {
-  const platforms = destPlatforms(card)
-  const rows = destRows(card, languages)
+export function sharedMixSlots(card, platform) {
+  const rows = (card.destinations || []).filter((dest) => dest.platform === platform)
+  const unlabeled = rows.filter((dest) => !dest.language)
+  if (unlabeled.length) return unlabeled
+  if (!rows.length) return []
+  const withUrl = rows.find((dest) => (dest.url || '').trim())
+  return [withUrl || rows[0]]
+}
+
+export function filledDestCount(card, languages = [], mix = null) {
+  const platforms = mix?.saved ? mixPlatforms(card, mix) : destPlatforms(card)
+  const rows = mix?.saved ? mixRows(card, languages, mix) : destRows(card, languages)
   let total = 0
   let filled = 0
+  const firstRow = rows[0]
   for (const language of rows) {
     for (const platform of platforms) {
-      const slots = destsFor(card, language, platform)
+      if (mix?.saved && platform !== 'youtube' && language !== firstRow) continue
+      const slots = mix?.saved && platform !== 'youtube'
+        ? sharedMixSlots(card, platform)
+        : destsFor(card, language, platform)
       total += Math.max(slots.length, 1)
       filled += slots.filter((dest) => (dest.url || '').trim()).length
     }
@@ -940,15 +1016,15 @@ export function templateKind(card) {
       || stage === 'shared_with_doctor'
       || stage === 'yt_metadata_generated'
     ) return 'video'
-    if (stage === 'posted' || stage === 'link_shared_with_doctor') return 'posted'
+    if (stage === 'posted' || isLinkSharedStage(stage)) return 'posted'
     return null
   }
-  if (card?.type === 'static_post' && (stage === 'posted' || stage === 'link_shared_with_doctor')) return 'posted'
-  if (card?.type === 'blog' && (stage === 'published' || stage === 'link_shared_with_doctor')) return 'posted'
+  if (card?.type === 'static_post' && (stage === 'posted' || isLinkSharedStage(stage))) return 'posted'
+  if (card?.type === 'blog' && (stage === 'published' || isLinkSharedStage(stage))) return 'posted'
   return null
 }
 
-const LIVE_DEST_PLATFORMS = new Set(['youtube', 'instagram', 'facebook'])
+const LIVE_DEST_PLATFORMS = new Set(['youtube', 'instagram', 'facebook', 'gbp'])
 
 function postLinkKey(platform, language) {
   const plat = String(platform || '').toLowerCase()

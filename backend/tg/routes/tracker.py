@@ -22,6 +22,7 @@ def apply_social_permalinks_to_card(card: dict, post: dict) -> bool:
     urls = {
         "instagram": str(post.get("instagram_permalink") or "").strip(),
         "facebook": str(post.get("facebook_permalink") or "").strip(),
+        "gbp": str(post.get("gbp_search_url") or "").strip(),
     }
     urls = {platform: url for platform, url in urls.items() if url}
     if not urls:

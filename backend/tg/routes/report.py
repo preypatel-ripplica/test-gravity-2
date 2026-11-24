@@ -38,6 +38,7 @@ def _summary(row: dict) -> schemas.ReportSummary:
         previous_month=row.get("previous_month"),
         ai_videos_started_from=row.get("ai_videos_started_from"),
         channel_ids=list(row.get("channel_ids") or []),
+        platform=row.get("platform") or "youtube",
         status=row.get("status") or "pending",
         error=row.get("error"),
         has_metrics_cache=bool(row.get("has_metrics_cache")),
@@ -63,6 +64,7 @@ def _detail(row: dict) -> schemas.ReportDetailResponse:
         previous_month=row.get("previous_month"),
         ai_videos_started_from=row.get("ai_videos_started_from"),
         channel_ids=list(row.get("channel_ids") or []),
+        platform=row.get("platform") or "youtube",
         status=row.get("status") or "pending",
         error=row.get("error"),
         has_metrics_cache=bool(row.get("has_metrics_cache")),
@@ -81,7 +83,9 @@ def report_list(
     body: schemas.ReportListRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    rows = report_service.list_reports(current_user["username"], body.client_id)
+    rows = report_service.list_reports(
+        current_user["username"], body.client_id, platform=body.platform
+    )
     return schemas.ReportListResponse(reports=[_summary(r) for r in rows])
 
 
@@ -104,6 +108,7 @@ def report_generate(
         body.client_id,
         report_month=body.report_month,
         channel_ids=body.channel_ids,
+        platform=body.platform,
     )
     return _detail(detail)
 
@@ -143,8 +148,10 @@ def report_pdf(
     
     if not pdf_path:
         raise HTTPException(status_code=404, detail="PDF report not available")
-        
-    filename = f"{report.get('report_month') or 'report'}-youtube-report.pdf"
+
+    platform = (report.get("platform") or "youtube").strip().lower()
+    suffix = "instagram-report" if platform == "instagram" else "youtube-report"
+    filename = f"{report.get('report_month') or 'report'}-{suffix}.pdf"
     
     if pdf_path.startswith("http"):
         import httpx
@@ -161,8 +168,7 @@ def report_pdf(
         
     if not Path(pdf_path).is_file():
         raise HTTPException(status_code=404, detail="PDF report not available")
-        
-    filename = f"{report.get('report_month') or 'report'}-youtube-report.pdf"
+
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",

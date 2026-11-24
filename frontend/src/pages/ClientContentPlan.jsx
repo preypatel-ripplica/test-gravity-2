@@ -5,6 +5,7 @@ import CustomSelect from '../components/CustomSelect'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import api from '../api'
+import { useClientPresentation } from '../hooks/useClientPresentation'
 
 function videoLabel(list) {
   if (!list?.length) return '—'
@@ -18,6 +19,7 @@ export default function ClientContentPlan() {
   const { token } = useAuth()
   const { toast } = useUI()
   const { client, clientId } = useOutletContext()
+  const usesVideoMapping = useClientPresentation(client).usesVideoMapping
 
   const [count, setCount] = useState(5)
   const [suggestions, setSuggestions] = useState(null)
@@ -74,7 +76,7 @@ export default function ClientContentPlan() {
     try {
       toast('Generating titles from coverage analysis…', 'info')
       const data = await api.generateContentPlan(token, clientId, {
-        count,
+        count: usesVideoMapping ? count : 4,
         forceRemap,
       })
       setSuggestions(data.suggestions || null)
@@ -98,7 +100,7 @@ export default function ClientContentPlan() {
     try {
       toast('Regenerating with your prompt…', 'info')
       const data = await api.regenerateContentPlan(token, clientId, {
-        count,
+        count: usesVideoMapping ? count : 4,
         userPrompt: prompt,
         forceRemap,
       })
@@ -232,9 +234,14 @@ export default function ClientContentPlan() {
             ]}
           />
           <h1>Content Plan</h1>
-          <p>Map coverage, generate titles, then write Hinglish scripts</p>
+          <p>
+            {usesVideoMapping
+              ? 'Map coverage, generate titles, then write Hinglish scripts'
+              : 'Generate titles from scored keywords, then write scripts'}
+          </p>
         </div>
         <div className="header-actions plan-header-actions">
+          {usesVideoMapping ? (
           <label className="plan-count-field">
             <span className="control-label">Count</span>
             <CustomSelect
@@ -248,6 +255,8 @@ export default function ClientContentPlan() {
               }))}
             />
           </label>
+          ) : null}
+          {usesVideoMapping && (
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -261,6 +270,7 @@ export default function ClientContentPlan() {
             />
             Generate map
           </button>
+          )}
           <button
             type="button"
             className="btn btn-primary btn-sm"
@@ -310,6 +320,7 @@ export default function ClientContentPlan() {
       </header>
 
       <section className="plan-toolbar card animate-fade-in">
+        {usesVideoMapping ? (
         <div className="plan-toolbar-grid">
           <div className="plan-rule">
             <span className="plan-rule-label">Long / Short coverage</span>
@@ -328,13 +339,14 @@ export default function ClientContentPlan() {
           <div className="plan-rule">
             <span className="plan-rule-label">Flow</span>
             <p>
-              Call 1 maps library → keywords. Call 2 generates titles. Call 3 writes Hinglish
-              scripts for every topic (duration, timing map, hook, CTA, checklist).
+              Call 1 maps library → keywords. Call 2 generates titles. Call 3 writes Hinglish scripts for every topic (duration, timing map, hook, CTA, checklist).
             </p>
           </div>
         </div>
+        ) : null}
 
         <div className="plan-toolbar-footer">
+          {usesVideoMapping && (
           <label className="plan-remap-check">
             <input
               type="checkbox"
@@ -344,11 +356,12 @@ export default function ClientContentPlan() {
             />
             Force re-map on generate
           </label>
+          )}
           <div className="plan-toolbar-links">
             <Link to={`/clients/${clientId}/profile/keywords`} className="text-link">
               Keywords and topics · scores
             </Link>
-            {hasAnalysis && (
+            {usesVideoMapping && hasAnalysis && (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -369,7 +382,7 @@ export default function ClientContentPlan() {
           </div>
         </div>
 
-        {coverage && (
+        {usesVideoMapping && coverage && (
           <div className="plan-coverage">
             <span>
               <strong>{coverage.mapped_to_keyword}</strong> mapped
@@ -406,10 +419,20 @@ export default function ClientContentPlan() {
             <span>
               <strong>{scriptedCount}</strong> / {items.length} scripts written
             </span>
+            {!usesVideoMapping && (suggestions?.generated_at || suggestions?.scripts_generated_at) ? (
+              <span className="plan-coverage-time">
+                {suggestions.generated_at
+                  ? `Generated ${new Date(suggestions.generated_at).toLocaleString()}`
+                  : ''}
+                {suggestions.scripts_generated_at
+                  ? ` · Scripts ${new Date(suggestions.scripts_generated_at).toLocaleString()}`
+                  : ''}
+              </span>
+            ) : null}
           </div>
         )}
 
-        {recentTypes.length > 0 && (
+        {usesVideoMapping && recentTypes.length > 0 && (
           <div className="plan-recent-types">
             <span className="control-label">Recent themes (last 20)</span>
             <div className="trend-chips">
@@ -460,7 +483,7 @@ export default function ClientContentPlan() {
         </div>
       )}
 
-      {!loading && !hasAnalysis && (
+      {!loading && usesVideoMapping && !hasAnalysis && (
         <section className="client-profile-empty card">
           <div>
             <h2>No keyword analysis yet</h2>
@@ -475,7 +498,21 @@ export default function ClientContentPlan() {
         </section>
       )}
 
-      {!loading && hasAnalysis && showKeywordMap && (
+      {!loading && !usesVideoMapping && items.length === 0 && (
+        <section className="client-profile-empty card">
+          <div>
+            <h2>No titles yet</h2>
+            <p>
+              Save keyword scores, then generate titles. This client does not map videos to keywords.
+            </p>
+          </div>
+          <button type="button" className="btn btn-primary" disabled={anyBusy} onClick={handleGenerate}>
+            Generate titles
+          </button>
+        </section>
+      )}
+
+      {!loading && usesVideoMapping && hasAnalysis && showKeywordMap && (
         <section className="card plan-analysis animate-fade-in">
           <div className="plan-analysis-header">
             <div>

@@ -34,6 +34,10 @@ class ClientUpdateCompat(BaseModel):
     name: Optional[str] = None
     website_url: Optional[str] = None
     specialty: Optional[str] = None
+    niche: Optional[str] = None
+    niche_details: Optional[str] = None
+    example_topics: Optional[list] = None
+    profession: Optional[str] = None
     designation: Optional[str] = None
     description: Optional[str] = None
     reference_youtube_channel: Optional[str] = None
@@ -48,6 +52,7 @@ class ClientUpdateCompat(BaseModel):
 
 
 def _client_row(p: dict, channel_count: int) -> dict:
+    from backend.tg.professions import client_profession_fields
     from backend.trackers.tracker_settings import stored_monthly_slots
     from .models import ProjectStatus
 
@@ -60,6 +65,7 @@ def _client_row(p: dict, channel_count: int) -> dict:
         "website_url": p.get("website_url"),
         "specialty": p.get("specialty"),
         "designation": p.get("designation"),
+        **client_profession_fields(p),
         "description": p.get("description"),
         "reference_youtube_channel": p.get("reference_youtube_channel"),
         "ai_videos_started_from": p.get("ai_videos_started_from"),
@@ -126,6 +132,10 @@ def client_update(body: ClientUpdateCompat, auth: dict = Depends(current_user)):
             name=body.name,
             website_url=body.website_url,
             specialty=body.specialty,
+            niche=body.niche,
+            niche_details=body.niche_details,
+            example_topics=body.example_topics,
+            profession=body.profession,
             designation=body.designation,
             description=body.description,
             reference_youtube_channel=body.reference_youtube_channel,

@@ -615,10 +615,17 @@ export const api = {
       token,
       body: { channel_id: channelId, client_id: clientId },
     }),
-  setChannelLanguages: (token, clientId, assignments) =>
+  setChannelLanguages: (token, clientId, payload) =>
     apiFetch('/channel.set-languages', {
       token,
-      body: { client_id: clientId, assignments },
+      body: { client_id: clientId, ...payload },
+    }),
+  getPostingMix: (token, clientId) =>
+    apiFetch('/client.posting-mix.get', { token, body: { client_id: clientId } }),
+  savePostingMix: (token, clientId, mix) =>
+    apiFetch('/client.posting-mix.save', {
+      token,
+      body: { client_id: clientId, ...mix },
     }),
 
   googleLogin: (token, clientId) =>
@@ -727,18 +734,30 @@ export const api = {
       }
     }),
   analytics: (token, body) => apiFetch('/video.analytics', { token, body }),
+  instagramAnalytics: (token, clientId, { since, until } = {}) =>
+    apiFetch('/client.instagram-analytics', {
+      token,
+      body: { client_id: clientId, since, until },
+    }),
+  connectionHealth: (token, clientId) =>
+    apiFetch('/client.connection-health', { token, body: { client_id: clientId } }),
+  listInstagramVideos: (token, clientId) =>
+    apiFetch('/video.instagram.list', { token, body: { client_id: clientId } }),
+  syncInstagramVideos: (token, clientId) =>
+    apiFetch('/video.instagram.sync', { token, body: { client_id: clientId } }),
 
-  listReports: (token, clientId) =>
-    apiFetch('/report.list', { token, body: { client_id: clientId } }),
+  listReports: (token, clientId, platform) =>
+    apiFetch('/report.list', { token, body: { client_id: clientId, platform: platform || null } }),
   getReport: (token, reportId) =>
     apiFetch('/report.get', { token, body: { report_id: reportId } }),
-  generateReport: (token, clientId, { reportMonth, channelIds } = {}) =>
+  generateReport: (token, clientId, { reportMonth, channelIds, platform } = {}) =>
     apiFetch('/report.generate', {
       token,
       body: {
         client_id: clientId,
         report_month: reportMonth || null,
         channel_ids: channelIds || null,
+        platform: platform || 'youtube',
       },
     }),
   refineReport: (token, reportId, prompt) =>
@@ -1481,6 +1500,11 @@ export const api = {
         event_end: post.event_end || '',
         coupon_code: post.coupon_code || '',
       },
+    }),
+  gbpSavePostDraft: (token, clientId, draftId, summary) =>
+    apiFetch('/gbp.posts.drafts.save', {
+      token,
+      body: { client_id: clientId, location_id: '', draft_id: draftId, summary },
     }),
   gbpPublishPostDraft: (token, clientId, draftId, summary) =>
     apiFetch('/gbp.posts.drafts.publish', {

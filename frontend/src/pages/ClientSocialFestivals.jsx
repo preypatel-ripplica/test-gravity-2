@@ -270,7 +270,7 @@ export default function ClientSocialFestivals() {
       toast('Please select at least one platform.', 'error')
       return
     }
-    if (captionTooLong(postCaption)) {
+    if (publishTargets.includes('instagram') && captionTooLong(postCaption)) {
       toast('Caption is over Instagram’s 2,200 character limit.', 'error')
       return
     }
@@ -725,6 +725,17 @@ export default function ClientSocialFestivals() {
                   />
                   <span><i className="fa-brands fa-facebook" style={{ color: '#1877F2' }} /> Facebook</span>
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={publishTargets.includes('gbp')}
+                    onChange={(e) => {
+                      if (e.target.checked) setPublishTargets([...publishTargets, 'gbp'])
+                      else setPublishTargets(publishTargets.filter((t) => t !== 'gbp'))
+                    }}
+                  />
+                  <span><i className="fa-solid fa-store" style={{ color: '#188038' }} /> Google Business</span>
+                </label>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -738,7 +749,7 @@ export default function ClientSocialFestivals() {
               <button
                 className="btn btn-primary"
                 onClick={handleConfirmPublish}
-                disabled={publishing || captionTooLong(postCaption)}
+                disabled={publishing || (publishTargets.includes('instagram') && captionTooLong(postCaption))}
               >
                 {publishing ? 'Processing...' : (targetAction === 'schedule' ? 'Schedule Post' : 'Publish Now')}
               </button>

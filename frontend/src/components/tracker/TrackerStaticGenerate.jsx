@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../../api'
+import { useAuth } from '../../context/AuthContext'
+import { useClientPresentation } from '../../hooks/useClientPresentation'
 import CaptionCount, { captionTooLong } from '../CaptionCount'
 
 function assetUrl(path) {
@@ -11,6 +13,9 @@ function assetUrl(path) {
 
 export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
   const { token, clientId, toast, year, month, week } = weekContext
+  const { user } = useAuth()
+  const client = (user?.clients || []).find((row) => row.id === clientId)
+  const aiRankedKeywords = useClientPresentation(client).aiRankedKeywords
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState('script')
   const [sources, setSources] = useState({ scripted_items: [], recommended_keywords: [] })
@@ -205,6 +210,12 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
       else destinations.push({ id: `dest-fb-${post.id}`, platform: 'facebook', url: published.facebook_permalink })
       destinationPostIds.facebook = post.id
     }
+    if (nextTargets.includes('gbp') && published.gbp_search_url) {
+      const idx = destinations.findIndex((d) => d.platform === 'gbp')
+      if (idx >= 0) destinations[idx] = { ...destinations[idx], url: published.gbp_search_url }
+      else destinations.push({ id: `dest-gbp-${post.id}`, platform: 'gbp', url: published.gbp_search_url })
+      destinationPostIds.gbp = post.id
+    }
     return {
       destinations,
       destination_post_ids: destinationPostIds,
@@ -214,10 +225,10 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
 
   async function handlePublish(post) {
     if (!targets.length) {
-      toast('Select Instagram or Facebook.', 'error')
+      toast('Select Instagram, Facebook, or Google Business.', 'error')
       return
     }
-    if (captionTooLong(post.brief?.caption || '')) {
+    if (targets.includes('instagram') && captionTooLong(post.brief?.caption || '')) {
       toast('Caption is over Instagram’s 2,200 character limit. Shorten it before posting.', 'error')
       return
     }
@@ -241,6 +252,8 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
               publish_status: 'published',
               instagram_permalink: published.instagram_permalink || p.instagram_permalink,
               facebook_permalink: published.facebook_permalink || p.facebook_permalink,
+              gbp_search_url: published.gbp_search_url || p.gbp_search_url,
+              gbp_post_name: published.gbp_post_name || p.gbp_post_name,
             }
           : p
       )))
@@ -251,7 +264,8 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
       }
       const missingIg = nextTargets.includes('instagram') && !published.instagram_permalink
       const missingFb = nextTargets.includes('facebook') && !published.facebook_permalink
-      if (missingIg || missingFb) {
+      const missingGbp = nextTargets.includes('gbp') && !published.gbp_search_url
+      if (missingIg || missingFb || missingGbp) {
         toast('Posted live, but a permalink is still missing. Refresh or paste the link under Where it went out.', 'error')
       } else {
         toast('Published.', 'success')
@@ -266,7 +280,7 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
 
   function handleSchedule(post) {
     if (!targets.length) {
-      toast('Select Instagram or Facebook.', 'error')
+      toast('Select Instagram, Facebook, or Google Business.', 'error')
       return
     }
     const previous = post
@@ -422,7 +436,13 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
                   </div>
                 )
               })}
-              {!sources.recommended_keywords?.length ? <p className="text-muted">No keywords with score 50+.</p> : null}
+              {!sources.recommended_keywords?.length ? (
+                <p className="text-muted">
+                  {aiRankedKeywords
+                    ? 'No keywords yet. Refresh topics in Settings first.'
+                    : 'No keywords with score 50+.'}
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -531,6 +551,13 @@ export default function TrackerStaticGenerate({ card, weekContext, onChange }) {
                           onClick={() => toggleTarget('facebook')}
                         >
                           <i className="fa-brands fa-facebook" /> Facebook
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-secondary btn-sm${targets.includes('gbp') ? ' is-selected' : ''}`}
+                          onClick={() => toggleTarget('gbp')}
+                        >
+                          <i className="fa-solid fa-store" /> Google Business
                         </button>
                       </div>
                       <div className="tracker-note-actions">

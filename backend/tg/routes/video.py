@@ -15,6 +15,7 @@ from backend.tg.database import (
     fetch_client_doc,
     fetch_user,
     list_videos_for_channel,
+    list_videos_for_platform,
     merge_preserved_video_fields,
     replace_channel_videos,
     update_video_fields,
@@ -282,6 +283,9 @@ def _to_video_schema(raw: dict) -> schemas.YouTubeVideoInfo:
         privacy_status=(raw.get("privacy_status") or "public").lower(),
         notes=raw.get("notes", ""),
         metadata_fields=raw.get("metadata_fields", {}),
+        permalink=raw.get("permalink"),
+        platform=raw.get("platform"),
+        channel_id=raw.get("channel_id"),
     )
 
 
@@ -336,12 +340,44 @@ def video_sync(
     rows = []
     for v in synced_videos:
         existing = existing_videos_map.get(v.id) or {}
-        rows.append(merge_preserved_video_fields(v.model_dump(), existing))
+        row = merge_preserved_video_fields(v.model_dump(), existing)
+        row["platform"] = "youtube"
+        rows.append(row)
         v.notes = existing.get("notes", "") or ""
         v.metadata_fields = existing.get("metadata_fields", {}) or {}
-    replace_channel_videos(channel_id, client_id, rows)
+    replace_channel_videos(channel_id, client_id, rows, platform="youtube")
 
     return schemas.YouTubeVideoListResponse(videos=synced_videos)
+
+
+@router.post("/video.instagram.list", response_model=schemas.YouTubeVideoListResponse)
+def video_instagram_list(
+    body: schemas.InstagramLibraryRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if not fetch_client_doc(body.client_id, username=current_user["username"]):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    videos = [
+        _to_video_schema(row)
+        for row in list_videos_for_platform(body.client_id, "instagram")
+        if _is_public_video(row)
+    ]
+    return schemas.YouTubeVideoListResponse(videos=videos)
+
+
+@router.post("/video.instagram.sync", response_model=schemas.YouTubeVideoListResponse)
+async def video_instagram_sync(
+    body: schemas.InstagramLibraryRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if not fetch_client_doc(body.client_id, username=current_user["username"]):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    from backend.tg.services.instagram_library import fetch_instagram_reels, save_instagram_reels
+
+    ig_user_id, reels = await fetch_instagram_reels(body.client_id)
+    stored = save_instagram_reels(body.client_id, ig_user_id, reels)
+    videos = [_to_video_schema(row) for row in stored if _is_public_video(row)]
+    return schemas.YouTubeVideoListResponse(videos=videos)
 
 
 @router.post("/video.update", response_model=schemas.YouTubeVideoInfo)
@@ -1189,6 +1225,15 @@ def _execute_video_upload(
         post_to_instagram=body.post_to_instagram,
         post_to_facebook=body.post_to_facebook,
     )
+    from backend.tg.database import fetch_client_doc
+    from backend.tg.posting_mix import normalize_posting_mix
+
+    saved_mix = normalize_posting_mix((fetch_client_doc(client_id, username=username) or {}).get("posting_mix"))
+    if saved_mix:
+        include = saved_mix["include"]
+        post_to_youtube = post_to_youtube and include["youtube"]
+        post_to_instagram = post_to_instagram and include["instagram"]
+        post_to_facebook = post_to_facebook and include["facebook"]
     jobs = _upload_jobs(body) if post_to_youtube else []
     for job in jobs:
         _resolve_ids(username, client_id, job.get("channel_id"))
@@ -1356,7 +1401,7 @@ def _execute_video_upload(
                 return None, f"Storage upload failed, so Instagram was not posted: {exc}"
 
         def _social_caption() -> tuple[str | None, str | None]:
-            from backend.tg.services.youtube_metadata import generate_social_caption
+            from backend.tg.professions import profession_for
 
             source = next((job for job in jobs if str(job.get("language") or "").lower() == "hinglish"), None)
             source = source or (jobs[0] if jobs else None) or {
@@ -1366,7 +1411,7 @@ def _execute_video_upload(
             }
             try:
                 caption = fit_social_caption(
-                    generate_social_caption(
+                    profession_for(client_id, username).generate_social_caption(
                         source.get("title") or body.title,
                         source.get("description") or body.description,
                         list(source.get("tags") or body.tags or []),

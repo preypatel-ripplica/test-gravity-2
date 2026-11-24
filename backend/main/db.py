@@ -244,9 +244,14 @@ def ensure_indexes() -> None:
     plan_items_col().create_index([("yt_metadata_id", ASCENDING)])
 
     monthly_reports_col().create_index([("id", ASCENDING)], unique=True)
+    try:
+        monthly_reports_col().drop_index("project_id_1_report_month_1")
+    except Exception:
+        pass
     monthly_reports_col().create_index(
-        [("project_id", ASCENDING), ("report_month", ASCENDING)],
+        [("project_id", ASCENDING), ("report_month", ASCENDING), ("platform", ASCENDING)],
         unique=True,
+        name="project_month_platform",
     )
 
     social_posts_col().create_index([("id", ASCENDING)], unique=True)

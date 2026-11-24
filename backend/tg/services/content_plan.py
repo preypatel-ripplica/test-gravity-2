@@ -771,6 +771,150 @@ def generate_content_plan(
     return payload
 
 
+def _planning_specialty(client: dict) -> str | None:
+    """Doctor scripts keep specialty. Creator scripts use niche when the creator folder is active."""
+    from backend.tg.professions.prompt_context import current_prompts_dir
+
+    if current_prompts_dir().name == "creator":
+        niche = (client.get("niche") or "").strip()
+        if niche:
+            return niche
+    return client.get("specialty")
+
+
+def _topics_with_saved_scores(client: dict) -> list[dict]:
+    """Topics that already carry an AI recommendation score. Does not add trend points."""
+    picked: list[dict] = []
+    for topic in normalize_topics(client.get("topics")):
+        raw = topic.get("recommendation_score")
+        if raw is None:
+            continue
+        try:
+            score = float(raw)
+        except (TypeError, ValueError):
+            continue
+        row = dict(topic)
+        row["recommendation_score"] = score
+        picked.append(row)
+    return picked
+
+
+def pick_topics_by_rank(topics: list[dict], count: int) -> list[dict]:
+    """Highest recommendation_score first. No random weights and no score cutoff."""
+    ranked = sorted(
+        topics,
+        key=lambda topic: (
+            -float(topic.get("recommendation_score") or 0),
+            (topic.get("text") or ""),
+        ),
+    )
+    return ranked[: max(0, int(count))]
+
+
+def generate_titles_from_scores(
+    client: dict,
+    *,
+    count: int = 5,
+    force_remap: bool = False,
+    user_prompt: str | None = None,
+    regenerate: bool = False,
+    pick: str = "weighted",
+) -> dict[str, Any]:
+    """Write titles from scored keywords. Does not map videos."""
+    del force_remap
+    count = max(2, min(10, int(count or 5)))
+    topics = _topics_with_saved_scores(client)
+    topics_by_id = {t["id"]: t for t in topics}
+    primary = [t for t in topics if float(t.get("recommendation_score") or 0) >= SCORE_THRESHOLD]
+    if pick != "rank" and not primary and not regenerate:
+        raise ValueError(
+            f"No topics with recommendation_score >= {SCORE_THRESHOLD}. "
+            "Save recommendations in Keywords first."
+        )
+
+    prev = (client.get("content_suggestions") or {}).get("items") or []
+    recent_types: list[str] = []
+    for item in prev[:5]:
+        if isinstance(item, dict) and item.get("video_type"):
+            recent_types.append(item["video_type"])
+
+    extra_keywords: list[dict] = []
+    if regenerate:
+        if not prev:
+            raise ValueError(
+                "No existing suggestions to regenerate. Generate titles first."
+            )
+        slots = slots_from_previous_items(prev, topics_by_id, {})
+        if not slots:
+            raise ValueError(
+                "Previous suggestions have no usable topics. Generate titles first."
+            )
+        used_ids = {s["topic_id"] for s in slots}
+        extra_keywords = extra_keywords_for_refine(topics, used_ids, keyword_analysis_by_id={})
+    else:
+        formats = next_formats([], count)
+        picked: list[dict] = []
+        used: set[str] = set()
+        if pick == "rank":
+            picked = pick_topics_by_rank(topics, count)
+            if not picked:
+                raise ValueError(
+                    "No topics with a recommendation_score. Save recommendations in Keywords first."
+                )
+        else:
+            pool = list(primary)
+            for _fmt in formats:
+                remaining = [t for t in pool if t["id"] not in used]
+                if not remaining:
+                    break
+                choice = weighted_sample(remaining, 1)[0]
+                picked.append(choice)
+                used.add(choice["id"])
+            if not picked:
+                raise ValueError(
+                    f"No topics with recommendation_score >= {SCORE_THRESHOLD}. "
+                    "Save recommendations in Keywords first."
+                )
+        slots = build_slots(picked, formats[: len(picked)], keyword_analysis_by_id={})
+
+    enriched = enrich_suggestions(
+        slots=slots,
+        specialty=_planning_specialty(client),
+        description=client.get("description"),
+        recent_library_topics=[],
+        recent_video_types=recent_types,
+        keyword_analysis=None,
+        fresh_channel=True,
+        client_id=client.get("id"),
+        user_prompt=user_prompt,
+        previous_items=prev if regenerate else None,
+        extra_keywords=extra_keywords if regenerate else None,
+        regenerate=regenerate,
+    )
+    items = merge_enriched(
+        slots,
+        enriched,
+        recent_types,
+        extra_keywords=extra_keywords if regenerate else None,
+    )
+    for item in items:
+        if isinstance(item, dict):
+            item["is_latest"] = True
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(items),
+        "user_prompt": user_prompt,
+        "items": items,
+        "coverage": {"total": 0, "mapped_to_keyword": 0, "out_of_keyword": 0},
+        "keyword_analysis": [],
+        "mapped_at": None,
+        "recent_video_types": recent_types[:20],
+        "recent_library_topics": [],
+    }
+    client["content_suggestions"] = payload
+    return payload
+
+
 def map_content_plan_only(client: dict, *, force: bool = True) -> dict[str, Any]:
     """1st call: map library → keywords, persist Long/Short analysis (no titles yet)."""
     mapped = ensure_video_topic_coverage(client, force=force)
@@ -848,7 +992,7 @@ def generate_scripts_for_plan(
         doctor_name=profile["doctor_name"],
         doctor_designation=profile["doctor_designation"],
         doctor_location=profile.get("doctor_location") or None,
-        specialty=client.get("specialty"),
+        specialty=_planning_specialty(client),
         description=client.get("description"),
         client_id=client.get("id"),
         examples=refs,
@@ -944,7 +1088,7 @@ def refine_script_for_item(
         doctor_name=profile["doctor_name"],
         doctor_designation=profile["doctor_designation"],
         doctor_location=profile.get("doctor_location") or None,
-        specialty=client.get("specialty"),
+        specialty=_planning_specialty(client),
         client_id=client.get("id"),
     )
     new_script = (refined.get("script") or "").strip()

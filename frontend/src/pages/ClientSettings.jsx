@@ -6,6 +6,7 @@ import CustomSelect from '../components/CustomSelect'
 import ProfileTabs from '../components/client-profile/ProfileTabs'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
+import { useClientPresentation } from '../hooks/useClientPresentation'
 
 const WEIGHTS = [
   { key: 'high', label: 'High priority', hint: 'Core conditions this practice treats most' },
@@ -99,6 +100,10 @@ export default function ClientSettings() {
   const [name, setName] = useState('')
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [specialty, setSpecialty] = useState('')
+  const [niche, setNiche] = useState('')
+  const [nicheDetails, setNicheDetails] = useState('')
+  const [exampleTopics, setExampleTopics] = useState([])
+  const [exampleTopicInput, setExampleTopicInput] = useState('')
   const [referenceYoutube, setReferenceYoutube] = useState('')
   const [topics, setTopics] = useState([])
   const [newTopic, setNewTopic] = useState('')
@@ -114,6 +119,10 @@ export default function ClientSettings() {
   const [activeTab, setActiveTab] = useState('topics')
   const [recoPage, setRecoPage] = useState('primary') // primary (>=50) | secondary (<50)
   const [savingRecommendations, setSavingRecommendations] = useState(false)
+  const presentation = useClientPresentation(client)
+  const usesGoogleTrends = presentation.usesGoogleTrends
+  const isCreator = presentation.aiRankedKeywords
+  const visibleTab = !usesGoogleTrends && activeTab === 'trends' ? 'topics' : activeTab
 
   // Hydrate only when switching clients — not on every patchUser (that was
   // clobbering a fresh refresh with a stale clients[].topics snapshot).
@@ -122,10 +131,13 @@ export default function ClientSettings() {
     setName(client.name || '')
     setWebsiteUrl(client.website_url || '')
     setSpecialty(client.specialty || '')
+    setNiche(client.niche || '')
+    setNicheDetails(client.niche_details || '')
+    setExampleTopics(Array.isArray(client.example_topics) ? client.example_topics : [])
     setReferenceYoutube(client.reference_youtube_channel || '')
     setTopics(normalizeTopics(client.topics || client.topic_ideas || []))
     setScrapeHint(null)
-  }, [clientId, client?.id])
+  }, [clientId, client?.id, client?.profession, client?.niche])
 
   const buckets = useMemo(() => {
     const grouped = { high: [], medium: [], low: [] }
@@ -210,7 +222,9 @@ export default function ClientSettings() {
     [recommendedTopics],
   )
 
-  const recoPageTopics = recoPage === 'primary' ? primaryTopics : secondaryTopics
+  const recoPageTopics = isCreator
+    ? recommendedTopics
+    : (recoPage === 'primary' ? primaryTopics : secondaryTopics)
   const recommendationsSavedAt = useMemo(() => {
     const stamps = topics
       .map((t) => t.recommendation_saved_at)
@@ -219,13 +233,36 @@ export default function ClientSettings() {
     return stamps.length ? stamps[stamps.length - 1] : null
   }, [topics])
 
+  function creatorNicheGap() {
+    const missing = []
+    if (!niche.trim()) missing.push('niche')
+    if (!nicheDetails.trim()) missing.push('details about niche')
+    if (!missing.length) return ''
+    if (missing.length === 2) return 'Fill niche and details about niche first'
+    if (missing[0] === 'niche') return 'Fill niche first'
+    return 'Fill details about niche first'
+  }
+
+  function requireCreatorNiche() {
+    if (!isCreator) return true
+    const gap = creatorNicheGap()
+    if (!gap) return true
+    toast(gap, 'error')
+    return false
+  }
+
   function planningPayload() {
-    return {
+    const payload = {
       name: name.trim(),
       website_url: websiteUrl.trim(),
-      specialty: specialty.trim(),
       reference_youtube_channel: referenceYoutube.trim(),
     }
+    if (isCreator) {
+      payload.niche = niche.trim()
+      payload.niche_details = nicheDetails.trim()
+      payload.example_topics = exampleTopics
+    } else payload.specialty = specialty.trim()
+    return payload
   }
 
   async function saveTopicsDirectly(updatedTopics) {
@@ -277,13 +314,15 @@ export default function ClientSettings() {
       toast('Enter a refine prompt first', 'error')
       return
     }
+    if (!requireCreatorNiche()) return
     setRefreshing(true)
     setScrapeHint(null)
     try {
       await api.updateClient(token, clientId, planningPayload())
       const data = await api.refreshClientTopics(token, clientId, {
         website_url: websiteUrl.trim() || undefined,
-        specialty: specialty.trim() || undefined,
+        specialty: isCreator ? undefined : (specialty.trim() || undefined),
+        niche: isCreator ? (niche.trim() || undefined) : undefined,
         reference_youtube_channel: referenceYoutube.trim() || undefined,
         topics,
         ...(withPrompt ? { user_prompt: prompt } : {}),
@@ -308,11 +347,13 @@ export default function ClientSettings() {
       } else {
         const count = Array.isArray(data.topics) ? data.topics.length : 0
         toast(
-          data.generator === 'openai'
-            ? withPrompt
-              ? `Topics updated from your prompt (${count}) — manual topics kept`
-              : `Auto topics refreshed with GPT-6.1 Sol (${count}) — manual topics kept`
-            : `Auto topics refreshed (${count}) — manual topics kept`,
+          isCreator
+            ? 'Four topics ready'
+            : data.generator === 'openai'
+              ? withPrompt
+                ? `Topics updated from your prompt (${count}) — manual topics kept`
+                : `Auto topics refreshed with GPT-6.1 Sol (${count}) — manual topics kept`
+              : `Auto topics refreshed (${count}) — manual topics kept`,
           'success',
         )
       }
@@ -324,18 +365,24 @@ export default function ClientSettings() {
   }
 
   async function handleRefreshTopics() {
+    if (!requireCreatorNiche()) return
     const isConfirmed = await confirm({
-      title: 'Refresh Auto Topics?',
-      message: 'Are you sure you want to refresh auto topics? This will re-analyze your specialty/website signals and update auto topics. Manual topics will be preserved.',
+      title: isCreator ? 'Search current trends?' : 'Refresh Auto Topics?',
+      message: isCreator
+        ? 'This searches the live web in this niche and replaces auto topics with 4 scored ideas. Manual topics stay.'
+        : 'Are you sure you want to refresh auto topics? This will re-analyze your specialty/website signals and update auto topics. Manual topics will be preserved.',
     })
     if (!isConfirmed) return
     return runTopicRefresh({ withPrompt: false })
   }
 
   async function handleApplyRefinePrompt() {
+    if (!requireCreatorNiche()) return
     const isConfirmed = await confirm({
-      title: 'Apply Refine Prompt?',
-      message: 'Are you sure you want to apply this prompt to refine your auto topics? This will use OpenAI to update topics. Manual topics will be preserved.',
+      title: isCreator ? 'Redo search with this prompt?' : 'Apply Refine Prompt?',
+      message: isCreator
+        ? 'This runs the same live web search again with your extra instruction. Manual topics stay.'
+        : 'Are you sure you want to apply this prompt to refine your auto topics? This will use OpenAI to update topics. Manual topics will be preserved.',
     })
     if (!isConfirmed) return
     return runTopicRefresh({ withPrompt: true })
@@ -444,6 +491,7 @@ export default function ClientSettings() {
       toast('Client name is required', 'error')
       return
     }
+    if (!requireCreatorNiche()) return
     if (refreshing) {
       toast('Wait for topic refresh to finish before saving', 'error')
       return
@@ -482,8 +530,9 @@ export default function ClientSettings() {
           />
           <h1>Keywords and topics</h1>
           <p>
-            These are the values sent to AI for keyword planning. Name, website, and specialty are
-            the same fields as Practice details.
+            {isCreator
+              ? 'Search uses name, website (context only), niche, niche details, and example topics. Instagram is included if this client is connected.'
+              : 'These are the values sent to AI for keyword planning. Name, website, and specialty are the same fields as Practice details.'}
           </p>
         </div>
       </header>
@@ -492,8 +541,9 @@ export default function ClientSettings() {
         <section className="profile-section">
           <h2>Planning signals</h2>
           <p className="profile-section-desc">
-            Sent to AI when refreshing keywords. Name, website, and specialty are stored with
-            Practice details — edit them here or there.
+            {isCreator
+              ? 'Sent to AI when searching topics. Niche and details about niche are required. Website is context only — not crawled.'
+              : 'Sent to AI when refreshing keywords. Name, website, and specialty are stored with Practice details — edit them here or there.'}
           </p>
 
           <div className="input-group">
@@ -503,13 +553,13 @@ export default function ClientSettings() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Dr. Jane Smith"
+              placeholder={isCreator ? 'Channel or creator name' : 'Dr. Jane Smith'}
               required
             />
           </div>
 
           <div className="input-group">
-            <label htmlFor="planning-website">Practice website</label>
+            <label htmlFor="planning-website">{isCreator ? 'Website' : 'Practice website'}</label>
             <input
               id="planning-website"
               type="url"
@@ -518,21 +568,92 @@ export default function ClientSettings() {
               placeholder="https://www.exampleclinic.com"
             />
             <span className="field-hint">
-              Sitemap URLs from this site are crawled and sent as keyword evidence.
+              {isCreator
+                ? 'Optional context for AI. Not scraped. Keywords come from a live web search in the niche.'
+                : 'Sitemap URLs from this site are crawled and sent as keyword evidence.'}
             </span>
           </div>
 
-          <div className="input-group">
-            <label htmlFor="planning-specialty">Specialty</label>
-            <input
-              id="planning-specialty"
-              type="text"
-              value={specialty}
-              onChange={(e) => setSpecialty(e.target.value)}
-              placeholder="e.g. Cardiology, Dermatology, Pediatrics"
-            />
-          </div>
+          {isCreator ? (
+            <div className="input-group">
+              <label htmlFor="planning-niche">
+                Niche <span className="req-star" aria-hidden="true">*</span>
+              </label>
+              <input
+                id="planning-niche"
+                type="text"
+                value={niche}
+                onChange={(e) => setNiche(e.target.value)}
+                placeholder="e.g. Personal finance, street food, travel vlogs"
+              />
+            </div>
+          ) : null}
+          {isCreator ? (
+            <>
+              <div className="input-group">
+                <label htmlFor="planning-niche-details">
+                  Details about niche <span className="req-star" aria-hidden="true">*</span>
+                </label>
+                <textarea
+                  id="planning-niche-details"
+                  rows={5}
+                  value={nicheDetails}
+                  onChange={(e) => setNicheDetails(e.target.value)}
+                  placeholder="Who this creator is for, and what the content should cover."
+                />
+              </div>
+              <div className="input-group">
+                <label htmlFor="example-topic-input">Example topics</label>
+                <span className="field-hint">Signals for keyword search. They are not copied into the keyword list.</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
+                  {exampleTopics.map((topic) => (
+                    <button
+                      key={topic}
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setExampleTopics((prev) => prev.filter((item) => item !== topic))}
+                    >
+                      {topic} ×
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    id="example-topic-input"
+                    type="text"
+                    value={exampleTopicInput}
+                    onChange={(e) => setExampleTopicInput(e.target.value)}
+                    placeholder="Add an example topic"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const next = exampleTopicInput.trim()
+                      if (!next || exampleTopics.includes(next)) return
+                      setExampleTopics((prev) => [...prev, next])
+                      setExampleTopicInput('')
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="input-group">
+              <label htmlFor="planning-specialty">Specialty</label>
+              <input
+                id="planning-specialty"
+                type="text"
+                value={specialty}
+                onChange={(e) => setSpecialty(e.target.value)}
+                placeholder="e.g. Cardiology, Dermatology, Pediatrics"
+              />
+            </div>
+          )}
 
+          {isCreator ? null : (
           <div className="input-group">
             <label htmlFor="client-reference-yt">Reference YouTube channel</label>
             <input
@@ -547,6 +668,7 @@ export default function ClientSettings() {
               signals. Linked channels from Connections are included automatically.
             </span>
           </div>
+          )}
 
           {scrapeHint && (scrapeHint.title || scrapeHint.snippet) && (
             <div className="scrape-preview">
@@ -595,7 +717,7 @@ export default function ClientSettings() {
           >
             <i className="fa-solid fa-list" /> Topics
           </button>
-          <button
+          {usesGoogleTrends && <button
             type="button"
             onClick={() => setActiveTab('trends')}
             style={{
@@ -615,7 +737,7 @@ export default function ClientSettings() {
             }}
           >
             <i className="fa-solid fa-chart-line" /> Trends Analysis
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => setActiveTab('recommendations')}
@@ -639,15 +761,15 @@ export default function ClientSettings() {
           </button>
         </div>
 
-        {activeTab === 'topics' && (
+        {visibleTab === 'topics' && (
           <section className="profile-section animate-fade-in">
             <div className="topics-header">
               <div>
                 <h2>Topics</h2>
                 <p className="profile-section-desc">
-                  Topics derived from this practice and specialty — website scrape, specialty
-                  signals, and your refine prompts. Bucketed by how central each topic is to the
-                  doctor&apos;s work. Manual topics stay untouched on refresh.
+                  {isCreator
+                    ? 'Search returns 4 ideas scored 0–100 from current web trends in this niche. Manual topics stay.'
+                    : "Topics derived from this practice and specialty — website scrape, specialty signals, and your refine prompts. Bucketed by how central each topic is to the doctor's work. Manual topics stay untouched on refresh."}
                 </p>
               </div>
               <button
@@ -674,13 +796,19 @@ export default function ClientSettings() {
                 id="topic-user-prompt"
                 value={userPrompt}
                 onChange={(e) => setUserPrompt(e.target.value)}
-                placeholder='e.g. "Add more spine and nerve topics, remove general wellness, emphasize non-surgical procedures"'
+                placeholder={
+                  isCreator
+                    ? 'e.g. more beginner-friendly, skip money talk, lean into stories…'
+                    : 'e.g. "Add more spine and nerve topics, remove general wellness, emphasize non-surgical procedures"'
+                }
                 rows={3}
                 disabled={refreshing}
               />
               <div className="topic-prompt-actions">
                 <span className="field-hint">
-                  Applies only to auto topics using your instruction. Manual topics stay unchanged.
+                  {isCreator
+                    ? 'Optional extra instruction for this search. Manual topics stay unchanged.'
+                    : 'Applies only to auto topics using your instruction. Manual topics stay unchanged.'}
                 </span>
                 <button
                   type="button"
@@ -714,6 +842,7 @@ export default function ClientSettings() {
                   }
                 }}
               />
+              {isCreator ? null : (
               <CustomSelect
                 className="topic-weight-select"
                 value={newWeight}
@@ -725,6 +854,7 @@ export default function ClientSettings() {
                   { value: 'low', label: 'Low' },
                 ]}
               />
+              )}
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -749,6 +879,47 @@ export default function ClientSettings() {
               </span>
             </div>
 
+            {isCreator ? (
+              !topics.length ? (
+                <p className="empty-topics">
+                  Search uses your niche, niche details, and example topics.
+                </p>
+              ) : recommendedTopics.length === 0 ? (
+                <p className="empty-topics">No topics match this filter.</p>
+              ) : (
+                <ul className="trend-row-list recommendation-list">
+                  {recommendedTopics.map((topic, index) => (
+                    <li key={topic.id} className="trend-row recommendation-row">
+                      <span className="recommendation-rank" aria-hidden="true">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span className="trend-row-text" title={topic.text}>
+                        {topic.text}
+                      </span>
+                      <span
+                        className="trend-score"
+                        title="Trend score from live web search"
+                      >
+                        {Math.round(topic.recommendation_score || 0)}
+                      </span>
+                      <span className="trend-chips">
+                        {topic.source === 'manual' ? (
+                          <span className="trend-chip">Manual</span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="topic-remove"
+                          onClick={() => removeTopic(topic.id)}
+                          aria-label={`Remove ${topic.text}`}
+                        >
+                          <i className="fa-solid fa-xmark" />
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : (
             <div className="topic-buckets">
               {WEIGHTS.map(({ key, label, hint }) => {
                 const items = filteredBuckets[key]
@@ -800,10 +971,11 @@ export default function ClientSettings() {
                 )
               })}
             </div>
+            )}
           </section>
         )}
 
-        {activeTab === 'trends' && (
+        {usesGoogleTrends && visibleTab === 'trends' && (
           <section className="profile-section trends-section animate-fade-in">
             <div className="topics-header">
               <div>
@@ -933,15 +1105,15 @@ export default function ClientSettings() {
           </section>
         )}
 
-        {activeTab === 'recommendations' && (
+        {visibleTab === 'recommendations' && (
           <section className="profile-section recommendations-section animate-fade-in">
             <div className="topics-header">
               <div>
                 <h2>Combined recommendations</h2>
                 <p className="profile-section-desc">
-                  One ranked list blending practice priority with internet demand.
-                  Score = priority points (High 50 / Mid 30 / Low 10) + (trend score ÷ 100 × 50).
-                  Max 100. Split at 50 into Primary and Secondary. Click Save to write scores to the DB.
+                  {usesGoogleTrends
+                    ? 'One ranked list blending practice priority with internet demand. Score = priority points (High 50 / Mid 30 / Low 10) + (trend score ÷ 100 × 50). Max 100. Split at 50 into Primary and Secondary. Click Save to write scores to the DB.'
+                    : 'AI recommendation scores from keyword refresh, highest first. Titles use this order. Trend points are not added.'}
                 </p>
               </div>
               <button
@@ -964,12 +1136,15 @@ export default function ClientSettings() {
 
             <div className="trends-meta">
               <span>
-                {primaryTopics.length} primary · {secondaryTopics.length} secondary
-                {topicFilter.trim() ? ' (filtered)' : ''}
+                {isCreator
+                  ? `${recommendedTopics.length} keywords by score${topicFilter.trim() ? ' (filtered)' : ''}`
+                  : `${primaryTopics.length} primary · ${secondaryTopics.length} secondary${topicFilter.trim() ? ' (filtered)' : ''}`}
               </span>
+              {usesGoogleTrends ? (
               <span>
                 {scoredCount} of {topics.length} with trend data
               </span>
+              ) : null}
               {recommendationsSavedAt ? (
                 <span className="trends-fetched">
                   Saved {new Date(recommendationsSavedAt).toLocaleString()}
@@ -979,6 +1154,7 @@ export default function ClientSettings() {
               )}
             </div>
 
+            {!isCreator && (
             <div
               className="reco-page-tabs"
               style={{
@@ -1028,6 +1204,7 @@ export default function ClientSettings() {
                 Secondary (&lt;50) · {secondaryTopics.length}
               </button>
             </div>
+            )}
 
             <div className="topic-filter-row">
               <input
@@ -1039,14 +1216,20 @@ export default function ClientSettings() {
               />
             </div>
 
+            {!isCreator && (
             <p className="profile-section-desc" style={{ marginTop: 0, marginBottom: '12px' }}>
               {recoPage === 'primary'
                 ? 'Primary page — topics scoring 50 or above. Strong practice fit and/or demand.'
                 : 'Secondary page — topics scoring below 50. Lower priority or weaker trend signal.'}
             </p>
+            )}
 
-            {!topics.length ? (
-              <p className="empty-topics">Add topics first, then run Analyze trends for full scores.</p>
+              {!topics.length ? (
+              <p className="empty-topics">
+                {usesGoogleTrends
+                  ? 'Add topics first, then run Analyze trends for full scores.'
+                  : 'Refresh keywords first so each topic gets an AI score.'}
+              </p>
             ) : recoPageTopics.length === 0 ? (
               <p className="empty-topics">
                 {topicFilter.trim()
@@ -1069,6 +1252,7 @@ export default function ClientSettings() {
                       {Math.round(topic.recommendation_score)}
                     </span>
                     <span className="trend-chips">
+                      {!isCreator && (
                       <span
                         className={`trend-chip trend-chip-weight weight-${topic.weight}`}
                         title={`Practice priority → ${topic.priority_points} pts`}
@@ -1076,6 +1260,8 @@ export default function ClientSettings() {
                         {topic.weight === 'high' ? 'High' : topic.weight === 'low' ? 'Low' : 'Mid'}{' '}
                         {topic.priority_points}
                       </span>
+                      )}
+                      {usesGoogleTrends ? (
                       <span
                         className="trend-chip"
                         title={
@@ -1089,6 +1275,7 @@ export default function ClientSettings() {
                           ? `${Math.round(topic.trend_score)} → ${topic.trend_points}`
                           : '—'}
                       </span>
+                      ) : null}
                       {topic.trend_confidence === 'low' ? (
                         <span className="trend-chip trend-chip-low">Low data</span>
                       ) : null}

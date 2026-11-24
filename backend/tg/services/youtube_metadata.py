@@ -25,9 +25,28 @@ THUMBNAIL_TEXT_RULES = {
     "russian": "If any on-image text is used, write it in Russian (Cyrillic). English medical terms are OK only if commonly searched that way.",
 }
 
+CREATOR_THUMBNAIL_TEXT_RULES = {
+    "hinglish": "If any on-image text is used, write it in Hinglish (Hindi Devanagari mixed with English topic words).",
+    "arabic": "If any on-image text is used, write it in Arabic (right-to-left). Avoid English except for widely recognized topic words.",
+    "russian": "If any on-image text is used, write it in Russian (Cyrillic). English topic words are OK only if commonly searched that way.",
+}
 
-def _read_prompt(name: str) -> str:
-    path = Path(__file__).resolve().parent.parent / "prompts" / name
+
+def _thumbnail_text_rule(language: str) -> str:
+    from backend.tg.professions.prompt_context import current_prompts_dir
+
+    rules = CREATOR_THUMBNAIL_TEXT_RULES if current_prompts_dir().name == "creator" else THUMBNAIL_TEXT_RULES
+    return rules[language]
+
+
+def _read_prompt(name: str, prompts_dir=None) -> str:
+    if prompts_dir:
+        base = Path(prompts_dir)
+    else:
+        from backend.tg.professions.prompt_context import current_prompts_dir
+
+        base = current_prompts_dir()
+    path = Path(base) / name
     return path.read_text(encoding="utf-8")
 
 
@@ -214,7 +233,7 @@ def generate_youtube_thumbnail_prompt(
     topic_text = _topic_text(topic)
     system_prompt = _fill_prompt(
         "youtube_thumbnail_generate.txt",
-        language_text_rule=THUMBNAIL_TEXT_RULES[language],
+        language_text_rule=_thumbnail_text_rule(language),
         headline=(headline or topic_text or "Untitled").strip(),
         sub_banner=_sub_banner(description) or topic_text or "Watch the full explanation.",
         composition_rule=_composition_line(portrait),
@@ -364,7 +383,7 @@ def refine_youtube_thumbnail_prompt(
     language = normalize_yt_language(language)
     system_prompt = _fill_prompt(
         "youtube_thumbnail_refine.txt",
-        language_text_rule=THUMBNAIL_TEXT_RULES[language],
+        language_text_rule=_thumbnail_text_rule(language),
     )
     
     text_content = (

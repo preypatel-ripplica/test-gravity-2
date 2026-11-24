@@ -33,6 +33,7 @@ from backend.tg.database import (
     hydrate_suggestions_from_content_videos,
     list_channels_meta,
     list_clients_for_user,
+    coerce_content_suggestion_row,
     list_tracker_script_placements,
     list_videos_for_channel,
     replace_content_plan,
@@ -42,7 +43,7 @@ from backend.tg.database import (
 )
 from backend.main.db import plan_items_col
 from backend.tg.google_oauth import get_user_google_creds
-from backend.tg.services.topics import generate_auto_topics, normalize_topics
+from backend.tg.services.topics import normalize_topics
 from backend.tg.services.youtube_api import (
     YT_DESCRIPTION_MAX,
     YT_TAGS_TOTAL_MAX,
@@ -63,6 +64,13 @@ from backend.tg.services.youtube_metadata import (
     refine_youtube_thumbnail_prompt,
 )
 from backend.tg.clients import _require_client_bundle
+from backend.tg.professions import profession_for
+
+
+def _profession_capabilities(client: dict) -> dict:
+    from backend.tg.professions import get_profession
+
+    return get_profession(client or {}).capabilities()
 
 router = APIRouter(tags=["client"])
 
@@ -79,6 +87,7 @@ def _client_to_summary(client: dict) -> schemas.ClientSummary:
         ),
         website_url=client.get("website_url"),
         specialty=client.get("specialty"),
+        niche=client.get("niche"),
         designation=client.get("designation"),
         description=client.get("description"),
         reference_youtube_channel=client.get("reference_youtube_channel"),
@@ -95,6 +104,11 @@ def _client_to_summary(client: dict) -> schemas.ClientSummary:
         tracker_deliverables_period=client.get("tracker_deliverables_period") or "",
         topics=[schemas.TopicItem(**t) for t in normalize_topics(client.get("topics"))],
         is_active=False if client.get("is_active") is False else True,
+        profession=(client.get("profession") or "doctor"),
+        migrated_from_plug=(client.get("migrated_from_plug") or None),
+        capabilities=_profession_capabilities(client),
+        youtube_languages=list(client.get("youtube_languages") or []),
+        posting_mix=client.get("posting_mix") if isinstance(client.get("posting_mix"), dict) else None,
     )
 
 
@@ -139,6 +153,7 @@ def client_update(
         name=body.name,
         website_url=body.website_url,
         specialty=body.specialty,
+        niche=body.niche,
         designation=body.designation,
         description=body.description,
         reference_youtube_channel=body.reference_youtube_channel,
@@ -150,6 +165,7 @@ def client_update(
         tracker_deliverables=deliverables,
         is_active=body.is_active,
         topics=topics,
+        profession=body.profession,
     )
     return _client_list_response(current_user["username"])
 
@@ -199,7 +215,8 @@ def client_scrape_profile(
 
     try:
         print("[topics:route] scrape-profile → generate_auto_topics …", flush=True)
-        auto_topics, meta = generate_auto_topics(
+        auto_topics, meta = profession_for(body.client_id, current_user["username"]).seed_keywords(
+            mode="suggest",
             client_id=client.get("id"),
             client_name=client.get("name"),
             specialty=specialty,
@@ -264,11 +281,12 @@ def client_refresh_topics(
     )
     current_topics = [t.model_dump() for t in body.topics] if body.topics is not None else None
     try:
-        result = refresh_client_topics(
+        result = profession_for(body.client_id, current_user["username"]).seed_keywords(
             current_user["username"],
             body.client_id,
             website_url=body.website_url,
             specialty=body.specialty,
+            niche=body.niche,
             description=body.description,
             reference_youtube_channel=body.reference_youtube_channel,
             topics=current_topics,
@@ -321,7 +339,7 @@ async def client_analyze_trends(
         flush=True,
     )
     try:
-        result = await analyze_client_trends(
+        result = await profession_for(body.client_id, current_user["username"]).analyze_trends(
             current_user["username"],
             body.client_id,
             force=body.force,
@@ -372,7 +390,7 @@ def client_save_recommendations(
 ):
     """Compute and persist combined recommendation scores on client topics."""
     try:
-        result = save_client_recommendations(
+        result = profession_for(body.client_id, current_user["username"]).score_keywords(
             current_user["username"],
             body.client_id,
         )
@@ -412,19 +430,9 @@ def _content_plan_response(username: str, result: dict) -> schemas.ClientContent
     coverage = raw.get("coverage")
     items = []
     for item in raw.get("items") or []:
-        if not isinstance(item, dict):
+        row = coerce_content_suggestion_row(item if isinstance(item, dict) else {})
+        if not row:
             continue
-        row = dict(item)
-        title_en = (row.get("title_en") or "").strip()
-        title_hi = (row.get("title_hinglish") or "").strip()
-        legacy = (row.get("working_title") or "").strip()
-        if not title_en:
-            title_en = legacy or title_hi or row.get("topic_text") or ""
-        if not title_hi:
-            title_hi = legacy or title_en
-        row["title_en"] = title_en
-        row["title_hinglish"] = title_hi
-        row["working_title"] = legacy or title_hi or title_en
         row["tracker_placements"] = placements_by_item.get(row.get("id") or "", [])
         items.append(schemas.ContentSuggestionItem(**row))
 
@@ -495,7 +503,7 @@ def client_content_plan_map(
 ):
     """1st call: map library videos → keywords and persist Long/Short analysis."""
     try:
-        result = map_client_content_plan(
+        result = profession_for(body.client_id, current_user["username"]).map_videos(
             current_user["username"],
             body.client_id,
             force=body.force,
@@ -514,7 +522,7 @@ def client_content_plan_generate(
     current_user: dict = Depends(get_current_user),
 ):
     try:
-        result = run_client_content_plan(
+        result = profession_for(body.client_id, current_user["username"]).generate_content_plan(
             current_user["username"],
             body.client_id,
             count=body.count,
@@ -546,7 +554,7 @@ def client_content_plan_regenerate(
         if count is None:
             existing = get_client_content_plan(current_user["username"], body.client_id)
             count = int((existing.get("suggestions") or {}).get("count") or 5)
-        result = run_client_content_plan(
+        result = profession_for(body.client_id, current_user["username"]).generate_content_plan(
             current_user["username"],
             body.client_id,
             count=count,
@@ -572,7 +580,7 @@ def client_content_plan_generate_scripts(
 ):
     """3rd call: generate spoken Hinglish scripts for all content-plan titles."""
     try:
-        result = run_client_content_scripts(
+        result = profession_for(body.client_id, current_user["username"]).generate_scripts(
             current_user["username"],
             body.client_id,
             example1=body.example1,
@@ -644,7 +652,7 @@ def client_content_plan_refine_script(
             detail="item_id is required.",
         )
     try:
-        result = run_client_content_script_refine(
+        result = profession_for(body.client_id, current_user["username"]).refine_script(
             current_user["username"],
             body.client_id,
             item_id=body.item_id,
@@ -900,6 +908,10 @@ def client_content_plan_generate_metadata(
         raise HTTPException(status_code=401, detail="User not found")
     
     client_id = body.client_id
+    _profession = profession_for(client_id, username)
+    generate_youtube_metadata = _profession.generate_youtube_metadata
+    reference_thumbnail_prompt = _profession.reference_thumbnail_prompt
+    generate_youtube_thumbnail_prompt = _profession.generate_thumbnail_prompt
     languages = []
     for raw in (body.languages or ["hinglish"]):
         lang = normalize_yt_language(raw)
@@ -1280,6 +1292,9 @@ def client_content_plan_refine_metadata(
         raise HTTPException(status_code=401, detail="User not found")
         
     client_id = body.client_id
+    _profession = profession_for(client_id, username)
+    refine_youtube_metadata = _profession.refine_youtube_metadata
+    refine_youtube_thumbnail_prompt = _profession.refine_thumbnail_prompt
     channel_id = user.get("active_channel_id")
     
     client_bundle = _require_client_bundle(username, client_id, with_videos=False)

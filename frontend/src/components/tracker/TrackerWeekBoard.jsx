@@ -17,6 +17,7 @@ import {
   needsDelayProof,
   savedScriptIdsConflict,
   seedDestinations,
+  setProfessionStages,
   serializableCard,
   sortCardsByType,
   startCard,
@@ -34,6 +35,8 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   const [cards, setCards] = useState([])
   const [weekSlots, setWeekSlots] = useState(null)
   const [languages, setLanguages] = useState([])
+  const [languageLabels, setLanguageLabels] = useState({})
+  const [postingMix, setPostingMix] = useState(null)
   const [loading, setLoading] = useState(true)
   const [scriptedItems, setScriptedItems] = useState([])
   const [scriptBusyId, setScriptBusyId] = useState(null)
@@ -53,12 +56,15 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     if (!token || !nextClientId) return
     setLoading(true)
     try {
+      setProfessionStages(null)
       const result = await api.getWeeklyTracker(token, nextClientId, nextYear, nextMonth, nextWeek)
+      setProfessionStages(result.stages || null)
       loadedKey.current = `${nextClientId}-${nextYear}-${nextMonth}-${nextWeek}`
       saveGen.current += 1
       clearTimeout(saveTimer.current)
       skipNextSave.current = true
-      const langs = displayLanguages(result.languages || [])
+      const mix = result.destinations_mode === 'posting_mix' ? result.posting_mix : null
+      const langs = mix ? (result.languages || []) : displayLanguages(result.languages || [])
       const nextCards = (result.tracker?.cards || []).map((card) => {
         let next = {
           ...card,
@@ -66,7 +72,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
           collapsed: !focusCardId || String(card.id) !== String(focusCardId),
         }
         if (!(next.destinations || []).length) {
-          next = { ...next, destinations: seedDestinations(next, langs) }
+          next = { ...next, destinations: seedDestinations(next, langs, mix) }
         }
         return next
       })
@@ -74,6 +80,8 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
       setCards(nextCards)
       setWeekSlots(result.tracker?.deliverable_slots || null)
       setLanguages(langs)
+      setLanguageLabels(result.language_labels || {})
+      setPostingMix(mix)
       setDelayProofRequired(Boolean(result.delay_proof_required))
     } catch (err) {
       toast(err.message, 'error')
@@ -208,6 +216,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   useEffect(() => () => clearTimeout(saveTimer.current), [])
 
   function applyWeekUpdate(result) {
+    if (result.stages) setProfessionStages(result.stages)
     const nextCards = result.tracker?.cards || []
     const newlyComplete = nextCards.find((next) => {
       const previous = cards.find((card) => card.id === next.id)
@@ -219,7 +228,12 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     cardsRef.current = nextCards
     setCards(nextCards)
     if (result.tracker?.deliverable_slots) setWeekSlots(result.tracker.deliverable_slots)
-    if (result.languages) setLanguages(result.languages)
+    if (result.languages || result.destinations_mode) {
+      const mix = result.destinations_mode === 'posting_mix' ? result.posting_mix : null
+      setPostingMix(mix)
+      setLanguageLabels(result.language_labels || {})
+      setLanguages(mix ? (result.languages || []) : displayLanguages(result.languages || []))
+    }
     if (newlyComplete) setDelayGate({ next: newlyComplete })
   }
 
@@ -254,7 +268,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   function addCard(type) {
     if (!canAddTrackerCardType(client, type)) return
     setCards((prev) => {
-      const card = startCard(emptyCard(type, prev.length, false), languages)
+      const card = startCard(emptyCard(type, prev.length, false), languages, postingMix)
       if (isVideoCard(type)) {
         card.editor_id = client?.video_editor_id || editors[0]?.id || ''
         card.edit_hours = defaultEditHours(client, type)
@@ -278,6 +292,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
   const weekContext = {
     token,
     clientId,
+    client,
     year,
     month,
     week,
@@ -285,6 +300,8 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
     delayProofRequired,
     clientName: client?.name || '',
     channels,
+    postingMix,
+    languageLabels,
     editors,
     weekDates: calendarWeekDates(),
     onWeekUpdate: applyWeekUpdate,
@@ -401,7 +418,7 @@ export default function TrackerWeekBoard({ clientId, client, year, month, week, 
           <TrackerCard
             key={card.id}
             card={card}
-            languages={displayLanguages(languages)}
+            languages={postingMix?.saved ? languages : displayLanguages(languages)}
             weekContext={weekContext}
             scriptedItems={scriptedItems.filter((item) => (
               card.type === 'short' ? item.format === 'Short' : item.format !== 'Short'

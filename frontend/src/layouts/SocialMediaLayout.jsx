@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import api from '../api'
 import BrandLockup from '../components/BrandLockup'
+import ConnectionExpiryBanner from '../components/ConnectionExpiryBanner'
 import { NavItem, NavSection } from '../components/NavSection'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -96,13 +97,6 @@ export default function SocialMediaLayout() {
               <i className="fa-solid fa-gift" />
               <span>Festive Posts</span>
             </NavLink>
-            <NavLink
-              to={`/clients/${clientId}/profile/connections`}
-              className="menu-item"
-            >
-              <i className="fa-solid fa-link" />
-              <span>Connections</span>
-            </NavLink>
           </NavSection>
         </nav>
 
@@ -114,6 +108,7 @@ export default function SocialMediaLayout() {
       </aside>
 
       <main className="main-content">
+        <ConnectionExpiryBanner clientId={clientId} />
         <Outlet context={{ client, clientId }} />
       </main>
     </div>

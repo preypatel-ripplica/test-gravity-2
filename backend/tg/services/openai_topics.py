@@ -61,6 +61,26 @@ TOPIC_SCHEMA: dict[str, Any] = {
     "required": ["detected_specialty", "rationale", "topics"],
 }
 
+
+def topic_schema(*, with_score: bool = False) -> dict[str, Any]:
+    """Doctor calls keep TOPIC_SCHEMA. Creator calls also require a 0-100 score."""
+    if not with_score:
+        return TOPIC_SCHEMA
+    import copy
+
+    schema = copy.deepcopy(TOPIC_SCHEMA)
+    item = schema["properties"]["topics"]["items"]
+    item["properties"]["recommendation_score"] = {
+        "type": "number",
+        "description": "How strongly to recommend this keyword for this creator, from 0 to 100.",
+    }
+    item["required"] = ["text", "weight", "recommendation_score"]
+    return schema
+
+
+def _creator_topics(metadata: dict[str, Any]) -> bool:
+    return bool(metadata.get("topic_systems"))
+
 WEIGHTING_RULES = """
 Weighting (strict):
 - high: CONDITIONS and PROBLEMS patients have (symptoms, diagnoses, body-area pain)
@@ -126,6 +146,28 @@ def _topics_compact(topics: list | None) -> list[dict]:
 
 def build_sitemap_prompt(metadata: dict[str, Any]) -> str:
     urls = list(metadata.get("sitemap_urls") or [])[:600]
+    if _creator_topics(metadata):
+        payload = {
+            "website_url": metadata.get("website_url"),
+            "client_name": metadata.get("client_name"),
+            "niche": metadata.get("niche") or metadata.get("specialty"),
+            "sitemap_urls": urls,
+            "sitemap_url_count": len(metadata.get("sitemap_urls") or []),
+            "note": (
+                "Extract keywords for a general creator. No clinic, doctor, patient, "
+                "or clinical-fact wording. Include recommendation_score from 0 to 100 on every topic."
+            ),
+            "output_requirements": {
+                "format": "short keywords only",
+                "weights": list(WEIGHTS),
+                "recommendation_score": "0-100 on every topic",
+            },
+        }
+        return (
+            "Extract creator topic keywords from the sitemap URLs.\n\n"
+            f"INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            "Respond with JSON: detected_specialty, rationale, topics[] with recommendation_score."
+        )
     payload = {
         "website_url": metadata.get("website_url"),
         "client_name": metadata.get("client_name"),
@@ -157,6 +199,34 @@ def build_specialty_prompt(
     metadata: dict[str, Any],
     sitemap_topics: list[dict],
 ) -> str:
+    if _creator_topics(metadata):
+        payload = {
+            "client_name": metadata.get("client_name"),
+            "niche": metadata.get("niche") or metadata.get("specialty"),
+            "description": metadata.get("description"),
+            "website_url": metadata.get("website_url"),
+            "sitemap_topics": _topics_compact(sitemap_topics),
+            "youtube": {
+                "channel_titles": metadata.get("channel_titles") or [],
+                "recent_video_titles": (metadata.get("video_titles") or [])[:30],
+                "note": "Optional signal. Mine topic keywords only; never copy full titles.",
+            },
+            "manual_topics_to_preserve": [
+                t.get("text") if isinstance(t, dict) else str(t)
+                for t in (metadata.get("manual_topics") or [])
+            ],
+            "output_requirements": {
+                "format": "short keywords for a general audience",
+                "weights": list(WEIGHTS),
+                "recommendation_score": "0-100 on every topic",
+                "mode": "expand_sitemap_topics_with_niche",
+            },
+        }
+        return (
+            "Build the full keyword list from sitemap topics and niche.\n\n"
+            f"INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            "Respond with JSON: detected_specialty, rationale, topics[] with recommendation_score."
+        )
     payload = {
         "client_name": metadata.get("client_name"),
         "specialty": metadata.get("specialty"),
@@ -199,6 +269,28 @@ def build_refine_prompt(metadata: dict[str, Any]) -> str:
         t
         for t in _topics_compact(metadata.get("existing_auto_topics") or [])
     ]
+    if _creator_topics(metadata):
+        payload = {
+            "niche": metadata.get("niche") or metadata.get("specialty"),
+            "user_prompt": (metadata.get("user_prompt") or "").strip(),
+            "existing_auto_topics": existing_auto,
+            "manual_topics_to_preserve": [
+                t.get("text") if isinstance(t, dict) else str(t)
+                for t in (metadata.get("manual_topics") or [])
+            ],
+            "output_requirements": {
+                "format": "short keywords for a general audience",
+                "weights": list(WEIGHTS),
+                "recommendation_score": "0-100 on every topic",
+                "mode": "refine_existing_list_with_user_prompt_only",
+            },
+        }
+        return (
+            "Revise the existing auto topic list using ONLY the user_prompt.\n"
+            "Niche is context. No clinic, doctor, patient, or clinical-fact wording.\n\n"
+            f"INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            "Respond with JSON: detected_specialty, rationale, topics[] with recommendation_score."
+        )
     payload = {
         "specialty": metadata.get("specialty"),
         "user_prompt": (metadata.get("user_prompt") or "").strip(),
@@ -260,7 +352,16 @@ def _parse_topics_payload(data: dict[str, Any]) -> tuple[list[dict], dict]:
         seen.add(key)
         if weight not in WEIGHTS:
             weight = "medium"
-        topics_out.append(make_topic(text, weight, "auto"))
+        topic = make_topic(text, weight, "auto")
+        raw_score = item.get("recommendation_score")
+        if raw_score is not None:
+            try:
+                score = max(0.0, min(100.0, round(float(raw_score), 1)))
+            except (TypeError, ValueError):
+                score = None
+            if score is not None:
+                topic["recommendation_score"] = score
+        topics_out.append(topic)
 
     meta = {
         "detected_specialty": data.get("detected_specialty"),
@@ -270,7 +371,12 @@ def _parse_topics_payload(data: dict[str, Any]) -> tuple[list[dict], dict]:
     return topics_out, meta
 
 
-def _call_chat_completions(client: OpenAI, model: str, messages: list[dict]) -> tuple[str, Any, str]:
+def _call_chat_completions(
+    client: OpenAI,
+    model: str,
+    messages: list[dict],
+    schema: dict[str, Any] | None = None,
+) -> tuple[str, Any, str]:
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -279,7 +385,7 @@ def _call_chat_completions(client: OpenAI, model: str, messages: list[dict]) -> 
             "json_schema": {
                 "name": "doctor_youtube_topics",
                 "strict": True,
-                "schema": TOPIC_SCHEMA,
+                "schema": schema or TOPIC_SCHEMA,
             },
         },
     }
@@ -323,7 +429,12 @@ def _call_chat_completions(client: OpenAI, model: str, messages: list[dict]) -> 
     return raw_text, raw_response, "chat.completions"
 
 
-def _call_responses_api(client: OpenAI, model: str, messages: list[dict]) -> tuple[str, Any, str]:
+def _call_responses_api(
+    client: OpenAI,
+    model: str,
+    messages: list[dict],
+    schema: dict[str, Any] | None = None,
+) -> tuple[str, Any, str]:
     effort = (settings.OPENAI_REASONING_EFFORT or "medium").strip() or "medium"
     t0 = time.perf_counter()
     print(
@@ -339,7 +450,7 @@ def _call_responses_api(client: OpenAI, model: str, messages: list[dict]) -> tup
                     "type": "json_schema",
                     "name": "doctor_youtube_topics",
                     "strict": True,
-                    "schema": TOPIC_SCHEMA,
+                    "schema": schema or TOPIC_SCHEMA,
                 }
             },
             reasoning={"effort": effort},
@@ -400,6 +511,7 @@ def _run_stage(
         {"role": "user", "content": user_content},
     ]
 
+    schema = topic_schema(with_score=bool(metadata.get("include_recommendation_score")))
     print(
         f"[topics:openai] stage={stage} calling API model={model} "
         f"effort={settings.OPENAI_REASONING_EFFORT!r} …",
@@ -407,7 +519,7 @@ def _run_stage(
     )
     try:
         try:
-            raw_text, _, api_used = _call_responses_api(client, model, messages)
+            raw_text, _, api_used = _call_responses_api(client, model, messages, schema)
             print(
                 f"[topics:openai] stage={stage} responses API OK chars={len(raw_text)}",
                 flush=True,
@@ -419,7 +531,7 @@ def _run_stage(
                 f"({type(resp_exc).__name__}: {resp_exc}); falling back to chat.completions …",
                 flush=True,
             )
-            raw_text, _, api_used = _call_chat_completions(client, model, messages)
+            raw_text, _, api_used = _call_chat_completions(client, model, messages, schema)
             print(
                 f"[topics:openai] stage={stage} chat.completions OK chars={len(raw_text)}",
                 flush=True,
@@ -464,11 +576,12 @@ def extract_topics_from_sitemap(
     """API call 1: sitemap URLs → website clinical topics."""
     if not (metadata.get("sitemap_urls") or []):
         raise ValueError("No sitemap URLs available for website topic extraction.")
+    systems = metadata.get("topic_systems") or {}
     return _run_stage(
         client=client,
         model=model,
         stage="1_sitemap",
-        system=SYSTEM_SITEMAP,
+        system=systems.get("sitemap") or SYSTEM_SITEMAP,
         user_content=build_sitemap_prompt(metadata),
         metadata=metadata,
     )
@@ -481,11 +594,12 @@ def expand_topics_with_specialty(
     sitemap_topics: list[dict],
 ) -> tuple[list[dict], dict]:
     """API call 2: sitemap topics + specialty → full weighted keyword list."""
+    systems = metadata.get("topic_systems") or {}
     return _run_stage(
         client=client,
         model=model,
         stage="2_specialty",
-        system=SYSTEM_SPECIALTY,
+        system=systems.get("specialty") or SYSTEM_SPECIALTY,
         user_content=build_specialty_prompt(metadata, sitemap_topics),
         metadata=metadata,
     )
@@ -502,11 +616,12 @@ def refine_topics_with_user_prompt(
         raise ValueError("user_prompt is required to refine topics.")
     if not normalize_topics(metadata.get("existing_auto_topics") or []):
         raise ValueError("No existing auto topics to refine. Generate topics first.")
+    systems = metadata.get("topic_systems") or {}
     return _run_stage(
         client=client,
         model=model,
         stage="3_user_prompt",
-        system=SYSTEM_REFINE,
+        system=systems.get("refine") or SYSTEM_REFINE,
         user_content=build_refine_prompt(metadata),
         metadata=metadata,
     )
@@ -547,6 +662,8 @@ def generate_topics_with_openai(metadata: dict[str, Any]) -> tuple[list[dict], d
         has_specialty = bool(metadata.get("specialty"))
         has_yt = bool(metadata.get("video_titles") or [])
         if not has_specialty and not has_yt:
+            if metadata.get("topic_systems"):
+                raise ValueError("Add a website or niche before refreshing keywords.")
             raise ValueError(
                 "No sitemap URLs, specialty, or YouTube titles available to extract keywords from."
             )

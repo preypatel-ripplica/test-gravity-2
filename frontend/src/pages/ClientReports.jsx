@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import api from '../api'
 import Breadcrumbs from '../components/Breadcrumbs'
+import SourceSwitcher from '../components/SourceSwitcher'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
@@ -36,19 +37,20 @@ export default function ClientReports() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [reportMonth, setReportMonth] = useState(previousMonthValue())
+  const [source, setSource] = useState('youtube')
 
   const load = useCallback(async () => {
     if (!token || !clientId) return
     setLoading(true)
     try {
-      const data = await api.listReports(token, clientId)
+      const data = await api.listReports(token, clientId, source)
       setReports(data.reports || [])
     } catch (err) {
       toast(err.message, 'error')
     } finally {
       setLoading(false)
     }
-  }, [token, clientId, toast])
+  }, [token, clientId, toast, source])
 
   useEffect(() => {
     load()
@@ -65,7 +67,7 @@ export default function ClientReports() {
     setGenerating(true)
     try {
       toast(`Generating ${monthLabel(reportMonth)} report…`, 'info')
-      const data = await api.generateReport(token, clientId, { reportMonth })
+      const data = await api.generateReport(token, clientId, { reportMonth, platform: source })
       toast('Report ready', 'success')
       if (data?.id) navigate(`/clients/${clientId}/videos/reports/${data.id}`)
       else await load()
@@ -90,10 +92,16 @@ export default function ClientReports() {
         <div>
           <h1>Monthly reports</h1>
           <p className="text-muted" style={{ maxWidth: 640 }}>
-            Combined-channel YouTube performance for a calendar month, with narrative, charts, and PDF.
+            {source === 'youtube'
+              ? 'Combined-channel YouTube performance for a calendar month, with narrative, charts, and PDF.'
+              : 'Instagram performance for a calendar month, with narrative and PDF.'}
           </p>
         </div>
       </header>
+
+      <div style={{ marginBottom: 16 }}>
+        <SourceSwitcher value={source} onChange={setSource} ariaLabel="Report source" />
+      </div>
 
       <form
         onSubmit={handleGenerate}

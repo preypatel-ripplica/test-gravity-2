@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useParams } from 'react-router-dom'
 import api from '../api'
 import BrandLockup from '../components/BrandLockup'
+import ConnectionExpiryBanner from '../components/ConnectionExpiryBanner'
 import { NavItem, NavSection } from '../components/NavSection'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -104,6 +105,7 @@ export default function ClientTrackerLayout() {
       </aside>
 
       <main className="main-content">
+        <ConnectionExpiryBanner clientId={clientId} />
         <Outlet context={{ client, clientId, isEditor }} />
       </main>
     </div>

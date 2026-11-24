@@ -357,7 +357,10 @@ export default function PocWeeklyTracker() {
   const lastSaved = useRef({})
 
   const activeClients = useMemo(
-    () => (user?.clients || []).filter((client) => client.is_active !== false),
+    () =>
+      (user?.clients || []).filter(
+        (client) => client.is_active !== false,
+      ),
     [user?.clients],
   )
   const clientOptions = useMemo(

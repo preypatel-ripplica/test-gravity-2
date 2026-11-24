@@ -91,9 +91,15 @@ CLIENT_PROFILE_KEYS = (
     "name",
     "website_url",
     "specialty",
+    "niche",
+    "niche_details",
+    "example_topics",
     "designation",
     "description",
     "reference_youtube_channel",
+    "profession",
+    "youtube_languages",
+    "posting_mix",
     "ai_videos_started_from",
     "onboarding_date",
     "tracker_start_year",
@@ -104,6 +110,8 @@ CLIENT_PROFILE_KEYS = (
     "tracker_deliverable_history",
     "tracker_week_slot_plan",
     "example_scripts",
+    "reference_videos",
+    "migrated_from_plug",
     "status",
     "deleted_at",
 )
@@ -357,9 +365,19 @@ def _client_from_project(doc: dict, *, topics: list[dict] | None = None) -> dict
         "name": doc.get("name") or "Client",
         "website_url": doc.get("website_url"),
         "specialty": doc.get("specialty"),
+        "niche": doc.get("niche"),
+        "niche_details": doc.get("niche_details"),
+        "example_topics": [
+            str(topic).strip()
+            for topic in (doc.get("example_topics") or [])
+            if topic is not None and str(topic).strip()
+        ],
         "designation": doc.get("designation"),
         "description": doc.get("description"),
         "reference_youtube_channel": doc.get("reference_youtube_channel"),
+        "profession": (doc.get("profession") or "doctor"),
+        "youtube_languages": doc.get("youtube_languages") or [],
+        "posting_mix": doc.get("posting_mix") if isinstance(doc.get("posting_mix"), dict) else None,
         "ai_videos_started_from": doc.get("ai_videos_started_from"),
         "onboarding_date": doc.get("onboarding_date"),
         "tracker_start_year": doc.get("tracker_start_year"),
@@ -374,6 +392,7 @@ def _client_from_project(doc: dict, *, topics: list[dict] | None = None) -> dict
             for s in (doc.get("example_scripts") or [])
             if s is not None and str(s).strip()
         ],
+        "migrated_from_plug": doc.get("migrated_from_plug") or None,
         "status": status,
         "is_active": status != ProjectStatus.ARCHIVED.value,
         "deleted_at": doc.get("deleted_at"),
@@ -493,6 +512,10 @@ def delete_client_owned(client_id: str, username: str) -> bool:
             {"$set": {"active_client_id": next_id, "active_channel_id": active_ch}},
         )
     return True
+
+
+def is_plug_migrated(doc: dict | None) -> bool:
+    return bool(str((doc or {}).get("migrated_from_plug") or "").strip())
 
 
 def list_clients_for_user(username: str, *, with_topics: bool = True) -> list[dict]:
@@ -901,8 +924,25 @@ def list_videos_for_channel(channel_id: str, client_id: str) -> list[dict]:
     ]
 
 
-def replace_channel_videos(channel_id: str, client_id: str, videos: list[dict]) -> None:
-    """Replace videos rows for one channel (upsert given rows, delete the rest)."""
+def list_videos_for_platform(client_id: str, platform: str) -> list[dict]:
+    return [
+        _video_from_doc(v)
+        for v in videos_col().find({"project_id": client_id, "platform": platform})
+    ]
+
+
+def replace_channel_videos(
+    channel_id: str,
+    client_id: str,
+    videos: list[dict],
+    *,
+    platform: str | None = None,
+) -> None:
+    """Replace videos rows for one channel (upsert given rows, delete the rest).
+
+    When platform is set, only that platform's rows for the channel are removed.
+    YouTube also clears legacy rows that have no platform field.
+    """
     keep_ids: list[str] = []
     ops: list = []
     now = _iso()
@@ -913,6 +953,8 @@ def replace_channel_videos(channel_id: str, client_id: str, videos: list[dict]) 
         keep_ids.append(vid)
         body = {k: v for k, v in video.items() if k not in ("_id", "created_at")}
         body.update({"project_id": client_id, "channel_id": channel_id, "updated_at": now})
+        if platform:
+            body["platform"] = platform
         ops.append(
             UpdateOne(
                 {"id": vid},
@@ -922,9 +964,21 @@ def replace_channel_videos(channel_id: str, client_id: str, videos: list[dict]) 
         )
     if ops:
         videos_col().bulk_write(ops, ordered=False)
-    videos_col().delete_many(
-        {"channel_id": channel_id, "project_id": client_id, "id": {"$nin": keep_ids}}
-    )
+    delete_filter: dict[str, Any] = {
+        "channel_id": channel_id,
+        "project_id": client_id,
+        "id": {"$nin": keep_ids},
+    }
+    if platform == "instagram":
+        delete_filter["platform"] = "instagram"
+    elif platform == "youtube":
+        delete_filter["$or"] = [
+            {"platform": "youtube"},
+            {"platform": {"$exists": False}},
+            {"platform": None},
+            {"platform": ""},
+        ]
+    videos_col().delete_many(delete_filter)
     channels_col().update_one(
         {"id": channel_id, "project_id": client_id},
         {"$set": {"video_count": len(keep_ids), "updated_at": now}},
@@ -1090,33 +1144,81 @@ def fetch_content_plan(client_id: str) -> dict | None:
     return plan if len(plan) > 1 else None
 
 
+def coerce_content_suggestion_row(item: dict) -> dict | None:
+    """Normalize stored plan rows so API schemas validate (e.g. Plug import)."""
+    if not isinstance(item, dict):
+        return None
+    item_id = str(item.get("id") or "").strip()
+    if not item_id:
+        return None
+    row = dict(item)
+    title_en = str(row.get("title_en") or "").strip()
+    title_hi = str(row.get("title_hinglish") or "").strip()
+    legacy = str(row.get("working_title") or row.get("title") or "").strip()
+    topic_text = str(row.get("topic_text") or "").strip() or legacy or title_en or title_hi or "Untitled"
+    if not title_en:
+        title_en = legacy or title_hi or topic_text
+    if not title_hi:
+        title_hi = legacy or title_en
+    fmt_raw = str(row.get("format") or "short").strip() or "short"
+    lowered = fmt_raw.lower()
+    if lowered == "short":
+        fmt = "Short"
+    elif lowered == "long":
+        fmt = "Long"
+    else:
+        fmt = fmt_raw
+    video_type = str(row.get("video_type") or "").strip() or lowered or "short"
+    try:
+        score = float(row.get("recommendation_score") if row.get("recommendation_score") is not None else row.get("score") or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    row.update(
+        {
+            "id": item_id,
+            "topic_id": str(row.get("topic_id") or "").strip(),
+            "topic_text": topic_text,
+            "format": fmt,
+            "video_type": video_type,
+            "title_en": title_en,
+            "title_hinglish": title_hi,
+            "working_title": legacy or title_hi or title_en,
+            "reasoning": str(row.get("reasoning") or "").strip(),
+            "recommendation_score": score,
+        }
+    )
+    return row
+
+
 def suggestion_item_from_plan_item(pi: dict | None) -> dict | None:
     """Shape a plan_items row like a content-plan suggestion item for AI helpers."""
     if not isinstance(pi, dict) or not pi.get("id"):
         return None
     title = str(pi.get("title") or "").strip() or "Untitled"
     fmt = str(pi.get("format") or "long")
-    return {
-        "id": pi["id"],
-        "topic_id": pi.get("topic_id") or "",
-        "topic_text": title,
-        "format": fmt,
-        "video_type": fmt,
-        "title_en": title,
-        "title_hinglish": title,
-        "working_title": title,
-        "reasoning": "",
-        "recommendation_score": 0,
-        "script": pi.get("script") or "",
-        "script_target_duration": pi.get("script_target_duration") or "",
-        "script_hook_used": pi.get("script_hook_used") or "",
-        "script_cta": pi.get("script_cta") or "",
-        "script_checklist_passed": pi.get("script_checklist_passed"),
-        "script_checklist_notes": pi.get("script_checklist_notes") or "",
-        "origin": pi.get("origin"),
-        "is_latest": True if pi.get("is_latest") is None else bool(pi.get("is_latest")),
-        "replaced_from_id": pi.get("replaced_from_id"),
-    }
+    return coerce_content_suggestion_row(
+        {
+            "id": pi["id"],
+            "topic_id": pi.get("topic_id") or "",
+            "topic_text": title,
+            "format": fmt,
+            "video_type": pi.get("video_type") or fmt,
+            "title_en": title,
+            "title_hinglish": title,
+            "working_title": title,
+            "reasoning": pi.get("reasoning") or "",
+            "recommendation_score": pi.get("recommendation_score") or 0,
+            "script": pi.get("script") or "",
+            "script_target_duration": pi.get("script_target_duration") or "",
+            "script_hook_used": pi.get("script_hook_used") or "",
+            "script_cta": pi.get("script_cta") or "",
+            "script_checklist_passed": pi.get("script_checklist_passed"),
+            "script_checklist_notes": pi.get("script_checklist_notes") or "",
+            "origin": pi.get("origin"),
+            "is_latest": True if pi.get("is_latest") is None else bool(pi.get("is_latest")),
+            "replaced_from_id": pi.get("replaced_from_id"),
+        }
+    )
 
 
 def claim_plan_item_topic(project_id: str, item_id: str, preferred: str | None = None) -> str:
@@ -2215,7 +2317,11 @@ def fetch_social_posts_by_source_type(client_id: str, source_type: str) -> list[
 
 
 def fetch_scheduled_posts(client_id: str) -> list[dict]:
-    rows = [p for p in _posts_for_client(client_id) if p.get("publish_status") == "scheduled"]
+    """Queued static posts for a client. Mongo stores these as status=queued."""
+    rows = [
+        _social_post_from_doc(doc)
+        for doc in social_posts_col().find({"project_id": client_id, "status": "queued"})
+    ]
     rows.sort(key=lambda r: (r.get("queue_order") if r.get("queue_order") is not None else 0))
     return rows
 
@@ -2309,10 +2415,25 @@ def fetch_monthly_report_by_month(
     report_month: str,
     *,
     username: str | None = None,
+    platform: str = "youtube",
 ) -> dict | None:
     if username and not _has_project_access(username, client_id):
         return None
-    doc = monthly_reports_col().find_one({"project_id": client_id, "report_month": report_month})
+    platform = (platform or "youtube").strip().lower()
+    base = {"project_id": client_id, "report_month": report_month}
+    if platform == "youtube":
+        query = {
+            **base,
+            "$or": [
+                {"platform": "youtube"},
+                {"platform": {"$exists": False}},
+                {"platform": None},
+                {"platform": ""},
+            ],
+        }
+    else:
+        query = {**base, "platform": platform}
+    doc = monthly_reports_col().find_one(query)
     if not doc:
         return None
     row = _report_from_doc(doc)
@@ -2330,6 +2451,7 @@ def list_monthly_reports(client_id: str, *, username: str) -> list[dict]:
         "previous_month",
         "ai_videos_started_from",
         "channel_ids",
+        "platform",
         "status",
         "error",
         "created_at",
@@ -2353,6 +2475,7 @@ def list_monthly_reports(client_id: str, *, username: str) -> list[dict]:
         row.setdefault("username", username)
         slim = {k: row.get(k) for k in summary_keys if k in row or k == "has_metrics_cache"}
         slim["id"] = row["id"]
+        slim["platform"] = row.get("platform") or "youtube"
         slim["has_metrics_cache"] = has_metrics_cache(row["id"])
         slim["refine_history"] = list(row.get("refine_history") or [])[-5:]
         out.append(slim)
@@ -2370,6 +2493,7 @@ def upsert_monthly_report(report: dict) -> dict:
     body = {k: v for k, v in report.items() if k not in {"id", "metrics", "_id", "created_at"}}
     body["project_id"] = client_id
     body["client_id"] = client_id
+    body["platform"] = (body.get("platform") or "youtube").strip().lower() or "youtube"
     now = _iso()
     body.setdefault("updated_at", now)
     created_at = report.get("created_at") or now
@@ -2388,6 +2512,7 @@ def upsert_monthly_report(report: dict) -> dict:
             {
                 "project_id": client_id,
                 "report_month": body.get("report_month"),
+                "platform": body.get("platform") or "youtube",
                 "id": {"$ne": report_id},
             }
         )

@@ -90,12 +90,12 @@ export default function ClientHomeLayout() {
               Profile
             </NavItem>
             {showVideos ? (
-              <NavItem to={`${base}/videos`} icon={<i className="fa-brands fa-youtube" />}>
+              <NavItem to={`${base}/videos`} icon={<i className="fa-solid fa-play" />}>
                 Videos
               </NavItem>
             ) : null}
             {showStatics ? (
-              <NavItem to={`${base}/social`} icon={<i className="fa-brands fa-instagram" />}>
+              <NavItem to={`${base}/social`} icon={<i className="fa-solid fa-image" />}>
                 Static Posts
               </NavItem>
             ) : null}

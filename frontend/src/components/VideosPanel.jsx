@@ -1,16 +1,43 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import CustomSelect from './CustomSelect'
+import { useUI } from '../context/UIContext'
 
 const DEFAULT_THUMB =
   'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?auto=format&fit=crop&w=80&q=80'
 
-export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLevel = false }) {
+export default function VideosPanel({
+  videos = [],
+  onSync,
+  onUpdate,
+  isClientLevel = false,
+  libraryPlatform = 'youtube',
+  libraryHint = '',
+  emptyHint = 'Click Sync video stats to fetch videos from YouTube.',
+}) {
+  const { toast } = useUI()
+  const isInstagram = libraryPlatform === 'instagram'
+  const showChannelColumn = isClientLevel
+  const tableColSpan = 7 + (showChannelColumn ? 1 : 0)
+
+  function watchHref(video) {
+    if (isInstagram) {
+      return (video.permalink || '').trim() || null
+    }
+    if (video.is_short) {
+      return video.short_link || `https://www.youtube.com/shorts/${video.id}`
+    }
+    return `https://www.youtube.com/watch?v=${video.id}`
+  }
   const [syncing, setSyncing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [sortBy, setSortBy] = useState('views') // 'views', 'likes', 'comments', 'date', 'title', 'channel'
   const [sortOrder, setSortOrder] = useState('desc') // 'asc', 'desc'
   const [videoType, setVideoType] = useState('all') // 'all', 'video', 'short'
   const [selectedChannel, setSelectedChannel] = useState('all')
+
+  useEffect(() => {
+    setSelectedChannel('all')
+  }, [libraryPlatform])
 
   // Editing state for expandable sections
   const [expandedVideoId, setExpandedVideoId] = useState(null)
@@ -54,9 +81,12 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
     setSyncing(true)
     try {
       const count = await onSync()
-      alert(`Successfully synced ${count} videos and their stats!`)
+      toast(
+        `Successfully synced ${count ?? 0} video${count === 1 ? '' : 's'} and their stats.`,
+        'success',
+      )
     } catch (err) {
-      alert(`Error syncing videos:\n\n${err.message}`)
+      toast(err.message || 'Error syncing videos', 'error')
     } finally {
       setSyncing(false)
     }
@@ -91,10 +121,10 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
         }
       })
 
-      await onUpdate(video.id, video.channelId, editingNotes.trim(), metaObj)
+      await onUpdate(video.id, video.channelId || video.channel_id, editingNotes.trim(), metaObj)
       setExpandedVideoId(null)
     } catch (err) {
-      alert(`Failed to save changes: ${err.message}`)
+      toast(err.message || 'Failed to save changes', 'error')
     } finally {
       setSavingId(null)
     }
@@ -104,8 +134,14 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
   const uniqueChannels = useMemo(() => {
     const channels = new Map()
     videos.forEach((v) => {
-      if (v.channelId && v.channelTitle) {
-        channels.set(v.channelId, v.channelTitle)
+      const id = v.channelId || v.channel_id
+      const title =
+        v.channelTitle ||
+        v.channel_title ||
+        (v.username ? `@${v.username}` : '') ||
+        (id ? `@${id}` : '')
+      if (id) {
+        channels.set(id, title)
       }
     })
     return Array.from(channels.entries()).map(([id, title]) => ({ id, title }))
@@ -125,9 +161,9 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
       )
     }
 
-    // 2. Channel Filter (only relevant if isClientLevel)
-    if (isClientLevel && selectedChannel !== 'all') {
-      result = result.filter((v) => v.channelId === selectedChannel)
+    // 2. Channel / Instagram account filter
+    if (showChannelColumn && selectedChannel !== 'all') {
+      result = result.filter((v) => (v.channelId || v.channel_id) === selectedChannel)
     }
 
     // 3. Video Type Filter (segregation of videos and shorts)
@@ -181,7 +217,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
           <h2>Videos & Shorts Library</h2>
           <p>
             {isClientLevel
-              ? `Showing consolidated library across ${uniqueChannels.length} channel(s)`
+              ? (libraryHint || `Showing consolidated library across ${uniqueChannels.length} channel(s)`)
               : 'All synced videos and shorts from your selected YouTube channel.'}
           </p>
         </div>
@@ -214,17 +250,17 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
           </div>
 
           <div className="filters-right">
-            {isClientLevel && uniqueChannels.length > 0 && (
+            {showChannelColumn && uniqueChannels.length > 0 && (
               <div className="filter-group">
-                <label htmlFor="channel-filter">Channel</label>
+                <label htmlFor="channel-filter">{isInstagram ? 'Account' : 'Channel'}</label>
                 <CustomSelect
                   id="channel-filter"
                   className="filter-select"
                   value={selectedChannel}
-                  ariaLabel="Channel"
+                  ariaLabel={isInstagram ? 'Instagram account' : 'Channel'}
                   onChange={setSelectedChannel}
                   options={[
-                    { value: 'all', label: 'All Channels' },
+                    { value: 'all', label: isInstagram ? 'All accounts' : 'All Channels' },
                     ...uniqueChannels.map((ch) => ({ value: ch.id, label: ch.title })),
                   ]}
                 />
@@ -261,7 +297,9 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                   { value: 'comments', label: 'Most Commented' },
                   { value: 'date', label: 'Publish Date' },
                   { value: 'title', label: 'Title (A-Z)' },
-                  ...(isClientLevel ? [{ value: 'channel', label: 'Channel (A-Z)' }] : []),
+                  ...(showChannelColumn
+                    ? [{ value: 'channel', label: isInstagram ? 'Account (A-Z)' : 'Channel (A-Z)' }]
+                    : []),
                 ]}
               />
             </div>
@@ -282,13 +320,13 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                 >
                   Video details {renderSortIcon('title')}
                 </th>
-                {isClientLevel && (
+                {showChannelColumn && (
                   <th
                     onClick={() => handleHeaderClick('channel')}
                     style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
                     title="Click to sort by channel"
                   >
-                    YouTube Channel {renderSortIcon('channel')}
+                    {isInstagram ? 'Instagram account' : 'YouTube Channel'} {renderSortIcon('channel')}
                   </th>
                 )}
                 <th
@@ -325,12 +363,12 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
             <tbody>
               {processedVideos.length === 0 ? (
                 <tr>
-                  <td colSpan={isClientLevel ? 9 : 8} className="text-center text-muted py-12">
+                  <td colSpan={tableColSpan} className="text-center text-muted py-12">
                     <i className="fa-solid fa-film block mb-2" style={{ fontSize: '24px', opacity: 0.5 }} />
                     <p className="font-semibold mb-1">No videos found</p>
                     <p className="text-xs">
                       {videos.length === 0
-                        ? 'Click Sync video stats to fetch videos from YouTube.'
+                        ? emptyHint
                         : 'Try resetting your search query or filters.'}
                     </p>
                   </td>
@@ -367,7 +405,11 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                             
                             {/* Badges for segregation & info */}
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                              {v.is_short ? (
+                              {isInstagram ? (
+                                <span style={{ fontSize: '11px', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '1px 6px', borderRadius: '4px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <i className="fa-brands fa-instagram" /> Reel
+                                </span>
+                              ) : v.is_short ? (
                                 <span style={{ fontSize: '11px', background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '1px 6px', borderRadius: '4px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                                   <i className="fa-solid fa-bolt" /> Short
                                 </span>
@@ -391,7 +433,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                             </div>
                           </div>
                         </td>
-                        {isClientLevel && (
+                        {showChannelColumn && (
                           <td>
                             <span className="video-channel-badge">
                               <i className="fa-solid fa-layer-group" />
@@ -419,20 +461,46 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
-                            <a
-                              href={v.is_short ? (v.short_link || `https://www.youtube.com/shorts/${v.id}`) : `https://www.youtube.com/watch?v=${v.id}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="action-watch-btn"
-                              style={{
-                                color: v.is_short ? '#b45309' : '#ef4444',
-                                background: v.is_short ? '#fffbeb' : '#fef2f2',
-                                borderColor: v.is_short ? '#fde68a' : '#fee2e2',
-                              }}
-                              title={v.is_short ? 'Watch Short on YouTube' : 'Watch on YouTube'}
-                            >
-                              <i className={v.is_short ? 'fa-solid fa-bolt' : 'fa-brands fa-youtube'} />
-                            </a>
+                            {(() => {
+                              const href = watchHref(v)
+                              if (!href) {
+                                return (
+                                  <button
+                                    type="button"
+                                    className="action-watch-btn"
+                                    style={{
+                                      color: '#be185d',
+                                      background: '#fdf2f8',
+                                      borderColor: '#fbcfe8',
+                                      opacity: 0.7,
+                                      cursor: 'pointer',
+                                    }}
+                                    title="Sync again to load the Instagram link"
+                                    onClick={() =>
+                                      toast('Run Sync video stats to refresh Instagram links.', 'info')
+                                    }
+                                  >
+                                    <i className="fa-brands fa-instagram" />
+                                  </button>
+                                )
+                              }
+                              return (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="action-watch-btn"
+                                  style={{
+                                    color: isInstagram ? '#be185d' : v.is_short ? '#b45309' : '#ef4444',
+                                    background: isInstagram ? '#fdf2f8' : v.is_short ? '#fffbeb' : '#fef2f2',
+                                    borderColor: isInstagram ? '#fbcfe8' : v.is_short ? '#fde68a' : '#fee2e2',
+                                  }}
+                                  title={isInstagram ? 'Open reel on Instagram' : v.is_short ? 'Watch Short on YouTube' : 'Watch on YouTube'}
+                                >
+                                  <i className={isInstagram ? 'fa-brands fa-instagram' : v.is_short ? 'fa-solid fa-bolt' : 'fa-brands fa-youtube'} />
+                                </a>
+                              )
+                            })()}
                             {onUpdate && (
                               <button
                                 type="button"
@@ -464,7 +532,7 @@ export default function VideosPanel({ videos = [], onSync, onUpdate, isClientLev
                       {/* Expandable row for editing notes & custom metadata */}
                       {expandedVideoId === v.id && (
                         <tr key={`${v.id}-expanded`} style={{ background: '#fcfbfe' }}>
-                          <td colSpan={isClientLevel ? 9 : 8} style={{ padding: '24px 32px', borderTop: 'none' }}>
+                          <td colSpan={tableColSpan} style={{ padding: '24px 32px', borderTop: 'none' }}>
                             <div style={{ background: 'white', border: '1px solid #e0e0f0', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                               <h4 style={{ margin: '0 0 16px 0', color: '#1e1b4b', fontSize: '15px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fa-solid fa-pen-to-square" style={{ color: '#ff4d00' }} />
