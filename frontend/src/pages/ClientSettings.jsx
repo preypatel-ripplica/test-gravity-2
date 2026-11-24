@@ -323,6 +323,8 @@ export default function ClientSettings() {
         website_url: websiteUrl.trim() || undefined,
         specialty: isCreator ? undefined : (specialty.trim() || undefined),
         niche: isCreator ? (niche.trim() || undefined) : undefined,
+        niche_details: isCreator ? (nicheDetails.trim() || undefined) : undefined,
+        example_topics: isCreator ? exampleTopics : undefined,
         reference_youtube_channel: referenceYoutube.trim() || undefined,
         topics,
         ...(withPrompt ? { user_prompt: prompt } : {}),
