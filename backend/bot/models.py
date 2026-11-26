@@ -139,7 +139,10 @@ class CallRecord(BaseModel):
     recording_status: Literal["none", "pending", "stored", "failed"] = "none"
     recording_error: Optional[str] = None
     recording_attempts: int = 0
-    # The lead's "Calls" count is bumped once per outbound call, on first sight.
+    # Set once this call has been tied to a conversation, so a repeat webhook
+    # does not refresh the lead's call total again.
+    call_total_applied: bool = False
+    # Older outbound-only flag. The lead's number is the count of call records.
     call_tried_applied: bool = False
     raw: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
@@ -450,6 +453,8 @@ class Conversation(BaseModel):
     disposition: Optional[str] = None
     disposition_remark: Optional[str] = None
     disposition_updated_at: Optional[datetime] = None
+    # Newest last. Each item is {from, to, at, source} for one status change.
+    disposition_history: list[dict[str, Any]] = Field(default_factory=list)
 
     # Acquisition. source is "whatsapp" for organic chats, "ctwa" when the
     # first message arrived through a Click-to-WhatsApp ad (Meta sends a

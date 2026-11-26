@@ -66,7 +66,9 @@ export interface Conversation {
   /** Backend (Phase A): agent-set lead outcome. */
   disposition?: string | null;
   disposition_remark?: string | null;
-  /** Backend: the CRM-owned slice of attributes (call_tried / remark / custom). */
+  /** Status changes, oldest first. `from` is null when the lead had no status. */
+  disposition_history?: DispositionChange[];
+  /** Backend: the CRM-owned slice. call_tried is the total call count (inbound and outbound). */
   crm?: { call_tried?: number; remark?: string; custom?: Record<string, string | number | boolean> };
 }
 
@@ -387,19 +389,38 @@ export type Disposition =
   | "INTERESTED"
   | "APPOINTMENT_REQUESTED"
   | "NOT_INTERESTED"
-  | "Repeated"
+  | "REPEATED"
   | "STALLED"
-  | "LEAD SAID DNC";
+  | "LEAD WILL REVERT";
 export const DISPOSITIONS: Disposition[] = [
   "DID_NOT_CONNECT",
   "FOLLOW_UP_REQUIRED",
   "INTERESTED",
   "APPOINTMENT_REQUESTED",
   "NOT_INTERESTED",
-  "Repeated",
+  "REPEATED",
   "STALLED",
-  "LEAD SAID DNC",
+  "LEAD WILL REVERT",
 ];
+
+/** One recorded status change on a lead. */
+export interface DispositionChange {
+  from: string | null;
+  to: string | null;
+  at: string | null;
+  source?: string;
+}
+
+/** Older saved names, so a lead still matches the list after a rename. */
+export function canonicalDisposition(value: string | null | undefined): Disposition | "" {
+  const text = (value ?? "").trim();
+  if (!text) return "";
+  const key = text.toUpperCase();
+  if (key === "LEAD SAID DNC" || key === "LEAD WILL REVERT") return "LEAD WILL REVERT";
+  if (key === "REPEATED") return "REPEATED";
+  if ((DISPOSITIONS as readonly string[]).includes(key)) return key as Disposition;
+  return text as Disposition;
+}
 
 export type CustomColumnType = "text" | "number" | "date" | "checkbox" | "dropdown";
 /** A user-defined Leads column (the Google-Sheets column types). Definitions are per client. */

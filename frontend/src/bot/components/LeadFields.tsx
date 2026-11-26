@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore, CORE_COLUMNS } from "../store";
 import { DISPOSITIONS, type Lead, type CustomColumn } from "../types";
-import { Badge, Icon, enumColor } from "../lib/ui";
+import { Badge, Icon, clockOnly, dayLabel, enumColor, portalRoot } from "../lib/ui";
 import Select from "./Select";
 import RemarkEditor from "./RemarkEditor";
 import CallHistoryModal from "./CallHistoryModal";
@@ -15,22 +16,79 @@ export const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
 export const DISPOSITION_OPTIONS = [{ value: "", label: "—" }, ...DISPOSITIONS.map((s) => ({ value: s, label: s, color: enumColor(s) }))];
 
+function statusWhen(iso: string | null): string {
+  if (!iso) return "";
+  return `${dayLabel(iso)} ${clockOnly(iso)}`;
+}
+
+/** From → to for each status change on this lead, newest first. */
+function DispositionHistory({ lead }: { lead: Lead }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const items = [...(lead.conversation.disposition_history ?? [])].reverse();
+
+  useEffect(() => {
+    if (!open) return;
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      const width = 280;
+      setPos({ top: r.bottom + 4, left: Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8) });
+    }
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!btnRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={(e) => { stop(e); setOpen((v) => !v); }} onMouseDown={stop} title="Status history" className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted hover:bg-panel2 hover:text-ink">
+        <Icon name="history" size={13} />
+      </button>
+      {open && pos && createPortal(
+        <div ref={panelRef} style={{ top: pos.top, left: pos.left }} className="fixed z-[80] w-[280px] rounded-xl border border-line bg-panel p-2.5 shadow-2xl" onClick={stop} onMouseDown={stop}>
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Status history</div>
+          {items.length === 0 && <div className="py-2 text-[12px] text-muted">No changes yet</div>}
+          <div className="max-h-64 space-y-1.5 overflow-y-auto">
+            {items.map((item, i) => (
+              <div key={`${item.at ?? ""}-${i}`} className="rounded-lg bg-panel2 px-2 py-1.5">
+                <div className="text-[10.5px] tabular-nums text-muted">{statusWhen(item.at)}{item.source === "sync" ? " · sheet" : ""}</div>
+                <div className="mt-0.5 text-[12px] font-medium leading-snug">{item.from || "None"} → {item.to || "None"}</div>
+              </div>
+            ))}
+          </div>
+        </div>,
+        portalRoot(),
+      )}
+    </>
+  );
+}
+
 export function DispositionSelect({ lead, size, placeholder = "Disposition" }: { lead: Lead; size?: "sm"; placeholder?: string }) {
   const { setCrm } = useStore();
   const onChange = (v: string) => setCrm(lead.id, { disposition: v as Lead["crm"]["disposition"] });
   // The "none" entry carries the placeholder text, so an unset lead reads
   // "Disposition" rather than a bare dash (the Select shows the matched option's label).
   const options = [{ value: "", label: placeholder }, ...DISPOSITION_OPTIONS.slice(1)];
-  if (size) return <div onClick={stop}><Select size={size} label="Disposition" value={lead.crm.disposition} onChange={onChange} options={options} placeholder={placeholder} /></div>;
+  const select = (
+    <div className={size ? "min-w-0 flex-1" : "min-w-0 max-w-[200px] flex-1"}>
+      <Select size={size} variant={size ? "input" : "inline"} label="Disposition" value={lead.crm.disposition} onChange={onChange} options={options} placeholder={placeholder} />
+    </div>
+  );
   return (
-    <div onClick={stop} className="max-w-[200px]">
-      <Select variant="inline" label="Disposition" value={lead.crm.disposition} onChange={onChange} options={options} placeholder={placeholder} />
+    <div onClick={stop} className="flex items-center gap-1">
+      {select}
+      <DispositionHistory lead={lead} />
     </div>
   );
 }
 
-/** Outbound calls made to this lead — counted from FasterQ, not by hand.
- *  Click to see every call to this patient with its recording. */
+/** Every FasterQ call on this lead, inbound and outbound.
+ *  Click to see each call with its recording. */
 export function CallTriedCell({ lead }: { lead: Lead }) {
   const [open, setOpen] = useState(false);
   const n = lead.crm.call_tried;

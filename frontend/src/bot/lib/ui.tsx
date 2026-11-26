@@ -194,6 +194,7 @@ const PATHS: Record<string, string> = {
   play: "M6 4v16l14-8z",
   pause: "M6 4h4v16H6zM14 4h4v16h-4z",
   refresh: "M23 4v6h-6M1 20v-6h6M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15",
+  history: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2",
 };
 
 export function Icon({ name, size = 16, className = "" }: { name: keyof typeof PATHS; size?: number; className?: string }) {
