@@ -137,7 +137,8 @@ from backend.bot.storage import (
     list_calls_missing_links,
     list_calls_for_agent_unassigned,
     find_conversation_by_client_phone,
-    increment_call_tried,
+    note_call_on_conversation,
+    count_calls_by_conversation,
     find_client_by_agent_name,
     get_user_by_id,
     list_users_for_client,
@@ -4487,15 +4488,27 @@ def to_inbox_message(message: MessageRecord) -> dict[str, Any]:
     return out
 
 
-def to_inbox_conversation(conversation: Conversation) -> dict[str, Any]:
+def to_inbox_conversation(conversation: Conversation, call_counts: dict[str, int] | None = None) -> dict[str, Any]:
     """A conversation trimmed for the inbox: drops internal id + the
     attributes/tags blobs (which are no longer recorded and previously leaked
-    Sheet ids / bucket paths)."""
+    Sheet ids / bucket paths).
+
+    `crm.call_tried` is overwritten with the number of call records on this
+    conversation (inbound and outbound). Pass `call_counts` when serializing
+    a page so the count is one query for the whole page."""
+    from backend.bot.dispositions import canonical_disposition, history_for_client
+
     data = conversation.model_dump(mode="json")
     out = {k: v for k, v in data.items() if k not in _INBOX_CONVERSATION_DROP}
     # CRM-owned lead fields (call_tried / remark / custom columns) live under
     # attributes.crm; expose just that slice. Additive - the inbox ignores it.
-    out["crm"] = (data.get("attributes") or {}).get("crm") or {}
+    crm = dict((data.get("attributes") or {}).get("crm") or {})
+    counts = call_counts if call_counts is not None else count_calls_by_conversation([conversation.id])
+    crm["call_tried"] = int(counts.get(conversation.id, 0))
+    out["crm"] = crm
+    if "disposition" in out:
+        out["disposition"] = canonical_disposition(out.get("disposition"))
+    out["disposition_history"] = history_for_client(data.get("disposition_history"))
     return out
 
 
@@ -4668,7 +4681,8 @@ def get_inbox_conversations(
         offset=offset,
         view=view,
     )
-    return total, [to_inbox_conversation(c) for c in conversations], count_conversation_views(client_id)
+    counts = count_calls_by_conversation([c.id for c in conversations])
+    return total, [to_inbox_conversation(c, counts) for c in conversations], count_conversation_views(client_id)
 
 
 def get_owned_conversation(conversation_id: str, client_id: str):
@@ -6343,7 +6357,7 @@ def list_leads_service(
     for c in get_conversations_by_phones(client_id, run_phones):
         convs_by_phone[(c.whatsapp_account_id, c.contact_phone)] = c
 
-    items = []
+    prepared = []
     for x in rows:
         run = runs.get(x.get("run_id") or "")
         conversation = convs_by_id.get(x.get("conversation_id") or "")
@@ -6353,13 +6367,17 @@ def list_leads_service(
             # A run whose conversation was deleted from the inbox: nothing to
             # show a patient for, skip it (the total is off by one; harmless).
             continue
+        prepared.append((x, run, conversation))
+    counts = count_calls_by_conversation([conversation.id for _, _, conversation in prepared])
+    items = []
+    for x, run, conversation in prepared:
         arrived = x.get("arrived_at")
         items.append({
             "key": run.id if run else conversation.id,
             "kind": "run" if run else "conversation",
             "arrived_at": arrived.isoformat() if isinstance(arrived, datetime) else arrived,
             "run": run.model_dump(mode="json") if run else None,
-            "conversation": to_inbox_conversation(conversation),
+            "conversation": to_inbox_conversation(conversation, counts),
         })
     return total, items
 
@@ -7256,8 +7274,10 @@ def to_call_json(call: CallRecord, contact_name: str | None = None) -> dict[str,
 
 
 def _link_call(call: CallRecord) -> None:
-    """Fill in client / conversation where possible and apply the Calls bump
-    for an outbound call the first time it is tied to a conversation."""
+    """Fill in client / conversation where possible. The first time a call is
+    tied to a conversation it is marked so the caller can refresh that lead
+    after the call row is stored. The number on the lead is every call, not
+    only the ones the clinic placed."""
     if not call.client_id and call.agent_name:
         client = find_client_by_agent_name(call.agent_name)
         if client:
@@ -7266,9 +7286,15 @@ def _link_call(call: CallRecord) -> None:
         conversation = find_conversation_by_client_phone(call.client_id, call.contact_phone)
         if conversation:
             call.conversation_id = conversation.id
-    if call.direction == "outbound" and call.conversation_id and not call.call_tried_applied:
-        increment_call_tried(call.conversation_id)
-        call.call_tried_applied = True
+    if call.conversation_id and not call.call_total_applied:
+        call.call_total_applied = True
+
+
+def _store_linked_call(call: CallRecord, total_applied_before: bool) -> None:
+    """Save the call, then refresh the lead so its total includes this row."""
+    save_call(call)
+    if call.conversation_id and call.call_total_applied and not total_applied_before:
+        note_call_on_conversation(call.conversation_id)
 
 
 def ingest_fasterq_call(payload: dict[str, Any]) -> dict[str, Any]:
@@ -7302,6 +7328,7 @@ def ingest_fasterq_call(payload: dict[str, Any]) -> dict[str, Any]:
     call.source = source
     call.raw = payload
 
+    total_applied_before = call.call_total_applied
     _link_call(call)
 
     url = str(payload.get("recordingUrl") or "").strip()
@@ -7315,7 +7342,7 @@ def ingest_fasterq_call(payload: dict[str, Any]) -> dict[str, Any]:
     elif url and call.recording_status in ("pending", "failed"):
         need_download = True
 
-    save_call(call)
+    _store_linked_call(call, total_applied_before)
     return {"call_id": call.id, "client_id": call.client_id, "conversation_id": call.conversation_id,
             "call_tried_applied": call.call_tried_applied, "download": need_download}
 
@@ -7350,8 +7377,9 @@ def reattach_unassigned_calls_for_client(client: Client) -> int:
     count = 0
     for call in list_calls_for_agent_unassigned(names):
         call.client_id = client.id
+        total_applied_before = call.call_total_applied
         _link_call(call)
-        save_call(call)
+        _store_linked_call(call, total_applied_before)
         count += 1
     return count
 
@@ -7363,10 +7391,10 @@ def sweep_call_recordings() -> None:
         fetch_call_recording(call.id)
     since = now_utc() - timedelta(days=30)
     for call in list_calls_missing_links(since):
-        before = (call.client_id, call.conversation_id, call.call_tried_applied)
+        before = (call.client_id, call.conversation_id, call.call_tried_applied, call.call_total_applied)
         _link_call(call)
-        if (call.client_id, call.conversation_id, call.call_tried_applied) != before:
-            save_call(call)
+        if (call.client_id, call.conversation_id, call.call_tried_applied, call.call_total_applied) != before:
+            _store_linked_call(call, before[3])
 
 
 def list_calls_service(client_id: str, direction: str | None, answered: bool | None, phone: str | None,

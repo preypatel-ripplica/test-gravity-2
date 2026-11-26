@@ -13,7 +13,7 @@ import { CallLink, CallTriedCell, CustomCell, DispositionSelect, stop } from "..
 
 const DENSITIES: Density[] = ["compact", "cozy", "comfortable"];
 const DLABEL: Record<Density, string> = { compact: "S", cozy: "M", comfortable: "L" };
-const PERMANENT = ["Time", "Patient", "Phone", "Disposition", "Call tried", "Remark"];
+const PERMANENT = ["Time", "Patient", "Phone", "Disposition", "Calls", "Remark"];
 
 function Check({ on }: { on: boolean }) {
   return <span className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${on ? "border-accent bg-accent text-accent-fg" : "border-line"}`}>{on && <Icon name="check" size={12} />}</span>;

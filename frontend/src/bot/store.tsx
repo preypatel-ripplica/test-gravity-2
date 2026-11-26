@@ -5,7 +5,7 @@ import type {
   WhatsAppAccount, ClientSettings, AiUsage, CustomColumn, CustomColumnType, CustomValue, FieldDef,
   CallRecord,
 } from "./types";
-import { TEMPLATE_CATEGORIES } from "./types";
+import { TEMPLATE_CATEGORIES, canonicalDisposition } from "./types";
 import { ACTIVE_FLOW } from "./data/flows";
 import { makeSeed, ACCOUNT_ID, WABA_ID, type DB } from "./data/seed";
 import { renderTemplateBody, countBodyVariables, componentsFrom, firstName } from "./lib/templates";
@@ -88,8 +88,8 @@ function flattenVars(v: Raw | null | undefined): Record<string, string> {
   }
   return out;
 }
-const mapConv = (c: Raw): Conversation => ({ ...(c as Conversation), awaiting_template_reply: !!c.awaiting_template_reply, contact_name: c.contact_name ?? null, tags: Array.isArray(c.tags) ? c.tags : [], attributes: c.attributes ?? {}, active_workflow_run_id: c.active_workflow_run_id ?? null, unread_count: Number(c.unread_count ?? 0) || 0 });
-const crmFrom = (c: Raw): CrmFields => normCrm({ disposition: (c.disposition ?? "") as CrmFields["disposition"], call_tried: Number(c.crm?.call_tried ?? 0) || 0, remark: c.disposition_remark ?? c.crm?.remark ?? "", custom: c.crm?.custom ?? {} });
+const mapConv = (c: Raw): Conversation => ({ ...(c as Conversation), awaiting_template_reply: !!c.awaiting_template_reply, contact_name: c.contact_name ?? null, tags: Array.isArray(c.tags) ? c.tags : [], attributes: c.attributes ?? {}, active_workflow_run_id: c.active_workflow_run_id ?? null, unread_count: Number(c.unread_count ?? 0) || 0, disposition: canonicalDisposition(c.disposition) || null, disposition_history: Array.isArray(c.disposition_history) ? c.disposition_history : [] });
+const crmFrom = (c: Raw): CrmFields => normCrm({ disposition: canonicalDisposition(c.disposition), call_tried: Number(c.crm?.call_tried ?? 0) || 0, remark: c.disposition_remark ?? c.crm?.remark ?? "", custom: c.crm?.custom ?? {} });
 const mapNote = (n: Raw): Note => ({ id: n.id, conversation_id: n.conversation_id, text: n.text ?? "", at: n.created_at ?? n.at ?? nowIso() });
 function mapTemplate(t: Raw): Template {
   const st = String(t.status ?? "PENDING").toUpperCase();
@@ -986,7 +986,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     /** Persist the CRM-owned slice (call_tried + custom) as attributes.crm. */
     const pushCrmSlice = (id: string, crm: CrmFields) => {
       if (!remote) return;
-      // call_tried is server-owned (bumped by FasterQ outbound calls) — never sent.
+      // call_tried is the server's total of every call on the lead — never sent.
       api.updateContact(id, { attributes: { crm: { custom: crm.custom } } }).then((r) => r?.conversation && upsertConv(r.conversation)).catch(fail("Could not save"));
     };
     const setCrmLocal = (id: string, fn: (cur: CrmFields) => CrmFields): CrmFields => {

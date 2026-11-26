@@ -993,17 +993,31 @@ def set_conversation_bot_paused(
     )
 
 
-def set_conversation_disposition(conversation_id: str, **fields):
+def set_conversation_disposition(conversation_id: str, source: str = "agent", **fields):
     """Persist ONLY the agent-set lead outcome (disposition / remark / when).
 
     Targeted $set like save_run_crm_result: never a whole-model save, so a
-    stale in-memory conversation can't clobber status / bot_paused / unread."""
+    stale in-memory conversation can't clobber status / bot_paused / unread.
+    A real status change is appended to disposition_history (from, to, when)."""
+    from backend.bot.dispositions import canonical_disposition, history_entry
+
     allowed = {"disposition", "disposition_remark", "disposition_updated_at"}
     set_fields = {key: value for key, value in fields.items() if key in allowed}
     if not set_fields:
         return
+    history = None
+    if "disposition" in set_fields:
+        current = conversations_collection.find_one({"id": conversation_id}, {"disposition": 1})
+        previous = (current or {}).get("disposition")
+        new_value = canonical_disposition(set_fields["disposition"])
+        set_fields["disposition"] = new_value
+        at = set_fields.get("disposition_updated_at") or now_utc()
+        history = history_entry(previous, new_value, at, source)
     set_fields["updated_at"] = now_utc()
-    conversations_collection.update_one({"id": conversation_id}, {"$set": set_fields})
+    update: dict[str, Any] = {"$set": set_fields}
+    if history:
+        update["$push"] = {"disposition_history": {"$each": [history], "$slice": -100}}
+    conversations_collection.update_one({"id": conversation_id}, update)
 
 
 def set_conversation_active_run(
@@ -1559,11 +1573,36 @@ def find_conversation_by_client_phone(client_id: str, contact_phone: str) -> Opt
 
 
 def increment_call_tried(conversation_id: str) -> None:
-    """The lead's Calls count: +1 per outbound call reported by FasterQ."""
+    """Legacy outbound counter. The leads grid no longer reads this; it counts
+    every call record on the conversation."""
     conversations_collection.update_one(
         {"id": conversation_id},
         {"$inc": {"attributes.crm.call_tried": 1}, "$set": {"updated_at": now_utc()}},
     )
+
+
+def note_call_on_conversation(conversation_id: str) -> None:
+    """Touch the conversation after a newly linked call is stored, so the open
+    leads page reloads that row and picks up the new total."""
+    conversations_collection.update_one(
+        {"id": conversation_id},
+        {"$set": {"updated_at": now_utc()}},
+    )
+
+
+def count_calls_by_conversation(conversation_ids: list[str]) -> dict[str, int]:
+    """How many calls (inbound and outbound) are tied to each conversation."""
+    ids = [i for i in dict.fromkeys(conversation_ids) if i]
+    counts = {i: 0 for i in ids}
+    if not ids:
+        return counts
+    for row in calls_collection.aggregate([
+        {"$match": {"conversation_id": {"$in": ids}}},
+        {"$group": {"_id": "$conversation_id", "n": {"$sum": 1}}},
+    ]):
+        if row["_id"] in counts:
+            counts[row["_id"]] = int(row["n"])
+    return counts
 
 
 def find_client_by_agent_name(agent_name: str) -> Optional[Client]:

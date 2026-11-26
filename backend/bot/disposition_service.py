@@ -171,6 +171,7 @@ def sync_dispositions_for_client(client: Client) -> dict[str, int]:
             if conversation:
                 set_conversation_disposition(
                     conversation.id,
+                    source="sync",
                     disposition=_cell(document.get("Disposition")) or None,
                     disposition_remark=_cell(document.get("Remark")) or None,
                     disposition_updated_at=now_utc(),
