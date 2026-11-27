@@ -1054,10 +1054,31 @@ h1, h2, h3, .greeting h1, .connect-prompt-container h2 {
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 4px;
+    flex-wrap: wrap;
 }
 
 .topics-header .profile-section-desc {
     margin-bottom: 0;
+}
+
+.topics-header-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+}
+
+.topics-header-actions .btn {
+    flex: 0 0 auto;
+}
+
+.topics-header-actions .plan-count-field .control-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
 }
 
 .topic-prompt-group {

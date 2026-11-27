@@ -284,12 +284,14 @@ def test_creator_search_payload_and_keyword_mapping():
         weight_for_score,
     )
 
-    assert search_profile_error({"niche": "food"}) == (
-        "Add details about niche in Keywords before searching."
+    assert search_profile_error({}) == (
+        "Add a website or a niche in Keywords before searching."
     )
     assert search_profile_error({"niche_details": "late night eats"}) == (
-        "Add niche in Keywords before searching."
+        "Add a website or a niche in Keywords before searching."
     )
+    assert search_profile_error({"niche": "food"}) is None
+    assert search_profile_error({"website_url": "https://streetromeo.com"}) is None
     assert search_profile_error({"niche": "food", "niche_details": "late night eats"}) is None
 
     from backend.tg.schemas import ClientRefreshTopicsRequest, ClientUpdateRequest
@@ -308,6 +310,8 @@ def test_creator_search_payload_and_keyword_mapping():
         niche_details="motogp educational content",
     )
     assert refresh.niche_details == "motogp educational content"
+    assert refresh.topic_count is None
+    assert ClientRefreshTopicsRequest(client_id="c1", topic_count=10).topic_count == 10
 
     payload = build_search_payload(
         {
@@ -331,6 +335,9 @@ def test_creator_search_payload_and_keyword_mapping():
     assert payload["example_scripts"] == ["Wait. Fridge empty?"]
     assert payload["language"] == "english"
     assert payload["prompt"] == "more beginner-friendly"
+    assert payload["topic_count"] == 4
+    assert payload["website_snippet"] == ""
+    assert "91-100" in payload["scoring"]
     assert "web search" in payload["scoring"]
 
     rows = keywords_from_search(
@@ -387,6 +394,85 @@ def test_creator_search_copies_plug_openai_web_search():
     assert "tool_choice" in source
     assert creator_topics.TOPIC_SCHEMA["properties"]["topics"]["minItems"] == 4
     assert creator_topics.TOPIC_SCHEMA["properties"]["topics"]["maxItems"] == 4
+    schema_eight = creator_topics.topic_search_schema(8)
+    assert schema_eight["properties"]["topics"]["minItems"] == 8
+    assert schema_eight["properties"]["topics"]["maxItems"] == 8
+    assert creator_topics.clamp_topic_count(1) == 4
+    assert creator_topics.clamp_topic_count(12) == 12
+    assert creator_topics.clamp_topic_count(99) == 20
     prompt = (creator_topics.PROMPTS_DIR / "topic_search.txt").read_text(encoding="utf-8")
     assert "You MUST use the web search tool" in prompt
-    assert "Return EXACTLY 4 topics" in prompt
+    assert "Return EXACTLY __TOPIC_COUNT__ topics" in prompt
+    assert "EVERY returned topic MUST score 91–100" in prompt
+    loaded = creator_topics._load_prompt("topic_search.txt", topic_count=10)
+    assert "Return EXACTLY 10 topics" in loaded
+    assert "__TOPIC_COUNT__" not in loaded
+
+
+def test_creator_clean_topics_keeps_only_scores_above_90():
+    from backend.tg.services.creator_topics import _clean_topics
+
+    rows = _clean_topics(
+        [
+            {"title": "Hot now", "script": "Say this.", "score": 94},
+            {"title": "Mid", "script": "Skip me.", "score": 60},
+            {"title": "Also hot", "script": "Say that.", "score": 91},
+            {"title": "Barely", "script": "No.", "score": 90},
+            {"title": "Hot now", "script": "Duplicate.", "score": 99},
+        ],
+        count=4,
+    )
+    assert [row["title"] for row in rows] == ["Hot now", "Also hot"]
+    assert all(row["score"] > 90 for row in rows)
+
+
+def test_creator_html_snippet_and_fill_skips_when_complete():
+    from backend.tg.services.creator_topics import _html_snippet, fill_niche_from_website
+
+    title, snippet = _html_snippet(
+        "<html><head><title>Street Romeo</title>"
+        "<meta name='description' content='Mumbai night eats'></head>"
+        "<body><script>secret()</script><p>Pav bhaji at 2am</p></body></html>"
+    )
+    assert title == "Street Romeo"
+    assert "Mumbai night eats" in snippet
+    assert "Pav bhaji" in snippet
+    assert "secret()" not in snippet
+
+    profile, meta = fill_niche_from_website(
+        {
+            "website_url": "https://example.com",
+            "niche": "street food",
+            "niche_details": "already filled",
+        }
+    )
+    assert profile["niche"] == "street food"
+    assert profile["niche_details"] == "already filled"
+    assert meta["inferred_niche"] is None
+    assert meta["inferred_niche_details"] is None
+
+
+def test_topics_pdf_html_ranked_and_filename():
+    from backend.tg.services.topics_pdf import build_topics_html, export_topics_pdf, pdf_filename
+
+    html_doc = build_topics_html(
+        client={"name": "Street Romeo", "niche": "street food"},
+        topics=[
+            {"id": "1", "text": "Hot pav bhaji", "weight": "high", "source": "auto", "recommendation_score": 94},
+            {"id": "2", "text": "<script>x</script>", "weight": "low", "source": "manual", "recommendation_score": 91},
+        ],
+        ranked=True,
+    )
+    assert "Street Romeo" in html_doc
+    assert "street food" in html_doc
+    assert "Hot pav bhaji" in html_doc
+    assert "94/100" in html_doc
+    assert "&lt;script&gt;x&lt;/script&gt;" in html_doc
+    assert "<script>x</script>" not in html_doc
+    assert pdf_filename("Street Romeo") == "street-romeo-topics.pdf"
+
+    try:
+        export_topics_pdf(client={"name": "X"}, topics=[], ranked=True)
+        assert False, "expected empty topics to fail"
+    except ValueError as exc:
+        assert "Add topics before exporting" in str(exc)

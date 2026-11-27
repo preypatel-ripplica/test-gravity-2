@@ -422,11 +422,13 @@ def refresh_client_topics(
     user_prompt: str | None = None,
     topic_systems: dict | None = None,
     include_recommendation_score: bool = False,
+    topic_count: int | None = None,
 ) -> dict:
     """Regenerate auto topics; preserve manually added topics."""
     from .services.topics import generate_auto_topics, merge_topics
     from .services.youtube_public import fetch_public_channel_titles, merge_title_lists
 
+    del topic_count
     print(f"[topics] refresh START client_id={client_id}", flush=True)
 
     client = fetch_client_doc(client_id, username=username)

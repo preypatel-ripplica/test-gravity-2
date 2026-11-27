@@ -14,6 +14,8 @@ const WEIGHTS = [
   { key: 'low', label: 'Low priority', hint: 'Niche / adjacent topics' },
 ]
 
+const CREATOR_TOPIC_COUNTS = [4, 6, 8, 10, 12, 16, 20]
+
 const WEIGHT_POINTS = { high: 50, medium: 30, low: 10 }
 
 const TREND_FIELDS = [
@@ -110,8 +112,10 @@ export default function ClientSettings() {
   const [newWeight, setNewWeight] = useState('high')
   const [topicFilter, setTopicFilter] = useState('')
   const [userPrompt, setUserPrompt] = useState('')
+  const [topicCount, setTopicCount] = useState(4)
   const [saving, setSaving] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [analyzingTrends, setAnalyzingTrends] = useState(false)
   const [forceTrendsRefresh, setForceTrendsRefresh] = useState(false)
   const [trendSummary, setTrendSummary] = useState(null)
@@ -234,13 +238,8 @@ export default function ClientSettings() {
   }, [topics])
 
   function creatorNicheGap() {
-    const missing = []
-    if (!niche.trim()) missing.push('niche')
-    if (!nicheDetails.trim()) missing.push('details about niche')
-    if (!missing.length) return ''
-    if (missing.length === 2) return 'Fill niche and details about niche first'
-    if (missing[0] === 'niche') return 'Fill niche first'
-    return 'Fill details about niche first'
+    if (websiteUrl.trim() || niche.trim()) return ''
+    return 'Add a website or a niche first'
   }
 
   function requireCreatorNiche() {
@@ -327,6 +326,7 @@ export default function ClientSettings() {
         example_topics: isCreator ? exampleTopics : undefined,
         reference_youtube_channel: referenceYoutube.trim() || undefined,
         topics,
+        ...(isCreator ? { topic_count: topicCount } : {}),
         ...(withPrompt ? { user_prompt: prompt } : {}),
       })
       patchUser({
@@ -335,6 +335,10 @@ export default function ClientSettings() {
         active_channel_id: data.active_channel_id,
       })
       setTopics(normalizeTopics(data.topics))
+      if (isCreator) {
+        if (data.niche) setNiche(data.niche)
+        if (data.niche_details) setNicheDetails(data.niche_details)
+      }
       setScrapeHint({
         title: data.page_title,
         snippet: data.openai_rationale || data.page_snippet,
@@ -350,7 +354,7 @@ export default function ClientSettings() {
         const count = Array.isArray(data.topics) ? data.topics.length : 0
         toast(
           isCreator
-            ? 'Four topics ready'
+            ? `${topicCount} topics ready`
             : data.generator === 'openai'
               ? withPrompt
                 ? `Topics updated from your prompt (${count}) — manual topics kept`
@@ -366,12 +370,38 @@ export default function ClientSettings() {
     }
   }
 
+  async function handleExportPdf() {
+    if (!topics.length) {
+      toast('Add topics before exporting', 'error')
+      return
+    }
+    setExportingPdf(true)
+    try {
+      const { blob, filename } = await api.exportClientTopicsPdf(token, clientId, { topics })
+      const objectUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = filename
+      a.rel = 'noopener'
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objectUrl)
+      toast('Topics exported', 'success')
+    } catch (err) {
+      toast(err.message || 'Could not export PDF', 'error')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   async function handleRefreshTopics() {
     if (!requireCreatorNiche()) return
     const isConfirmed = await confirm({
-      title: isCreator ? 'Search current trends?' : 'Refresh Auto Topics?',
+      title: isCreator ? 'Refresh topics?' : 'Refresh Auto Topics?',
       message: isCreator
-        ? 'This searches the live web in this niche and replaces auto topics with 4 scored ideas. Manual topics stay.'
+        ? `Generate ${topicCount} new topics? Topics you added yourself will be kept.`
         : 'Are you sure you want to refresh auto topics? This will re-analyze your specialty/website signals and update auto topics. Manual topics will be preserved.',
     })
     if (!isConfirmed) return
@@ -381,9 +411,9 @@ export default function ClientSettings() {
   async function handleApplyRefinePrompt() {
     if (!requireCreatorNiche()) return
     const isConfirmed = await confirm({
-      title: isCreator ? 'Redo search with this prompt?' : 'Apply Refine Prompt?',
+      title: isCreator ? 'Apply prompt?' : 'Apply Refine Prompt?',
       message: isCreator
-        ? 'This runs the same live web search again with your extra instruction. Manual topics stay.'
+        ? `Generate ${topicCount} new topics using your prompt? Topics you added yourself will be kept.`
         : 'Are you sure you want to apply this prompt to refine your auto topics? This will use OpenAI to update topics. Manual topics will be preserved.',
     })
     if (!isConfirmed) return
@@ -533,7 +563,7 @@ export default function ClientSettings() {
           <h1>Keywords and topics</h1>
           <p>
             {isCreator
-              ? 'Search uses name, website (context only), niche, niche details, and example topics. Instagram is included if this client is connected.'
+              ? 'Search uses name, website, niche, niche details, and example topics. Instagram is included if this client is connected. Website alone is enough — niche can be filled from the site.'
               : 'These are the values sent to AI for keyword planning. Name, website, and specialty are the same fields as Practice details.'}
           </p>
         </div>
@@ -544,7 +574,7 @@ export default function ClientSettings() {
           <h2>Planning signals</h2>
           <p className="profile-section-desc">
             {isCreator
-              ? 'Sent to AI when searching topics. Niche and details about niche are required. Website is context only — not crawled.'
+              ? 'Sent to AI when searching topics. Niche and details about niche are optional when a website is set — they are filled from the site if left blank.'
               : 'Sent to AI when refreshing keywords. Name, website, and specialty are stored with Practice details — edit them here or there.'}
           </p>
 
@@ -571,38 +601,37 @@ export default function ClientSettings() {
             />
             <span className="field-hint">
               {isCreator
-                ? 'Optional context for AI. Not scraped. Keywords come from a live web search in the niche.'
+                ? 'Optional. If you add a website, niche and details can be left blank and filled from the site when you refresh topics.'
                 : 'Sitemap URLs from this site are crawled and sent as keyword evidence.'}
             </span>
           </div>
 
           {isCreator ? (
             <div className="input-group">
-              <label htmlFor="planning-niche">
-                Niche <span className="req-star" aria-hidden="true">*</span>
-              </label>
+              <label htmlFor="planning-niche">Niche</label>
               <input
                 id="planning-niche"
                 type="text"
                 value={niche}
                 onChange={(e) => setNiche(e.target.value)}
-                placeholder="e.g. Personal finance, street food, travel vlogs"
+                placeholder="e.g. Personal finance, street food, travel vlogs. Leave blank to fill from the website."
               />
             </div>
           ) : null}
           {isCreator ? (
             <>
               <div className="input-group">
-                <label htmlFor="planning-niche-details">
-                  Details about niche <span className="req-star" aria-hidden="true">*</span>
-                </label>
+                <label htmlFor="planning-niche-details">Details about niche</label>
                 <textarea
                   id="planning-niche-details"
                   rows={5}
                   value={nicheDetails}
                   onChange={(e) => setNicheDetails(e.target.value)}
-                  placeholder="Who this creator is for, and what the content should cover."
+                  placeholder="Who this creator is for, and what the content should cover. Leave blank to fill from the website."
                 />
+                <span className="field-hint">
+                  Optional if a website is set. Refresh topics fills empty niche fields from the site.
+                </span>
               </div>
               <div className="input-group">
                 <label htmlFor="example-topic-input">Example topics</label>
@@ -770,26 +799,52 @@ export default function ClientSettings() {
                 <h2>Topics</h2>
                 <p className="profile-section-desc">
                   {isCreator
-                    ? 'Search returns 4 ideas scored 0–100 from current web trends in this niche. Manual topics stay.'
+                    ? 'Pick how many topics to generate. Topics you added yourself are kept.'
                     : "Topics derived from this practice and specialty — website scrape, specialty signals, and your refine prompts. Bucketed by how central each topic is to the doctor's work. Manual topics stay untouched on refresh."}
                 </p>
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleRefreshTopics}
-                disabled={refreshing}
-              >
-                {refreshing && !userPrompt.trim() ? (
-                  <>
-                    <i className="fa-solid fa-spinner fa-spin" /> Refreshing…
-                  </>
-                ) : (
-                  <>
-                    <i className="fa-solid fa-arrows-rotate" /> Refresh topics
-                  </>
-                )}
-              </button>
+              <div className="topics-header-actions">
+                {isCreator ? (
+                  <label className="plan-count-field">
+                    <span className="control-label">Generate</span>
+                    <CustomSelect
+                      value={topicCount}
+                      disabled={refreshing}
+                      ariaLabel="Number of topics to generate"
+                      onChange={(next) => setTopicCount(Number(next))}
+                      options={CREATOR_TOPIC_COUNTS.map((n) => ({
+                        value: n,
+                        label: String(n),
+                      }))}
+                    />
+                  </label>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleExportPdf}
+                  disabled={exportingPdf || refreshing || !topics.length}
+                >
+                  <i className={`fa-solid ${exportingPdf ? 'fa-spinner fa-spin' : 'fa-file-pdf'}`} />
+                  Export PDF
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleRefreshTopics}
+                  disabled={refreshing || exportingPdf}
+                >
+                  {refreshing && !userPrompt.trim() ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin" /> Refreshing…
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-arrows-rotate" /> Refresh topics
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="input-group topic-prompt-group">
@@ -809,7 +864,7 @@ export default function ClientSettings() {
               <div className="topic-prompt-actions">
                 <span className="field-hint">
                   {isCreator
-                    ? 'Optional extra instruction for this search. Manual topics stay unchanged.'
+                    ? 'Optional extra instruction. Topics you added yourself are kept.'
                     : 'Applies only to auto topics using your instruction. Manual topics stay unchanged.'}
                 </span>
                 <button
@@ -884,7 +939,7 @@ export default function ClientSettings() {
             {isCreator ? (
               !topics.length ? (
                 <p className="empty-topics">
-                  Search uses your niche, niche details, and example topics.
+                  Add a website or a niche, then refresh topics. Empty niche fields are filled from the website.
                 </p>
               ) : recommendedTopics.length === 0 ? (
                 <p className="empty-topics">No topics match this filter.</p>
@@ -900,9 +955,9 @@ export default function ClientSettings() {
                       </span>
                       <span
                         className="trend-score"
-                        title="Trend score from live web search"
+                        title="Recommendation score"
                       >
-                        {Math.round(topic.recommendation_score || 0)}
+                        {Math.round(topic.recommendation_score || 0)}/100
                       </span>
                       <span className="trend-chips">
                         {topic.source === 'manual' ? (

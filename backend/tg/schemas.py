@@ -211,6 +211,7 @@ class ClientRefreshTopicsRequest(BaseModel):
     reference_youtube_channel: Optional[str] = None
     topics: Optional[List[TopicItem]] = None  # current form state; manuals preserved
     user_prompt: Optional[str] = None  # optional instruction to refine the auto list
+    topic_count: Optional[int] = None  # creator search: how many auto topics to generate
 
 
 class ClientRefreshTopicsResponse(BaseModel):
@@ -225,6 +226,13 @@ class ClientRefreshTopicsResponse(BaseModel):
     generator: Optional[str] = None
     openai_rationale: Optional[str] = None
     openai_error: Optional[str] = None
+    niche: Optional[str] = None
+    niche_details: Optional[str] = None
+
+
+class ClientExportTopicsRequest(BaseModel):
+    client_id: str
+    topics: Optional[List[TopicItem]] = None
 
 
 class ClientAnalyzeTrendsRequest(BaseModel):

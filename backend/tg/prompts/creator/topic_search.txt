@@ -11,64 +11,64 @@ Search specifically for CURRENT TRENDS in this creator's niche, not generic advi
 - seasonal, news, or cultural moments tied to the niche and audience (often India unless the profile says otherwise)
 - phrases, questions, and debates people are actually using right now
 
-Do not invent a trend. If search does not show current interest, the score must be low.
+Do not invent a trend. If search does not show a current spike, do not return that idea — keep searching until you have enough currently hot topics.
 
-Return EXACTLY 4 topics. No more, no fewer.
+Return EXACTLY __TOPIC_COUNT__ topics. No more, no fewer. The requested count is also in the user JSON as topic_count.
 
 ═══════════════════════════════════════════════════════════════════
 PROFILE YOU RECEIVE
 ═══════════════════════════════════════════════════════════════════
 JSON with:
-- name, website, instagram (context only)
-- niche
-- niche_details (how they talk about the niche, audience, what they care about)
+- name, website, instagram
+- website_snippet (optional homepage text — use this when niche is empty)
+- niche (optional if website is present — infer from the website first)
+- niche_details (optional — infer from the website if empty)
 - example_topics (directions they already like — riff, do not clone unless still strong)
 - example_scripts (OPTIONAL style samples — match tone, pacing, and energy; never copy lines)
 - language (free string: typically "english", "hinglish", or "hindi")
 - prompt (optional extra instruction for this search)
+- topic_count (how many topics to return)
+
+If niche or niche_details are empty, look at website + website_snippet (and search the site if needed) and treat the inferred niche as the niche for the rest of this task.
 
 ═══════════════════════════════════════════════════════════════════
 TOPIC RULES
 ═══════════════════════════════════════════════════════════════════
 - Each topic is one clear idea that can be spoken in 45–60 seconds.
 - Titles should sound like content ideas a creator would film, not SEO keywords and not academic paper titles.
-- Stay inside the niche + niche_details. If example_topics exist, at least two of the four should clearly sit in that neighborhood.
+- Stay inside the niche + niche_details (or the inferred niche from the website). If example_topics exist, at least half of the set should clearly sit in that neighborhood.
 - Prefer specific, speakable ideas over vague themes ("mindset", "growth", "tips").
 - Do not invent brands, stats, or news you did not see in search. If a number is useful, keep it qualitative unless search supports it.
-- Rotate angles across the four (question, myth, how-to, story, list, contrast). Do not give four near-duplicates.
+- Rotate angles across the set (question, myth, how-to, story, list, contrast). Do not give near-duplicates.
 
 ═══════════════════════════════════════════════════════════════════
-SCORE (0–100) = TREND SCORE FROM WEB SEARCH ONLY
+SCORE (91–100 ONLY) = TREND SCORE FROM WEB SEARCH ONLY
 ═══════════════════════════════════════════════════════════════════
 The integer score is a TREND SCORE. It is NOT a quality score, a niche-fit score, or a "how good this idea is" score.
 
-How to build it:
-1. Pick topics that still fit niche + niche_details (+ example_topics as direction).
-2. For EACH of the 4 topics, use what web search returned about current interest.
-3. Map that evidence onto 0–100.
+EVERY returned topic MUST score 91–100. Topics scoring 90 or below are rejected. Do not include them.
 
-What counts as trend evidence (from search):
-- rising / breakout search interest
-- lots of recent posts, explainers, or news on this exact idea
+How to build it:
+1. Search first. Only keep ideas with a current spike in this niche.
+2. Pick __TOPIC_COUNT__ topics that still fit niche + niche_details (+ example_topics as direction) AND are hot right now.
+3. Score each one 91–100 from that search evidence.
+
+What counts as 91–100 evidence (from search):
+- rising / breakout search interest RIGHT NOW
+- lots of recent posts, explainers, or news on this exact idea this week
 - a seasonal or calendar spike happening now
 - a live debate, myth, or question people are asking this week
 - social formats currently circulating around this idea
 
-What does NOT raise the score:
+What does NOT qualify — discard the idea, do not return it with a mid score:
 - "this fits their niche well"
 - "this would make a nice video"
 - "evergreen and always useful" with no current spike
+- steady interest, no spike (that would have been 50–69)
+- weak, fading, or no trend signal
 - your own taste
 
-Bands (honest — not everything is a 90):
-- 85–100: search shows it is rising or hot RIGHT NOW
-- 70–84: clear current interest, widely discussed this month
-- 50–69: steady interest, no spike
-- 30–49: weak or fading; little recent evidence
-- 0–29: almost no trend signal found
-
-A perfect-fit topic with no trend evidence MUST score low.
-A niche-adjacent topic with a strong current spike MAY score high if it still belongs in this niche.
+If you cannot find __TOPIC_COUNT__ currently hot ideas, search again with different queries until you can. Never pad the list with 60s or 70s.
 
 Never mention scoring, search, Google Trends, "trending", or how the number was produced in title, angle, script, hook_used, or cta_line. Those fields are for the creator to read. The score itself is internal — do not explain it in any visible text.
 
@@ -111,7 +111,7 @@ End CTA:
 - One easy close, last 1–2 short lines.
 - Like / share / save / follow / comment when it fits, as a person would say it. "Save this." "Send this to her." "Comment if this is you."
 - Not a lifeless "like share subscribe". No fake numbers. No booking unless they asked.
-- Rotate CTA wording across the four scripts.
+- Rotate CTA wording across the scripts.
 
 Length: 45–60 seconds at a natural talking pace. About 80–130 words. Short sentences will fill that time. Do not pad with extra tips.
 
@@ -122,5 +122,5 @@ Also return:
 ═══════════════════════════════════════════════════════════════════
 OUTPUT
 ═══════════════════════════════════════════════════════════════════
-Return JSON only, matching the schema. topics length MUST be 4.
+Return JSON only, matching the schema. topics length MUST be __TOPIC_COUNT__. Every score MUST be 91–100.
 Do not wrap in markdown.

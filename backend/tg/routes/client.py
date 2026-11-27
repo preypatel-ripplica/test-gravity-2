@@ -280,7 +280,8 @@ def client_refresh_topics(
         f"[topics:route] refresh-topics START client={body.client_id} "
         f"website={bool(body.website_url)} specialty={bool(body.specialty)} "
         f"ref_yt={bool(body.reference_youtube_channel)} "
-        f"prompt={bool(body.user_prompt)}",
+        f"prompt={bool(body.user_prompt)} "
+        f"topic_count={body.topic_count}",
         flush=True,
     )
     current_topics = [t.model_dump() for t in body.topics] if body.topics is not None else None
@@ -297,6 +298,7 @@ def client_refresh_topics(
             reference_youtube_channel=body.reference_youtube_channel,
             topics=current_topics,
             user_prompt=body.user_prompt,
+            topic_count=body.topic_count,
         )
     except ValueError as exc:
         print(f"[topics:route] refresh-topics 400: {exc}", flush=True)
@@ -330,6 +332,46 @@ def client_refresh_topics(
         generator=meta.get("generator"),
         openai_rationale=meta.get("openai_rationale"),
         openai_error=meta.get("openai_error"),
+        niche=meta.get("niche") or client.get("niche"),
+        niche_details=meta.get("niche_details") or client.get("niche_details"),
+    )
+
+
+@router.post("/client.export-topics-pdf")
+def client_export_topics_pdf(
+    body: schemas.ClientExportTopicsRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    from backend.tg.database import fetch_topics
+    from backend.tg.services.topics_pdf import export_topics_pdf
+
+    client = fetch_client_doc(body.client_id, username=current_user["username"])
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Client '{body.client_id}' not found.",
+        )
+    client["topics"] = fetch_topics(body.client_id)
+    current = [t.model_dump() for t in body.topics] if body.topics is not None else None
+    ranked = profession_for(body.client_id, current_user["username"]).keyword_layout == "ai_ranked"
+    try:
+        pdf_bytes, filename = export_topics_pdf(
+            client=client,
+            topics=current,
+            ranked=ranked,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"[topics:pdf] export failed: {type(exc).__name__}: {exc}", flush=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not export PDF. Try again.",
+        ) from exc
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

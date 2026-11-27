@@ -176,7 +176,7 @@ export default function ClientPracticeDetails() {
           </h1>
           <p>
             {isCreator
-              ? 'Name and website. Set niche and keywords under Keywords and topics.'
+              ? 'Name and website. Niche is optional when a website is set — Keywords can fill it from the site.'
               : 'Name, website, specialty, and designation for this doctor.'}
           </p>
         </div>
@@ -253,7 +253,7 @@ export default function ClientPracticeDetails() {
             </div>
             <span className="field-hint">
               {isCreator
-                ? 'Optional. Sent as context when searching topics. Not crawled. Search from Keywords and topics.'
+                ? 'Optional. If you add a website, niche can be left blank and filled from the site when you search topics.'
                 : 'Deep-scrapes the site for specialty signals and topic ideas. Review topics in Keywords and topics.'}
             </span>
           </div>

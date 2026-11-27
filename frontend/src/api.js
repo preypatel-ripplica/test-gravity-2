@@ -445,6 +445,21 @@ export const api = {
       token,
       body: { client_id: clientId, ...fields },
     }),
+  exportClientTopicsPdf: async (token, clientId, { topics } = {}) => {
+    const response = await fetch(url('/client.export-topics-pdf'), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ client_id: clientId, topics }),
+    })
+    if (!response.ok) throw new Error(await parseError(response))
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename="([^"]+)"/)
+    return { blob, filename: match?.[1] || 'topics.pdf' }
+  },
   analyzeClientTrends: (token, clientId, { force = false } = {}) => {
     console.log('[trends:api] analyzeClientTrends', { clientId, force })
     return apiFetch('/client.analyze-trends', {
