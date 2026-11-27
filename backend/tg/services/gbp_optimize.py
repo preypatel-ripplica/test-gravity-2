@@ -249,6 +249,57 @@ def service_is_allowed(name: str, evidence: list[str]) -> bool:
     return all(token in blob for token in tokens)
 
 
+def drop_add_already_listed(recommendations: list, listing: dict | None) -> list:
+    """Hide ADD rows whose name is already on the live service list."""
+    names = set()
+    for item in (((listing or {}).get("services") or {}).get("current") or []):
+        if isinstance(item, dict):
+            name = str(item.get("displayName") or item.get("name") or "").strip().casefold()
+        else:
+            name = str(item or "").strip().casefold()
+        if name:
+            names.add(name)
+    kept = []
+    for item in recommendations or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("action") == "ADD":
+            proposed = str(item.get("proposed_name") or "").strip().casefold()
+            if proposed and proposed in names:
+                continue
+        kept.append(item)
+    return kept
+
+
+def rewrite_service_list_detail(detail: str) -> str:
+    """Keep old snapshots from saying 'this clinic actually offers'."""
+    text = str(detail or "").strip()
+    if "clinic actually offers" not in text.lower():
+        return text
+    count_part = text.split(".")[0].strip()
+    if "listed" in count_part.lower():
+        return f"{count_part}. Add more services to this listing."
+    return "Add more services to this listing."
+
+
+def soften_audit_listing(listing: dict) -> dict:
+    if not isinstance(listing, dict) or not listing.get("sections"):
+        return listing
+    sections = []
+    for section in listing.get("sections") or []:
+        if not isinstance(section, dict):
+            sections.append(section)
+            continue
+        checks = []
+        for check in section.get("checks") or []:
+            if not isinstance(check, dict):
+                checks.append(check)
+                continue
+            checks.append({**check, "detail": rewrite_service_list_detail(check.get("detail") or "")})
+        sections.append({**section, "checks": checks})
+    return {**listing, "sections": sections}
+
+
 def _section(section_id: str, label: str, checks: list[dict]) -> dict:
     passed = sum(1 for check in checks if check["ok"])
     score = round(100 * passed / len(checks)) if checks else 100
@@ -307,7 +358,11 @@ def checklist(
             "id": "count",
             "ok": len(services) >= SERVICE_MIN,
             "title": "Service list",
-            "detail": f"{len(services)} listed." if len(services) >= SERVICE_MIN else f"{len(services)} listed. Add the services this clinic actually offers.",
+            "detail": (
+                f"{len(services)} listed."
+                if len(services) >= SERVICE_MIN
+                else f"{len(services)} listed. Add more services to this listing."
+            ),
         },
     ]
     photos = []

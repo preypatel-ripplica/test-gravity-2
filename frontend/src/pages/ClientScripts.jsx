@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
 import CustomSelect from '../components/CustomSelect'
+import LocalReferenceAttach, { uploadLocalReferences } from '../components/LocalReferenceAttach'
+import YtThumbnailFrame from '../components/YtThumbnailFrame'
 import TrackerWeekPicker from '../components/tracker/TrackerWeekPicker'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -63,6 +65,8 @@ export default function ClientScripts() {
   const [selectedYTChannelId, setSelectedYTChannelId] = useState('')
   const [ytVideos, setYtVideos] = useState([])
   const [selectedYTVideos, setSelectedYTVideos] = useState([])
+  const [localRefFiles, setLocalRefFiles] = useState([])
+  const [savingThumbId, setSavingThumbId] = useState(null)
   const [ytVideosPage, setYtVideosPage] = useState(1)
 
   // Upload UI state
@@ -289,9 +293,12 @@ export default function ClientScripts() {
     setMetadataBusyId(item.id)
     try {
       toast('Refining YouTube metadata…', 'info')
+      const localReferenceIds = await uploadLocalReferences(token, clientId, localRefFiles)
       const data = await api.refineYouTubeMetadata(token, clientId, {
         itemId: item.id,
         userPrompt: prompt,
+        referenceVideoIds: localRefFiles.length ? selectedYTVideos : [],
+        localReferenceIds,
       })
       setSuggestions(data.suggestions || null)
       setMetadataEditPrompts((prev) => ({ ...prev, [item.id]: '' }))
@@ -354,10 +361,12 @@ export default function ClientScripts() {
     setShowYTModal(false)
     try {
       toast('Generating YouTube metadata…', 'info')
+      const localReferenceIds = await uploadLocalReferences(token, clientId, localRefFiles)
       const data = await api.generateYouTubeMetadata(token, clientId, {
         itemIds: [item.id],
         userPrompt: '',
         referenceVideoIds: selectedYTVideos,
+        localReferenceIds,
       })
       if (data?.thumbnail_reference_failed) {
         toast('Thumbnail generation from the recent 3 failed, so nothing was saved.', 'error')
@@ -889,9 +898,9 @@ export default function ClientScripts() {
                 {isOpen && (
                   <div className="plan-item-nest">
                     {/* Tab Switcher */}
-                    {(item.script || item.yt_title || item.yt_thumbnail_url) && (
+                    {(item.script || item.yt_title || item.yt_thumbnail_url || item.yt_thumbnail_error === 'explicit') && (
                       <div className="card-tab-bar">
-                        <div className={`card-tab-toggle${!item.script || !(item.yt_title || item.yt_thumbnail_url) ? ' single' : ''}`}>
+                        <div className={`card-tab-toggle${!item.script || !(item.yt_title || item.yt_thumbnail_url || item.yt_thumbnail_error === 'explicit') ? ' single' : ''}`}>
                           {item.script && (
                             <button
                               type="button"
@@ -902,7 +911,7 @@ export default function ClientScripts() {
                               Script
                             </button>
                           )}
-                          {(item.yt_title || item.yt_thumbnail_url) && (
+                          {(item.yt_title || item.yt_thumbnail_url || item.yt_thumbnail_error === 'explicit') && (
                             <button
                               type="button"
                               className={`card-tab-option${cardTab[item.id] === 'metadata' ? ' is-active' : ''}`}
@@ -1072,15 +1081,42 @@ export default function ClientScripts() {
                     )}
 
                     {/* YT Metadata Tab */}
-                    {(item.yt_title || item.yt_thumbnail_url) && cardTab[item.id] === 'metadata' && (
+                    {(item.yt_title || item.yt_thumbnail_url || item.yt_thumbnail_error === 'explicit') && cardTab[item.id] === 'metadata' && (
                       <div className="plan-script">
                         <div className="plan-script-meta">
                           <span className="plan-script-label">YouTube Metadata</span>
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                          {item.yt_thumbnail_url && (
-                            <img src={assetUrl(item.yt_thumbnail_url)} alt="Thumbnail" style={{ width: 240, height: 135, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1px solid var(--border)' }} />
-                          )}
+                          <YtThumbnailFrame
+                            url={assetUrl(item.yt_thumbnail_url)}
+                            error={item.yt_thumbnail_error}
+                            portrait={String(item.format || '').toLowerCase() === 'short'}
+                            busy={savingThumbId === item.id}
+                            onReject={(message) => toast(message, 'error')}
+                            onSave={async (file) => {
+                              if (!item.topic_id) {
+                                toast('Generate metadata first.', 'error')
+                                throw new Error('Generate metadata first.')
+                              }
+                              setSavingThumbId(item.id)
+                              try {
+                                await api.replaceYouTubeThumbnail(token, clientId, {
+                                  topicId: item.topic_id,
+                                  language: 'hinglish',
+                                  format: item.format || 'Long',
+                                  file,
+                                })
+                                const plan = await api.getContentPlan(token, clientId)
+                                setSuggestions(plan.suggestions || null)
+                                toast('Thumbnail replaced.', 'success')
+                              } catch (err) {
+                                toast(err.message, 'error')
+                                throw err
+                              } finally {
+                                setSavingThumbId(null)
+                              }
+                            }}
+                          />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <label style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: 4, display: 'block' }}>Title</label>
                             <h4 style={{ margin: '0 0 0.75rem', fontSize: '1.05rem' }}>{item.yt_title}</h4>
@@ -1188,6 +1224,7 @@ export default function ClientScripts() {
               </div>
             </header>
             <div className="modal-body" style={{ maxHeight: '55vh', overflowY: 'auto', padding: '1.25rem 1.5rem', background: 'var(--surface)' }}>
+              <LocalReferenceAttach files={localRefFiles} onChange={setLocalRefFiles} disabled={Boolean(metadataBusyId)} />
               {ytVideos.length === 0 && (
                 <p className="text-muted">Loading thumbnails…</p>
               )}

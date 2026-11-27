@@ -5869,6 +5869,7 @@ a.plan-item-link {
     flex: 0 0 240px;
     width: 240px;
     max-width: 40%;
+    position: relative;
 }
 
 .tracker-yt-preview-thumb img {
@@ -5904,6 +5905,66 @@ a.plan-item-link {
     color: var(--text-muted);
     background: var(--bg-light, var(--widget));
     font-size: 12px;
+    text-align: center;
+    padding: 8px;
+}
+
+.yt-thumb-pencil {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    color: var(--text, #111);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+
+.yt-thumb-save {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.local-ref-attach {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.local-ref-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.local-ref-tile {
+    position: relative;
+    width: 96px;
+}
+
+.local-ref-tile img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 8px;
+    display: block;
+}
+
+.local-ref-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
 }
 
 .tracker-yt-preview-copy {
@@ -12583,6 +12644,14 @@ a:hover .all-tracker-open-tab {
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
+}
+
+.gbp-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
 }
 
 .gbp-panel .card {

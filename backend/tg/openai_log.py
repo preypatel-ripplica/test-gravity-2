@@ -81,7 +81,7 @@ def log_openai_error(tag: str, exc: BaseException | None = None, *, response=Non
             pass
 
 
-def _skip_openai_retry(exc: BaseException) -> bool:
+def _exception_text(exc: BaseException) -> str:
     chunks = [str(exc)]
     for attr in ("body", "code", "type"):
         try:
@@ -90,10 +90,44 @@ def _skip_openai_retry(exc: BaseException) -> bool:
             value = None
         if value not in (None, ""):
             chunks.append(str(value))
-    text = " ".join(chunks).lower()
+    try:
+        response = getattr(exc, "response", None)
+    except Exception:
+        response = None
+    if response is not None:
+        try:
+            body = getattr(response, "text", None)
+            if callable(body):
+                body = body()
+            if body:
+                chunks.append(str(body))
+        except Exception:
+            pass
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None and cause is not exc:
+        chunks.append(str(cause))
+        try:
+            cause_body = getattr(cause, "body", None)
+        except Exception:
+            cause_body = None
+        if cause_body not in (None, ""):
+            chunks.append(str(cause_body))
+    return " ".join(chunks).lower()
+
+
+def is_sexual_moderation_block(exc: BaseException) -> bool:
+    """OpenAI rejected an image because the output was classified as sexual."""
+    text = _exception_text(exc)
+    return "moderation_blocked" in text and "sexual" in text
+
+
+def _skip_openai_retry(exc: BaseException) -> bool:
+    text = _exception_text(exc)
     if "no credits remaining" in text or "insufficient_quota" in text:
         return True
     if "invalid_api_key" in text or "incorrect api key" in text:
+        return True
+    if is_sexual_moderation_block(exc):
         return True
     return False
 

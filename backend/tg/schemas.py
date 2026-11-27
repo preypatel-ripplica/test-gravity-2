@@ -285,6 +285,7 @@ class YouTubeLocaleMetadata(BaseModel):
     yt_tags: Optional[List[str]] = None
     yt_thumbnail_url: Optional[str] = None
     yt_thumbnail_prompt: Optional[str] = None
+    yt_thumbnail_error: Optional[str] = None
 
 
 class ContentSuggestionItem(BaseModel):
@@ -310,6 +311,7 @@ class ContentSuggestionItem(BaseModel):
     yt_tags: Optional[List[str]] = None
     yt_thumbnail_url: Optional[str] = None
     yt_thumbnail_prompt: Optional[str] = None
+    yt_thumbnail_error: Optional[str] = None
     yt_locales: Optional[Dict[str, YouTubeLocaleMetadata]] = None
     tracker_placements: List[TrackerScriptPlacement] = []
 
@@ -345,6 +347,7 @@ class ContentKeywordAnalysisItem(BaseModel):
     yt_tags: Optional[List[str]] = None
     yt_thumbnail_url: Optional[str] = None
     yt_thumbnail_prompt: Optional[str] = None
+    yt_thumbnail_error: Optional[str] = None
     yt_locales: Optional[Dict[str, YouTubeLocaleMetadata]] = None
 
 
@@ -431,6 +434,7 @@ class ClientContentPlanGenerateMetadataRequest(BaseModel):
     topic_title: Optional[str] = None
     format: Optional[str] = None
     allow_unreferenced_thumbnail: bool = False
+    local_reference_ids: List[str] = []
 
 
 class ContentVideoUpdateDescriptionRequest(BaseModel):
@@ -451,6 +455,7 @@ class ClientContentPlanRefineMetadataRequest(BaseModel):
     topic_id: Optional[str] = None
     topic_title: Optional[str] = None
     format: Optional[str] = None
+    local_reference_ids: List[str] = []
 
 
 class ClientContentPlanResponse(BaseModel):
@@ -1245,6 +1250,7 @@ class ContentVideo(BaseModel):
     yt_tags: Optional[List[str]] = None
     yt_thumbnail_url: Optional[str] = None
     yt_thumbnail_prompt: Optional[str] = None
+    yt_thumbnail_error: Optional[str] = None
     youtube_urls: List[ContentVideoPostedUrl] = []
     instagram_urls: List[ContentVideoPostedUrl] = []
     facebook_urls: List[ContentVideoPostedUrl] = []
@@ -1462,6 +1468,13 @@ class GbpPostDraftRequest(BaseModel):
     draft_id: str = ""
     summary: Optional[str] = None
     draft_ids: List[str] = []
+
+
+class GbpOptimizeRefreshRequest(BaseModel):
+    client_id: str
+    location_id: str
+    force: bool = False
+    include_search_keywords: bool = True
 
 
 class GbpOptimizeRunRequest(BaseModel):

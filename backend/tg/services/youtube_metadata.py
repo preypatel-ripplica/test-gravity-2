@@ -8,12 +8,13 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from openai import OpenAI
 from backend.tg.config import settings
-from backend.tg.openai_log import call_with_openai_retry, log_openai_error, _skip_openai_retry
+from backend.tg.openai_log import call_with_openai_retry, is_sexual_moderation_block, log_openai_error, _skip_openai_retry
 from backend.tg.services.topics import make_topic
 import httpx
+import re
 from pathlib import Path
 from PIL import Image
-from backend.tg.services.gcs_storage import upload_bytes
+from backend.tg.services.gcs_storage import bucket_object_path, delete_file, download_bytes, upload_bytes
 
 SOCIAL_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "social_assets"
 
@@ -602,18 +603,143 @@ def _download_reference_files(references: List[dict]) -> list[tuple[str, tuple[s
     return files
 
 
-def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrait: bool = False) -> Optional[str]:
+_THUMB_RATIO_TOLERANCE = 0.02
+_LOCAL_REF_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpg|webp)$")
+_LOCAL_REF_LIMIT = 3
+LOCAL_REFERENCE_MAX_BYTES = 12 * 1024 * 1024
+
+
+class ReferenceThumbnailResult:
+    """Image edit outcome. error is 'explicit' when output moderation blocks the image."""
+
+    def __init__(self, url: str | None = None, error: str | None = None):
+        self.url = url or None
+        self.error = "explicit" if error == "explicit" and not self.url else None
+
+
+def thumbnail_aspect_ok(width: int, height: int, *, portrait: bool) -> bool:
+    """True when width/height is within 2% of 16:9 (long) or 9:16 (short)."""
+    if width <= 0 or height <= 0:
+        return False
+    target = (9 / 16) if portrait else (16 / 9)
+    return abs((width / height) - target) / target <= _THUMB_RATIO_TOLERANCE
+
+
+def format_is_short(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"short", "shorts", "portrait"}
+
+
+def read_image_size(image_bytes: bytes) -> tuple[int, int]:
+    img = Image.open(io.BytesIO(image_bytes))
+    return int(img.size[0]), int(img.size[1])
+
+
+def validate_replacement_thumbnail(image_bytes: bytes, *, portrait: bool) -> None:
+    if not image_bytes:
+        raise ValueError("Choose an image file.")
+    try:
+        width, height = read_image_size(image_bytes)
+    except Exception as exc:
+        raise ValueError("Choose an image file.") from exc
+    if not thumbnail_aspect_ok(width, height, portrait=portrait):
+        expected = "9:16" if portrait else "16:9"
+        raise ValueError(f"Use a {expected} image.")
+
+
+def thumbnail_png_bytes(image_bytes: bytes) -> bytes:
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode not in ("RGB", "RGBA"):
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def use_newest_youtube_refs(*, picked: bool, has_local: bool) -> bool:
+    """Newest channel thumbnails apply only when the user attached nothing."""
+    return not picked and not has_local
+
+
+def build_reference_edit_files(references: List[dict] | None, local_images=None):
+    """YouTube downloads stay in _download_reference_files. Local bytes are appended."""
+    files = _download_reference_files(references) if references else []
+    for index, image in enumerate(list(local_images or [])[:_LOCAL_REF_LIMIT]):
+        name, data, content_type = image
+        if not data:
+            continue
+        files.append(("image[]", (name or f"local-{index}.png", data, content_type or "image/png")))
+    return files
+
+
+def consume_local_reference_images(ref_ids) -> list[tuple[str, bytes, str]]:
+    """Load temporary reference uploads and delete them from the bucket."""
+    names: list[str] = []
+    for raw in ref_ids or []:
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        if not _LOCAL_REF_NAME.match(name):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown reference image.")
+        if name not in names:
+            names.append(name)
+    if len(names) > _LOCAL_REF_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Attach up to 3 local reference images.",
+        )
+    images: list[tuple[str, bytes, str]] = []
+    try:
+        for name in names:
+            path = f"thumbnail-refs/{name}"
+            try:
+                data, content_type = download_bytes(path)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A local reference image expired. Attach it again.",
+                ) from exc
+            kind = content_type if str(content_type).startswith("image/") else "image/png"
+            images.append((name, data, kind))
+        return images
+    finally:
+        for name in names:
+            delete_file(f"thumbnail-refs/{name}")
+
+
+def delete_replaced_thumbnail(old_url: str | None, locales: dict | None, language: str) -> None:
+    """Delete the previous thumbnail object when no other language still uses it."""
+    path = bucket_object_path(old_url or "", folder="thumbnails")
+    if not path:
+        return
+    for lang, loc in (locales or {}).items():
+        if str(lang) == language or not isinstance(loc, dict):
+            continue
+        if bucket_object_path(loc.get("yt_thumbnail_url") or "", folder="thumbnails") == path:
+            return
+    delete_file(path)
+
+
+def generate_reference_thumbnail(
+    prompt: str,
+    references: List[dict],
+    *,
+    portrait: bool = False,
+    local_images=None,
+) -> ReferenceThumbnailResult:
     """Send reference photos to the image edit, the same call Instagram posts use.
 
-    Returns None when the images cannot be downloaded or the edit fails.
+    Returns an empty result when the images cannot be downloaded or the edit fails.
+    error is 'explicit' when OpenAI blocks the output as sexual.
     Callers should use text-only generation only when the channel has no thumbnails.
     """
-    if not settings.OPENAI_API_KEY or not references:
-        return None
-    files = _download_reference_files(references)
+    local_images = list(local_images or [])
+    if not settings.OPENAI_API_KEY or (not references and not local_images):
+        return ReferenceThumbnailResult()
+    files = build_reference_edit_files(references, local_images)
     if not files:
-        print("[yt-thumbnail] reference images could not be downloaded", flush=True)
-        return None
+        if references:
+            print("[yt-thumbnail] reference images could not be downloaded", flush=True)
+        return ReferenceThumbnailResult()
     size = "1024x1536" if portrait else "1536x1024"
     data = {
         "model": settings.THUMBNAIL_MODEL,
@@ -644,7 +770,9 @@ def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrai
         payload = call_with_openai_retry(_edit_once, tag="yt-thumbnail")
     except Exception as exc:
         print(f"[yt-thumbnail] reference edit failed: {exc}", flush=True)
-        return None
+        if is_sexual_moderation_block(exc):
+            return ReferenceThumbnailResult(error="explicit")
+        return ReferenceThumbnailResult()
     image_row = (payload.get("data") or [{}])[0]
     image_bytes = None
     if image_row.get("b64_json"):
@@ -657,11 +785,11 @@ def generate_reference_thumbnail(prompt: str, references: List[dict], *, portrai
                 image_bytes = image_response.content
         except httpx.HTTPError as exc:
             print(f"[yt-thumbnail] could not download edited image: {exc}", flush=True)
-            return None
+            return ReferenceThumbnailResult()
     if not image_bytes:
-        return None
+        return ReferenceThumbnailResult()
     cropped = _crop_portrait(image_bytes) if portrait else _crop_widescreen(image_bytes)
-    return _store_thumbnail_bytes(cropped)
+    return ReferenceThumbnailResult(url=_store_thumbnail_bytes(cropped))
 
 
 def generate_youtube_thumbnail(prompt: str, *, portrait: bool = False) -> str:

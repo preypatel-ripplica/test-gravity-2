@@ -547,7 +547,7 @@ export const api = {
         script,
       },
     }),
-  generateYouTubeMetadata: (token, clientId, { itemIds, userPrompt, referenceVideoIds, languages, scriptOverride, topicId, topicTitle, format, allowUnreferencedThumbnail } = {}) =>
+  generateYouTubeMetadata: (token, clientId, { itemIds, userPrompt, referenceVideoIds, languages, scriptOverride, topicId, topicTitle, format, allowUnreferencedThumbnail, localReferenceIds } = {}) =>
     apiFetch('/client.content-plan-generate-metadata', {
       token,
       body: {
@@ -557,11 +557,27 @@ export const api = {
         reference_video_ids: referenceVideoIds || [],
         languages: languages || ['hinglish'],
         allow_unreferenced_thumbnail: Boolean(allowUnreferencedThumbnail),
+        local_reference_ids: localReferenceIds || [],
         ...(scriptOverride ? { script_override: scriptOverride } : {}),
         ...(format ? { format } : {}),
         ...(topicId ? { topic_id: topicId, topic_title: topicTitle || '' } : {}),
       },
     }),
+  uploadThumbnailReference: (token, clientId, file) => {
+    const formData = new FormData()
+    formData.append('client_id', clientId)
+    formData.append('file', file)
+    return apiFetch('/client.thumbnail-reference.upload', { token, formData })
+  },
+  replaceYouTubeThumbnail: (token, clientId, { topicId, language, format, file } = {}) => {
+    const formData = new FormData()
+    formData.append('client_id', clientId)
+    formData.append('topic_id', topicId)
+    formData.append('language', language || 'hinglish')
+    formData.append('format', format || 'Long')
+    formData.append('file', file)
+    return apiFetch('/client.content-video.replace-thumbnail', { token, formData })
+  },
   updateYouTubeDescription: (token, clientId, { topicId, language, title, description, tags } = {}) =>
     apiFetch('/client.content-video.update-description', {
       token,
@@ -580,7 +596,7 @@ export const api = {
     formData.append('file', file)
     return apiFetch('/video.local.upload', { token, formData })
   },
-  refineYouTubeMetadata: (token, clientId, { itemId, userPrompt, referenceVideoIds, language, topicId, topicTitle, format } = {}) =>
+  refineYouTubeMetadata: (token, clientId, { itemId, userPrompt, referenceVideoIds, language, topicId, topicTitle, format, localReferenceIds } = {}) =>
     apiFetch('/client.content-plan-refine-metadata', {
       token,
       body: {
@@ -588,6 +604,7 @@ export const api = {
         item_id: itemId || undefined,
         user_prompt: userPrompt,
         reference_video_ids: referenceVideoIds || [],
+        local_reference_ids: localReferenceIds || [],
         language: language || 'hinglish',
         ...(format ? { format } : {}),
         ...(topicId ? { topic_id: topicId, topic_title: topicTitle || '' } : {}),
@@ -1416,10 +1433,15 @@ export const api = {
       token,
       body: { client_id: clientId, location_id: locationId },
     }),
-  gbpOptimizeRefresh: (token, clientId, locationId) =>
+  gbpOptimizeRefresh: (token, clientId, locationId, options = {}) =>
     apiFetch('/gbp.optimize.refresh', {
       token,
-      body: { client_id: clientId, location_id: locationId },
+      body: {
+        client_id: clientId,
+        location_id: locationId,
+        force: Boolean(options.force),
+        include_search_keywords: options.include_search_keywords !== false,
+      },
     }),
   gbpOptimizeRun: (token, clientId, locationId, instruction = '', latitude = null, longitude = null) =>
     apiFetch('/gbp.optimize.run', {
@@ -1432,6 +1454,18 @@ export const api = {
         longitude,
       },
     }),
+  gbpOptimizePdfBlob: async (token, clientId, locationId) => {
+    const response = await fetch(url('/gbp.optimize.pdf'), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ client_id: clientId, location_id: locationId }),
+    })
+    if (!response.ok) throw new Error(await parseError(response))
+    return response.blob()
+  },
   gbpOptimizeApplyScore: (token, clientId, locationId, description = '', addedServices = []) =>
     apiFetch('/gbp.optimize.apply-score', {
       token,

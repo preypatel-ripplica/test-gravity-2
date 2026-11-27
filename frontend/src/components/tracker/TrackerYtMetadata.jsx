@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import CustomSelect from '../CustomSelect'
+import LocalReferenceAttach, { uploadLocalReferences } from '../LocalReferenceAttach'
+import YtThumbnailFrame from '../YtThumbnailFrame'
 import api from '../../api'
 import { YT_LANGUAGE_OPTIONS, localeHasTitle, maybeAdvanceStage } from './trackerUtils'
 
@@ -28,6 +30,8 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
   const [videos, setVideos] = useState([])
   const [videoPage, setVideoPage] = useState(1)
   const [selectedRefIds, setSelectedRefIds] = useState([])
+  const [localRefFiles, setLocalRefFiles] = useState([])
+  const [savingThumb, setSavingThumb] = useState(false)
   const [previewLang, setPreviewLang] = useState('hinglish')
   const [refinePrompt, setRefinePrompt] = useState('')
   const [editingMeta, setEditingMeta] = useState(false)
@@ -42,7 +46,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
   const preview = locales[previewLang] || {}
   const scriptText = String(card.assets?.script_text || '').trim()
   const linked = Boolean(scriptText)
-  const busy = generating || refining || savingDescription
+  const busy = generating || refining || savingDescription || savingThumb
 
   useEffect(() => {
     if (!refChannelId && channels[0]?.id) setRefChannelId(channels[0].id)
@@ -127,9 +131,13 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
     let resolvedTopicId = topicId
     try {
       const manualScript = card.assets?.script_source === 'manual' ? scriptText : ''
+      const localReferenceIds = continueWithoutReference
+        ? []
+        : await uploadLocalReferences(token, clientId, localRefFiles)
       const data = await api.generateYouTubeMetadata(token, clientId, {
         itemIds: card.content_plan_item_id ? [card.content_plan_item_id] : [],
         referenceVideoIds: continueWithoutReference ? [] : selectedRefIds,
+        localReferenceIds,
         languages: generateLanguages,
         scriptOverride: manualScript || undefined,
         topicId,
@@ -171,10 +179,12 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
     setRefining(true)
     let nextLocales = null
     try {
+      const localReferenceIds = await uploadLocalReferences(token, clientId, localRefFiles)
       const data = await api.refineYouTubeMetadata(token, clientId, {
         itemId: card.content_plan_item_id || undefined,
         userPrompt: refinePrompt,
         referenceVideoIds: selectedRefIds,
+        localReferenceIds,
         language: previewLang,
         topicId,
         topicTitle: card.title,
@@ -238,6 +248,31 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
     setSavingDescription(false)
   }
 
+  async function handleReplaceThumbnail(file) {
+    if (!card.topic_id) {
+      toast('Generate metadata first.', 'error')
+      throw new Error('Generate metadata first.')
+    }
+    setSavingThumb(true)
+    let nextLocales = null
+    try {
+      const data = await api.replaceYouTubeThumbnail(token, clientId, {
+        topicId: card.topic_id,
+        language: previewLang,
+        format: cardFormat(),
+        file,
+      })
+      nextLocales = data.yt_locales || null
+      toast('Thumbnail replaced.', 'success')
+    } catch (err) {
+      toast(err.message, 'error')
+      throw err
+    } finally {
+      await refreshCardLocales(nextLocales)
+      setSavingThumb(false)
+    }
+  }
+
   return (
     <section className="tracker-script-slot tracker-yt-meta">
       <div className="tracker-script-slot-head">
@@ -250,7 +285,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
               disabled={busy}
               onClick={() => setShowRefs((v) => !v)}
             >
-              Choose reference ({selectedRefIds.length})
+              Choose reference ({selectedRefIds.length + localRefFiles.length})
             </button>
             {!pickingLang ? (
               <button
@@ -284,6 +319,7 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
             />
           )}
           <p className="tracker-hint">If you pick none, the newest 3 thumbnails are used, and the newest 3 descriptions of the same format are used as examples.</p>
+          <LocalReferenceAttach files={localRefFiles} onChange={setLocalRefFiles} disabled={busy} />
           <div className="tracker-ref-grid">
             {visibleVideos.map((video) => {
               const selected = selectedRefIds.includes(video.id)
@@ -380,13 +416,14 @@ export default function TrackerYtMetadata({ card, weekContext, onChange }) {
             ))}
           </div>
           <div className="tracker-yt-preview">
-            <div className={`tracker-yt-preview-thumb${card.type === 'short' ? ' is-portrait' : ''}`}>
-              {preview.yt_thumbnail_url ? (
-                <img src={preview.yt_thumbnail_url} alt="" />
-              ) : (
-                <div className="tracker-yt-thumb-empty">No thumbnail</div>
-              )}
-            </div>
+            <YtThumbnailFrame
+              url={preview.yt_thumbnail_url}
+              error={preview.yt_thumbnail_error}
+              portrait={card.type === 'short'}
+              busy={busy}
+              onReject={(message) => toast(message, 'error')}
+              onSave={handleReplaceThumbnail}
+            />
             <div className="tracker-yt-preview-copy">
               {editingMeta ? (
                 <div className="tracker-description-edit">

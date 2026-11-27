@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ clinic_name }} — Google Business Profile recommendations</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --bg: #f8fafc;
+      --accent: #1d4ed8;
+      --accent-2: #2563eb;
+      --accent-soft: #eff6ff;
+      --improve: #c2410c;
+      --improve-soft: #fff7ed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: #fff;
+      line-height: 1.5;
+    }
+    .page { max-width: 900px; margin: 0 auto; padding: 8px 4px 24px; }
+    .eyebrow {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+    h1 { font-size: 28px; letter-spacing: -0.03em; margin: 0 0 6px; font-weight: 700; }
+    h2 {
+      font-size: 13px;
+      margin: 26px 0 10px;
+      padding: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+    .lead {
+      margin: 0 0 8px;
+      padding: 0 0 0 14px;
+      border-left: 3px solid var(--accent);
+      font-size: 14px;
+      max-width: 72ch;
+    }
+    .lead p { margin: 0; }
+    p { margin: 0 0 10px; font-size: 14px; }
+    .empty { color: var(--muted); font-size: 13px; margin: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+    }
+    .rec {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px 12px;
+      margin: 0 0 10px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      background: #fff;
+    }
+    .rec-head { display: flex; align-items: flex-start; gap: 10px; }
+    .badge {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      padding: 4px 8px;
+    }
+    .badge-add { background: var(--accent-soft); color: var(--accent); }
+    .badge-improve { background: var(--improve-soft); color: var(--improve); }
+    .rec-title { font-size: 15px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.02em; }
+    .rec-arrow { color: var(--muted); font-weight: 500; }
+    .rec p { margin: 6px 0 0; font-size: 13px; color: #334155; }
+    .rec .why { color: var(--muted); }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .block {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px 14px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .block.suggested {
+      border-color: #bfdbfe;
+      background: var(--accent-soft);
+    }
+    .block .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+    .block .value {
+      font-size: 14px;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .note {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .score-hero {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      margin: 4px 0 12px;
+      background: #fff;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .score-dial {
+      flex: 0 0 auto;
+      width: 92px;
+      height: 92px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent-soft);
+      border: 3px solid var(--accent);
+    }
+    .score-dial strong { font-size: 28px; letter-spacing: -0.04em; line-height: 1; }
+    .score-dial span { font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 4px; }
+    .score-hero p { margin: 0; font-size: 13px; color: #334155; max-width: 52ch; }
+    .areas {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 0 0 8px;
+    }
+    .area {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px 14px;
+      background: #fff;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .area-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .area-head h3 {
+      font-size: 13px;
+      margin: 0;
+      font-weight: 700;
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--ink);
+    }
+    .area-head strong { font-size: 13px; color: var(--accent); }
+    .bar {
+      height: 6px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .bar span {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+      border-radius: 999px;
+    }
+    .area .meta { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+    .gaps-label {
+      margin: 12px 0 4px;
+      color: var(--ink);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .gaps { margin: 0; padding: 0; list-style: none; }
+    .gaps li {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .gaps li:last-child { border-bottom: 0; }
+    .gaps strong { display: block; font-size: 13px; }
+    .gaps span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .footer {
+      margin-top: 28px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    @media print {
+      body { background: white; }
+      .page { max-width: none; padding: 0; }
+      .rec, .block, .score-hero, .area { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <p class="eyebrow">Google Business Profile recommendations</p>
+    <h1>{{ clinic_name }}</h1>
+    <p class="sub">
+      {% if address %}{{ address }} · {% endif %}Prepared {{ prepared_on }}
+      · For your review before anything is published
+    </p>
+
+    <div class="lead">
+      <p>Please look through the services, name, and description below and tell us what to keep, change, or skip. Nothing goes live on Google until you confirm.</p>
+    </div>
+
+    {% if has_completeness %}
+    <h2>Listing completeness</h2>
+    <div class="score-hero">
+      <div class="score-dial" aria-label="Listing completeness {{ completeness_score }} out of 100">
+        <strong>{{ completeness_score }}</strong>
+        <span>/ 100</span>
+      </div>
+      <p>This is how complete the Google listing is today. It is not a Google ranking. The gaps below are the items still missing.</p>
+    </div>
+    {% if completeness_sections %}
+    <div class="areas">
+      {% for section in completeness_sections %}
+      <article class="area">
+        <div class="area-head">
+          <h3>{{ section.label }}</h3>
+          <strong>{{ section.score }}%</strong>
+        </div>
+        <div class="bar" aria-hidden="true"><span style="width: {{ section.score }}%"></span></div>
+        <p class="meta">{{ section.done_count }} of {{ section.total }} complete</p>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if incomplete_items %}
+    <p class="gaps-label">Still incomplete</p>
+    <ul class="gaps">
+      {% for item in incomplete_items %}
+      <li>
+        <strong>{{ item.title }}</strong>
+        {% if item.detail %}<span>{{ item.detail }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="note">This listing’s checklist is complete.</p>
+    {% endif %}
+    {% endif %}
+
+    <h2>Services on Google today</h2>
+    {% if current_services %}
+    <div class="chips">
+      {% for name in current_services %}
+      <span class="chip">{{ name }}</span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No services listed yet.</p>
+    {% endif %}
+
+    <h2>Recommended service changes</h2>
+    {% if recommendations %}
+      {% for item in recommendations %}
+      <article class="rec">
+        <div class="rec-head">
+          <span class="badge {% if item.action == 'ADD' %}badge-add{% else %}badge-improve{% endif %}">{{ item.label }}</span>
+          <div>
+            {% if item.action == 'ADD' %}
+            <p class="rec-title">Add {{ item.proposed_name }}</p>
+            {% else %}
+            <p class="rec-title">
+              {{ item.current_name or 'Current service' }}
+              <span class="rec-arrow"> → </span>
+              {{ item.proposed_name or item.current_name }}
+            </p>
+            {% endif %}
+            {% if item.proposed_description %}
+            <p>{{ item.proposed_description }}</p>
+            {% endif %}
+            {% if item.why %}
+            <p class="why">{{ item.why }}</p>
+            {% endif %}
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    {% else %}
+    <p class="empty">No service changes recommended.</p>
+    {% endif %}
+
+    <h2>Business name</h2>
+    {% if title_unchanged %}
+    <p class="note">No name change recommended. The listing can keep <strong>{{ current_title or clinic_name }}</strong>.</p>
+    {% else %}
+    <div class="compare">
+      <div class="block">
+        <p class="label">On Google now</p>
+        <p class="value">{{ current_title or 'No name on the listing yet.' }}</p>
+      </div>
+      <div class="block suggested">
+        <p class="label">Suggested name</p>
+        <p class="value">{{ suggested_title }}</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <h2>Business description</h2>
+    {% if description_unchanged and not suggested_description %}
+    <p class="note">No description change recommended yet.</p>
+    {% else %}
+    <div class="compare">
+      <div class="block">
+        <p class="label">On Google now</p>
+        <p class="value">{{ current_description or 'No description on the listing yet.' }}</p>
+      </div>
+      <div class="block suggested">
+        <p class="label">Suggested description</p>
+        <p class="value">{{ suggested_description or 'No suggested description.' }}</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+      <span>PlugAI · Google Business Profile proposal</span>
+      <span>{{ clinic_name }}{% if prepared_on %} · {{ prepared_on }}{% endif %}</span>
+    </div>
+  </div>
+</body>
+</html>

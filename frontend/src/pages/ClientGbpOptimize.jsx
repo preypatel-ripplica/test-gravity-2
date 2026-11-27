@@ -61,6 +61,7 @@ export default function ClientGbpOptimize() {
   const [gaps, setGaps] = useState({ phone: '', website: '', appointment: '' })
   const [saving, setSaving] = useState('')
   const [pin, setPin] = useState({ latitude: '', longitude: '' })
+  const [downloading, setDownloading] = useState(false)
   const notedError = useRef('')
 
   function toastOptimizeError(data) {
@@ -76,6 +77,37 @@ export default function ClientGbpOptimize() {
 
   const audit = snapshot?.listing || null
   const running = snapshot?.gaps_status === 'running'
+  const canDownload = Boolean(
+    snapshot?.gaps_checked_at &&
+      ((snapshot.service_recommendations || []).some((item) => item.action === 'ADD' || item.action === 'REPLACE') ||
+        (snapshot.suggested_title || '').trim() ||
+        (snapshot.suggested_description || '').trim()),
+  )
+
+  async function downloadProposal() {
+    if (!activeLocation) return
+    setDownloading(true)
+    try {
+      const blob = await api.gbpOptimizePdfBlob(token, clientId, activeLocation.location_id)
+      const objectUrl = URL.createObjectURL(blob)
+      const slug =
+        String(activeLocation.title || client?.name || 'listing')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'listing'
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = `${slug}-gbp-recommendations.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      toast(err.message || 'PDF is not ready yet', 'error')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   function applySnapshot(data) {
     setSnapshot(data)
@@ -90,10 +122,13 @@ export default function ClientGbpOptimize() {
     setPickedServices((data?.listing?.services?.suggested || []).map((item) => item.name))
   }
 
-  async function refreshListing() {
+  async function refreshListing({ force = true, includeSearchKeywords = true } = {}) {
     setLoading(true)
     try {
-      const data = await api.gbpOptimizeRefresh(token, clientId, activeLocation.location_id)
+      const data = await api.gbpOptimizeRefresh(token, clientId, activeLocation.location_id, {
+        force,
+        include_search_keywords: includeSearchKeywords,
+      })
       applySnapshot(data)
     } catch (err) {
       toast(err.message, 'error')
@@ -131,8 +166,16 @@ export default function ClientGbpOptimize() {
       try {
         let data = await api.gbpOptimizeGet(token, clientId, activeLocation.location_id)
         if (cancelled) return
-        if (!data?.listing) {
-          data = await api.gbpOptimizeRefresh(token, clientId, activeLocation.location_id)
+        if (data?.gaps_status !== 'running') {
+          try {
+            data = await api.gbpOptimizeRefresh(token, clientId, activeLocation.location_id, {
+              force: false,
+              include_search_keywords: false,
+            })
+          } catch (err) {
+            if (!data?.listing) throw err
+            toast(err.message, 'error')
+          }
         }
         if (cancelled) return
         applySnapshot(data)
@@ -148,7 +191,7 @@ export default function ClientGbpOptimize() {
     return () => {
       cancelled = true
     }
-    // First open loads the snapshot. Later opens do not call Google or DataForSEO.
+    // First open refreshes completeness from Google when the saved listing is older than 30s.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, connected, activeLocation?.location_id])
 
@@ -202,7 +245,7 @@ export default function ClientGbpOptimize() {
         location = { websiteUri: gaps.website }
       } else if (kind === 'description') {
         const nextTitle = title.trim()
-        const currentTitle = (activeLocation?.title || '').trim()
+        const currentTitle = (audit?.title || activeLocation?.title || '').trim()
         updateMask = []
         location = {}
         if (nextTitle && nextTitle !== currentTitle) {
@@ -239,7 +282,7 @@ export default function ClientGbpOptimize() {
       if (kind === 'description') {
         const scored = await api.gbpOptimizeApplyScore(token, clientId, activeLocation.location_id, description, [])
         applySnapshot(scored)
-        const currentTitle = (activeLocation?.title || '').trim()
+        const currentTitle = (audit?.title || activeLocation?.title || '').trim()
         if (title.trim() && title.trim() !== currentTitle) {
           await logApply({ kind: 'title', before: currentTitle, after: title.trim(), summary: 'Updated the title' })
         }
@@ -360,7 +403,7 @@ export default function ClientGbpOptimize() {
   }
 
   const potential = snapshot?.potential_score
-  const currentTitle = (activeLocation?.title || '').trim()
+  const currentTitle = (audit?.title || activeLocation?.title || '').trim()
   const titleUnchanged = title.trim().toLowerCase() === currentTitle.toLowerCase()
 
   return (
@@ -520,10 +563,18 @@ export default function ClientGbpOptimize() {
                 <h2>Search recommendations</h2>
                 <p>Optimize looks up local searches, then suggests services and profile text.</p>
               </div>
-              <button type="button" className="btn btn-primary" onClick={() => runOptimize(note)} disabled={loading || running || !activeLocation}>
-                <i className={`fa-solid ${running ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
-                {running ? 'Optimizing…' : 'Optimize'}
-              </button>
+              <div className="gbp-panel-actions">
+                <button type="button" className="btn btn-primary" onClick={() => runOptimize(note)} disabled={loading || running || !activeLocation}>
+                  <i className={`fa-solid ${running ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
+                  {running ? 'Optimizing…' : 'Optimize'}
+                </button>
+                {canDownload && (
+                  <button type="button" className="btn btn-secondary" onClick={downloadProposal} disabled={downloading || running}>
+                    <i className={`fa-solid ${downloading ? 'fa-spinner fa-spin' : 'fa-download'}`} />
+                    {downloading ? 'Preparing…' : 'Download PDF'}
+                  </button>
+                )}
+              </div>
             </div>
             <label className="gbp-field gbp-note">
               <span>Optional note for Optimize</span>
@@ -639,7 +690,7 @@ export default function ClientGbpOptimize() {
             <div className="gbp-copy-compare">
               <label className="gbp-field">
                 <span>Current title</span>
-                <textarea rows={2} value={activeLocation?.title || ''} readOnly />
+                <textarea rows={2} value={currentTitle} readOnly />
               </label>
               <i className="fa-solid fa-arrow-right gbp-copy-arrow" aria-hidden="true" />
               <label className="gbp-field">
@@ -670,7 +721,7 @@ export default function ClientGbpOptimize() {
             </div>
             <ScoreShift current={potential?.current ?? audit.score} next={potential?.potential} />
             <div className="form-actions">
-              <button type="button" className="btn btn-primary" disabled={saving === 'description' || (!description.trim() && title.trim() === (activeLocation?.title || '').trim())} onClick={() => approve('description')}>
+              <button type="button" className="btn btn-primary" disabled={saving === 'description' || (!description.trim() && title.trim() === currentTitle)} onClick={() => approve('description')}>
                 {saving === 'description' ? 'Updating…' : 'Apply'}
               </button>
             </div>

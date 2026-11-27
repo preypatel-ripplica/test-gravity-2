@@ -1026,6 +1026,7 @@ CONTENT_VIDEO_YT_KEYS = (
     "yt_tags",
     "yt_thumbnail_url",
     "yt_thumbnail_prompt",
+    "yt_thumbnail_error",
     "yt_locales",
 )
 
@@ -1698,12 +1699,17 @@ def _normalize_locale_payload(locale: dict | None) -> dict:
         tags = [t.strip() for t in tags.replace(",", " ").split() if t.strip()]
     elif not isinstance(tags, list):
         tags = []
+    url = str(loc.get("yt_thumbnail_url") or "").strip()
+    error = ""
+    if not url and str(loc.get("yt_thumbnail_error") or "").strip() == "explicit":
+        error = "explicit"
     return {
         "yt_title": loc.get("yt_title") or "",
         "yt_description": loc.get("yt_description") or "",
         "yt_tags": [str(t).strip() for t in tags if str(t).strip()],
-        "yt_thumbnail_url": loc.get("yt_thumbnail_url") or "",
+        "yt_thumbnail_url": url,
         "yt_thumbnail_prompt": loc.get("yt_thumbnail_prompt") or "",
+        "yt_thumbnail_error": error,
     }
 
 
@@ -1777,6 +1783,7 @@ def _mirror_legacy_yt_fields(row: dict, locales: dict | None) -> dict:
     row["yt_tags"] = src.get("yt_tags") or None
     row["yt_thumbnail_url"] = src.get("yt_thumbnail_url") or None
     row["yt_thumbnail_prompt"] = src.get("yt_thumbnail_prompt") or None
+    row["yt_thumbnail_error"] = src.get("yt_thumbnail_error") or None
     return row
 
 
