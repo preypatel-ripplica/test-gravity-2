@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 
 from backend.tg import schemas
 from backend.tg.auth import get_current_user
@@ -63,7 +64,13 @@ from backend.tg.services.gbp_api import (
     update_review_reply,
     upload_location_media,
 )
-from backend.tg.services.gbp_optimize import build_audit, keyword_month_window, request_profile_draft
+from backend.tg.services.gbp_optimize import (
+    build_audit,
+    drop_add_already_listed,
+    keyword_month_window,
+    request_profile_draft,
+    soften_audit_listing,
+)
 from backend.tg.services.gbp_posts import (
     dequeue_gbp_draft,
     enqueue_gbp_draft,
@@ -763,11 +770,14 @@ def _public_optimize(optimize: dict) -> dict:
             }
         )
     listing = optimize.get("listing")
-    recommendations = [
-        dict(item)
-        for item in (optimize.get("service_recommendations") or [])
-        if item.get("action") in {"ADD", "REPLACE"}
-    ]
+    recommendations = drop_add_already_listed(
+        [
+            dict(item)
+            for item in (optimize.get("service_recommendations") or [])
+            if item.get("action") in {"ADD", "REPLACE"}
+        ],
+        optimize.get("listing") if isinstance(optimize.get("listing"), dict) else {},
+    )
     potential = optimize.get("potential_score") or None
     if isinstance(listing, dict) and listing.get("sections"):
         from backend.tg.services.gbp_opportunities import projected_listing_score
@@ -785,7 +795,9 @@ def _public_optimize(optimize: dict) -> dict:
     if isinstance(potential, dict):
         potential = {"current": potential.get("current"), "potential": potential.get("potential")}
     if isinstance(listing, dict):
-        listing = {**listing, "services": {**(listing.get("services") or {}), "suggested": []}}
+        listing = soften_audit_listing(
+            {**listing, "services": {**(listing.get("services") or {}), "suggested": []}}
+        )
     return {
         "listing": listing,
         "listing_checked_at": optimize.get("listing_checked_at"),
@@ -802,7 +814,30 @@ def _public_optimize(optimize: dict) -> dict:
     }
 
 
-def _collect_listing_audit(client: dict, row: dict, creds, *, with_draft: bool) -> dict:
+LISTING_FRESH_SECONDS = 30
+
+
+def _listing_is_fresh(optimize: dict, *, seconds: int = LISTING_FRESH_SECONDS) -> bool:
+    raw = str((optimize or {}).get("listing_checked_at") or "").strip()
+    if not raw:
+        return False
+    try:
+        checked = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - checked < timedelta(seconds=seconds)
+
+
+def _collect_listing_audit(
+    client: dict,
+    row: dict,
+    creds,
+    *,
+    with_draft: bool,
+    include_search_keywords: bool = True,
+) -> dict:
     location = get_location(creds, row.get("location_name") or row["location_id"])
     media = list_media(creds, row["account_id"], row["location_id"])
     _cache_profile(row["client_id"] if row.get("client_id") else "", row, location)
@@ -815,11 +850,12 @@ def _collect_listing_audit(client: dict, row: dict, creds, *, with_draft: bool) 
         appointment_error = exc.message
     keywords = []
     keywords_error = ""
-    start, end = keyword_month_window(datetime.now(timezone.utc).date())
-    try:
-        keywords = fetch_search_keywords(creds, row["location_id"], start, end)
-    except GbpApiError as exc:
-        keywords_error = exc.message
+    if include_search_keywords:
+        start, end = keyword_month_window(datetime.now(timezone.utc).date())
+        try:
+            keywords = fetch_search_keywords(creds, row["location_id"], start, end)
+        except GbpApiError as exc:
+            keywords_error = exc.message
     topics = []
     try:
         topics = fetch_topics(row.get("client_id") or "")
@@ -857,7 +893,33 @@ def _collect_listing_audit(client: dict, row: dict, creds, *, with_draft: bool) 
         draft_error=draft_error,
         pending=bool(metadata.get("hasPendingEdits")),
     )
+    audit["title"] = location.get("title") or ""
     return {"audit": audit, "location": location, "topics": topics, "keywords": keywords}
+
+
+def _sync_optimize_listing(client: dict, row: dict, *, force: bool, include_search_keywords: bool) -> dict:
+    """Refresh completeness from Google unless the saved listing is still fresh."""
+    client_id = row.get("client_id") or client.get("id") or ""
+    location_id = row["location_id"]
+    current = get_gbp_optimize(client_id, location_id)
+    if not force and _listing_is_fresh(current):
+        return current
+    collected = _collect_listing_audit(
+        client,
+        row,
+        _creds(client_id),
+        with_draft=False,
+        include_search_keywords=include_search_keywords,
+    )
+    merge_gbp_optimize(
+        client_id,
+        location_id,
+        {
+            "listing": collected["audit"],
+            "listing_checked_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    return get_gbp_optimize(client_id, location_id)
 
 
 @router.post("/gbp.optimize.get")
@@ -867,25 +929,52 @@ def gbp_optimize_get(body: schemas.GbpActiveLocationRequest, current_user: dict 
     return _public_optimize(get_gbp_optimize(body.client_id, body.location_id))
 
 
+@router.post("/gbp.optimize.pdf")
+def gbp_optimize_pdf(body: schemas.GbpActiveLocationRequest, current_user: dict = Depends(get_current_user)):
+    """Client-facing Optimize proposal PDF. Current listing fields come from live Google."""
+    from backend.tg.services.gbp_optimize_pdf import build_or_fetch_proposal_pdf
+
+    client = _require_client(body.client_id, current_user["username"])
+    row = {**_location_or_400(body.client_id, body.location_id), "client_id": body.client_id}
+    try:
+        optimize = _sync_optimize_listing(client, row, force=True, include_search_keywords=False)
+        row = get_gbp_location(body.client_id, body.location_id) or row
+    except GbpApiError:
+        optimize = get_gbp_optimize(body.client_id, body.location_id)
+    try:
+        pdf_bytes, filename = build_or_fetch_proposal_pdf(
+            client,
+            row,
+            optimize,
+            client_id=body.client_id,
+            location_id=body.location_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/gbp.optimize.refresh")
-def gbp_optimize_refresh(body: schemas.GbpActiveLocationRequest, current_user: dict = Depends(get_current_user)):
+def gbp_optimize_refresh(body: schemas.GbpOptimizeRefreshRequest, current_user: dict = Depends(get_current_user)):
     """Reread Google and replace only the completeness snapshot."""
     client = _require_client(body.client_id, current_user["username"])
-    row = _location_or_400(body.client_id, body.location_id)
-    row = {**row, "client_id": body.client_id}
+    row = {**_location_or_400(body.client_id, body.location_id), "client_id": body.client_id}
     try:
-        collected = _collect_listing_audit(client, row, _creds(body.client_id), with_draft=False)
+        optimize = _sync_optimize_listing(
+            client,
+            row,
+            force=body.force,
+            include_search_keywords=body.include_search_keywords,
+        )
     except GbpApiError as exc:
         raise _google(exc) from exc
-    merge_gbp_optimize(
-        body.client_id,
-        body.location_id,
-        {
-            "listing": collected["audit"],
-            "listing_checked_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
-    return _public_optimize(get_gbp_optimize(body.client_id, body.location_id))
+    return _public_optimize(optimize)
 
 
 def _execute_optimize(client_id: str, location_id: str, instruction: str, latitude, longitude) -> None:
@@ -923,32 +1012,36 @@ def _execute_optimize_body(client_id: str, location_id: str, instruction: str, l
                     break
             if lat is not None and lng is not None:
                 break
-    reported = [
-        {"keyword": item.get("keyword"), "impressions": item.get("impressions") or 0}
-        for item in ((row.get("optimize") or {}).get("listing") or {}).get("keywords") or []
-        if item.get("keyword")
-    ]
     topics = []
     try:
         topics = fetch_topics(client_id)
     except Exception:  # noqa: BLE001
         topics = []
-    if not profile.get("serviceItems") and row.get("location_name"):
+    if row.get("location_name"):
         try:
             profile = get_location(_creds(client_id), row.get("location_name") or location_id)
+            _cache_profile(client_id, {**row, "client_id": client_id}, profile)
         except GbpApiError:
             profile = profile
+    latlng = profile.get("latlng") or latlng
+    if latitude is None and latlng.get("latitude") is not None:
+        lat = latlng.get("latitude")
+    if longitude is None and latlng.get("longitude") is not None:
+        lng = latlng.get("longitude")
+    reported = []
     try:
         creds = _creds(client_id)
-        if not reported:
-            start, end = keyword_month_window(datetime.now(timezone.utc).date())
-            reported = [
-                {"keyword": item.get("keyword"), "impressions": item.get("impressions") or 0}
-                for item in fetch_search_keywords(creds, location_id, start, end)
-                if item.get("keyword")
-            ]
+        start, end = keyword_month_window(datetime.now(timezone.utc).date())
+        reported = [
+            {"keyword": item.get("keyword"), "impressions": item.get("impressions") or 0}
+            for item in fetch_search_keywords(creds, location_id, start, end)
+            if item.get("keyword")
+        ]
+        listing = dict((get_gbp_optimize(client_id, location_id) or {}).get("listing") or {})
+        listing["keywords"] = reported
+        merge_gbp_optimize(client_id, location_id, {"listing": listing})
     except Exception:  # noqa: BLE001
-        reported = reported or []
+        reported = []
     from backend.tg.services.gbp_opportunities import openai_json
 
     run_gap_optimize(

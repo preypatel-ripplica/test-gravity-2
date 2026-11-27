@@ -1,7 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 
 from backend.tg import schemas
@@ -53,7 +53,13 @@ from backend.tg.services.youtube_api import (
     fetch_video_descriptions,
     sanitize_youtube_tags,
 )
+from backend.tg.openai_log import is_sexual_moderation_block
+from backend.tg.services.gcs_storage import upload_bytes
 from backend.tg.services.youtube_metadata import (
+    LOCAL_REFERENCE_MAX_BYTES,
+    consume_local_reference_images,
+    delete_replaced_thumbnail,
+    format_is_short,
     generate_reference_thumbnail,
     generate_youtube_metadata,
     generate_youtube_thumbnail,
@@ -62,6 +68,9 @@ from backend.tg.services.youtube_metadata import (
     reference_thumbnail_prompt,
     refine_youtube_metadata,
     refine_youtube_thumbnail_prompt,
+    use_newest_youtube_refs,
+    thumbnail_png_bytes,
+    validate_replacement_thumbnail,
 )
 from backend.tg.clients import _require_client_bundle
 from backend.tg.professions import profession_for
@@ -471,6 +480,7 @@ def _content_plan_response(username: str, result: dict) -> schemas.ClientContent
                 yt_tags=row.get("yt_tags"),
                 yt_thumbnail_url=row.get("yt_thumbnail_url"),
                 yt_thumbnail_prompt=row.get("yt_thumbnail_prompt"),
+                yt_thumbnail_error=row.get("yt_thumbnail_error"),
                 yt_locales=row.get("yt_locales") or None,
             )
         )
@@ -806,7 +816,12 @@ def _description_examples(
     return examples[:3]
 
 
-def _locale_payload(metadata_res: dict, thumbnail_prompt: str, thumbnail_url: str | None) -> dict:
+def _locale_payload(
+    metadata_res: dict,
+    thumbnail_prompt: str,
+    thumbnail_url: str | None,
+    thumbnail_error: str | None = None,
+) -> dict:
     locale = {}
     if metadata_res.get("yt_title"):
         locale["yt_title"] = metadata_res["yt_title"]
@@ -818,6 +833,10 @@ def _locale_payload(metadata_res: dict, thumbnail_prompt: str, thumbnail_url: st
         locale["yt_thumbnail_prompt"] = thumbnail_prompt
     if thumbnail_url:
         locale["yt_thumbnail_url"] = thumbnail_url
+        locale["yt_thumbnail_error"] = ""
+    elif thumbnail_error == "explicit":
+        locale["yt_thumbnail_url"] = ""
+        locale["yt_thumbnail_error"] = "explicit"
     return locale
 
 
@@ -828,7 +847,7 @@ def _mirror_legacy_yt_fields(target: dict) -> None:
         preferred = next((v for v in locales.values() if isinstance(v, dict) and v.get("yt_title")), None)
     if not isinstance(preferred, dict):
         return
-    for key in ("yt_title", "yt_description", "yt_tags", "yt_thumbnail_url", "yt_thumbnail_prompt"):
+    for key in ("yt_title", "yt_description", "yt_tags", "yt_thumbnail_url", "yt_thumbnail_prompt", "yt_thumbnail_error"):
         if preferred.get(key) is not None:
             target[key] = preferred[key]
 
@@ -974,9 +993,13 @@ def client_content_plan_generate_metadata(
             except Exception as exc:  # noqa: BLE001
                 print(f"[yt-metadata] description examples skipped: {exc}", flush=True)
 
+    local_images = consume_local_reference_images(body.local_reference_ids)
+
     def _refs_for(portrait: bool) -> list:
         if picked_refs:
             return picked_refs
+        if not use_newest_youtube_refs(picked=False, has_local=bool(local_images)):
+            return []
         if not videos:
             return []
         preferred = _newest_videos(videos, 3, shorts=portrait)
@@ -1045,10 +1068,12 @@ def client_content_plan_generate_metadata(
         description = str(metadata_res.get("yt_description") or "")
         thumbnail_prompt = ""
         thumbnail_url = None
+        thumbnail_error = None
         refs = _refs_for(portrait)
+        has_local = bool(local_images)
         strategy = _thumbnail_strategy(
-            has_refs=bool(refs),
-            user_picked=bool(picked_refs),
+            has_refs=bool(refs) or has_local,
+            user_picked=bool(picked_refs) or has_local,
             allow_unreferenced=bool(body.allow_unreferenced_thumbnail),
         )
         if strategy == "reference":
@@ -1062,18 +1087,25 @@ def client_content_plan_generate_metadata(
                 description=description,
                 portrait=portrait,
             )
-            thumbnail_url = generate_reference_thumbnail(
-                thumbnail_prompt, refs, portrait=portrait
+            thumb = generate_reference_thumbnail(
+                thumbnail_prompt, refs, portrait=portrait, local_images=local_images
             )
-            if not thumbnail_url and not picked_refs:
+            thumbnail_url = thumb.url
+            thumbnail_error = thumb.error
+            if not thumbnail_url and thumbnail_error != "explicit" and not picked_refs and not has_local:
                 print(
                     f"[yt-thumbnail] newest 3 reference edit failed for language={language}",
                     flush=True,
                 )
                 raise _RecentThumbnailUnresolved()
-            if not thumbnail_url:
+            if not thumbnail_url and thumbnail_error != "explicit":
                 print(
                     f"[yt-thumbnail] chosen reference edit produced no image for language={language}",
+                    flush=True,
+                )
+            if thumbnail_error == "explicit":
+                print(
+                    f"[yt-thumbnail] blocked as explicit content for language={language}",
                     flush=True,
                 )
         else:
@@ -1093,7 +1125,9 @@ def client_content_plan_generate_metadata(
                     thumbnail_url = generate_youtube_thumbnail(thumbnail_prompt, portrait=portrait)
                 except Exception as e:
                     print(f"Failed to generate thumbnail for language={language}: {e}")
-        return _locale_payload(metadata_res, thumbnail_prompt, thumbnail_url)
+                    if is_sexual_moderation_block(e):
+                        thumbnail_error = "explicit"
+        return _locale_payload(metadata_res, thumbnail_prompt, thumbnail_url, thumbnail_error)
 
     # Track which topic_ids we've already processed to avoid duplicate generation
     processed_topic_ids = set()
@@ -1348,13 +1382,14 @@ def client_content_plan_refine_metadata(
     package = fetch_content_video(client_id, topic_id) if topic_id else None
         
     portrait = str(body.format or (matching_item or {}).get("format") or "").strip().lower() == "short"
+    local_images = consume_local_reference_images(body.local_reference_ids)
     reference_rows = []
     if channel_id:
         videos = list_videos_for_channel(channel_id, client_id)
         if body.reference_video_ids:
             selected = [v for v in videos if v.get("id") in body.reference_video_ids]
             reference_rows = [v for v in selected if v.get("thumbnail_url") or v.get("id")][:3]
-        else:
+        elif use_newest_youtube_refs(picked=False, has_local=bool(local_images)):
             preferred = _newest_videos(videos, 3, shorts=portrait)
             reference_rows = [v for v in preferred if v.get("thumbnail_url") or v.get("id")][:3]
 
@@ -1367,6 +1402,7 @@ def client_content_plan_refine_metadata(
             "yt_tags": target.get("yt_tags"),
             "yt_thumbnail_prompt": target.get("yt_thumbnail_prompt"),
             "yt_thumbnail_url": target.get("yt_thumbnail_url"),
+            "yt_thumbnail_error": target.get("yt_thumbnail_error"),
         }
         
     current_meta = {
@@ -1397,11 +1433,17 @@ def client_content_plan_refine_metadata(
     locale = _locale_payload(metadata_res, thumbnail_prompt, None)
     if thumbnail_prompt and thumbnail_prompt != current_thumbnail_prompt:
         thumbnail_url = None
-        if reference_rows:
-            thumbnail_url = generate_reference_thumbnail(
-                thumbnail_prompt, reference_rows, portrait=portrait
+        thumbnail_error = None
+        if reference_rows or local_images:
+            thumb = generate_reference_thumbnail(
+                thumbnail_prompt,
+                reference_rows,
+                portrait=portrait,
+                local_images=local_images,
             )
-            if not thumbnail_url:
+            thumbnail_url = thumb.url
+            thumbnail_error = thumb.error
+            if not thumbnail_url and thumbnail_error != "explicit":
                 print(
                     "[yt-thumbnail] reference edit produced no image during refine; "
                     "skipping text-only generation so the doctor is not replaced",
@@ -1412,10 +1454,19 @@ def client_content_plan_refine_metadata(
                 thumbnail_url = generate_youtube_thumbnail(thumbnail_prompt, portrait=portrait)
             except Exception as e:
                 print(f"Failed to generate thumbnail during refine: {e}")
+                if is_sexual_moderation_block(e):
+                    thumbnail_error = "explicit"
         if thumbnail_url:
             locale["yt_thumbnail_url"] = thumbnail_url
+            locale["yt_thumbnail_error"] = ""
+        elif thumbnail_error == "explicit":
+            locale["yt_thumbnail_url"] = ""
+            locale["yt_thumbnail_error"] = "explicit"
     elif current_locale.get("yt_thumbnail_url"):
         locale["yt_thumbnail_url"] = current_locale.get("yt_thumbnail_url")
+        locale["yt_thumbnail_error"] = ""
+    elif current_locale.get("yt_thumbnail_error") == "explicit":
+        locale["yt_thumbnail_error"] = "explicit"
 
     saved_locales = {language: locale}
     if topic_id:
@@ -1478,6 +1529,83 @@ def client_content_video_update_description(
     )
     return {
         "topic_id": body.topic_id,
+        "language": language,
+        "yt_locales": saved.get("yt_locales") or {},
+    }
+
+
+_LOCAL_REF_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
+
+
+@router.post("/client.thumbnail-reference.upload")
+async def upload_thumbnail_reference(
+    client_id: str = Form(...),
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Store a style reference until the next metadata generate or refine call."""
+    _require_client_bundle(current_user["username"], client_id, with_videos=False)
+    raw = await file.read()
+    if not raw or len(raw) > LOCAL_REFERENCE_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Reference image must be 12 MB or smaller.")
+    mime = (file.content_type or "").split(";")[0].strip().lower()
+    ext = _LOCAL_REF_TYPES.get(mime)
+    if not ext:
+        raise HTTPException(status_code=400, detail="Use a PNG, JPEG, or WebP image.")
+    name = f"{uuid4().hex}{ext}"
+    try:
+        upload_bytes("thumbnail-refs", name, raw, mime)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Could not store the reference image.") from exc
+    return {"id": name}
+
+
+@router.post("/client.content-video.replace-thumbnail")
+async def replace_youtube_thumbnail(
+    client_id: str = Form(...),
+    topic_id: str = Form(...),
+    language: str = Form("hinglish"),
+    format: str = Form("Long"),
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Replace one language's thumbnail in the bucket and on the topic record."""
+    _require_client_bundle(current_user["username"], client_id, with_videos=False)
+    language = normalize_yt_language(language)
+    package = fetch_content_video(client_id, topic_id)
+    if not package:
+        raise HTTPException(status_code=404, detail="No YouTube metadata for this topic yet.")
+    locales = dict(package.get("yt_locales") or {})
+    current = locales.get(language) if isinstance(locales.get(language), dict) else {}
+    if not str(current.get("yt_title") or "").strip():
+        raise HTTPException(status_code=400, detail="Generate metadata for this language first.")
+    raw = await file.read()
+    if not raw or len(raw) > LOCAL_REFERENCE_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Thumbnail must be 12 MB or smaller.")
+    try:
+        validate_replacement_thumbnail(raw, portrait=format_is_short(format))
+        png = thumbnail_png_bytes(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        url = upload_bytes("thumbnails", f"{uuid4().hex}.png", png, "image/png")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Could not store the thumbnail.") from exc
+    old_url = str(current.get("yt_thumbnail_url") or "")
+    merged = {**current, "yt_thumbnail_url": url, "yt_thumbnail_error": ""}
+    saved = upsert_content_video(
+        client_id,
+        topic_id,
+        locales={language: merged},
+        replace_locales=True,
+    )
+    delete_replaced_thumbnail(old_url, locales, language)
+    return {
+        "topic_id": topic_id,
         "language": language,
         "yt_locales": saved.get("yt_locales") or {},
     }

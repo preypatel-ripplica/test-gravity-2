@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import Breadcrumbs from '../components/Breadcrumbs'
 import CustomSelect from '../components/CustomSelect'
+import LocalReferenceAttach, { uploadLocalReferences } from '../components/LocalReferenceAttach'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import api from '../api'
@@ -35,6 +36,7 @@ export default function ClientContentPlan() {
   const [selectedYTChannelId, setSelectedYTChannelId] = useState('')
   const [ytVideos, setYtVideos] = useState([])
   const [selectedYTVideos, setSelectedYTVideos] = useState([])
+  const [localRefFiles, setLocalRefFiles] = useState([])
   const [ytVideosPage, setYtVideosPage] = useState(1)
   const YT_PAGE_SIZE = 9
 
@@ -189,9 +191,11 @@ export default function ClientContentPlan() {
     try {
       toast('Generating YouTube Metadata for all topics…', 'info')
       const itemIds = planItems.map(i => i.id)
+      const localReferenceIds = await uploadLocalReferences(token, clientId, localRefFiles)
       const data = await api.generateYouTubeMetadata(token, clientId, {
         itemIds,
-        referenceVideoIds: selectedYTVideos
+        referenceVideoIds: selectedYTVideos,
+        localReferenceIds,
       })
       if (data?.thumbnail_reference_failed) {
         toast('Thumbnail generation from the recent 3 failed, so nothing was saved.', 'error')
@@ -674,6 +678,7 @@ export default function ClientContentPlan() {
               </div>
             </header>
             <div className="modal-body" style={{ maxHeight: '55vh', overflowY: 'auto', padding: '1.25rem 1.5rem', background: 'var(--surface)' }}>
+              <LocalReferenceAttach files={localRefFiles} onChange={setLocalRefFiles} disabled={busyAction === 'ytmetadata'} />
               {ytVideos.length === 0 && (
                 <p className="text-muted">Loading thumbnails…</p>
               )}

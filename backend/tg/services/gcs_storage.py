@@ -189,6 +189,37 @@ def upload_file(folder: str, local_path: Path | str, content_type: str = "applic
     return _public_url(blob, blob_path)
 
 
+def download_bytes(blob_path: str) -> tuple[bytes, str]:
+    """Download an object. Returns raw bytes and the stored content type."""
+    if not settings.GCS_BUCKET_NAME:
+        raise ValueError("GCS_BUCKET_NAME is not set in config.")
+    client = _get_gcs_client()
+    blob = client.bucket(settings.GCS_BUCKET_NAME).blob(blob_path)
+    data = blob.download_as_bytes()
+    content_type = "application/octet-stream"
+    try:
+        blob.reload()
+        content_type = blob.content_type or content_type
+    except Exception:
+        pass
+    return data, content_type
+
+
+def bucket_object_path(url: str, *, folder: str) -> str | None:
+    """Return the object path when url points at folder/ inside this bucket."""
+    if not settings.GCS_BUCKET_NAME:
+        return None
+    raw = str(url or "").split("?", 1)[0].strip()
+    prefix = f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/"
+    if not raw.startswith(prefix):
+        return None
+    path = raw[len(prefix):]
+    root = folder.strip("/")
+    if not path.startswith(root + "/") or ".." in path.split("/"):
+        return None
+    return path
+
+
 def delete_file(blob_path: str) -> None:
     """Delete a file from GCS."""
     if not settings.GCS_BUCKET_NAME:

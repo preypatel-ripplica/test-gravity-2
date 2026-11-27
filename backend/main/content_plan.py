@@ -87,6 +87,7 @@ def _hydrate_item(item: dict, packages: dict[str, dict]) -> dict:
             row.setdefault("yt_tags", preferred.get("yt_tags"))
             row.setdefault("yt_thumbnail_url", preferred.get("yt_thumbnail_url"))
             row.setdefault("yt_thumbnail_prompt", preferred.get("yt_thumbnail_prompt"))
+            row.setdefault("yt_thumbnail_error", preferred.get("yt_thumbnail_error") or None)
     title_en = (row.get("title_en") or "").strip()
     title_hi = (row.get("title_hinglish") or "").strip()
     legacy = (row.get("working_title") or "").strip()

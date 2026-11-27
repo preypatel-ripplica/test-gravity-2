@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import api, { apiFetchProgress } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import LocalReferenceAttach, { uploadLocalReferences } from '../components/LocalReferenceAttach'
+import YtThumbnailFrame from '../components/YtThumbnailFrame'
 import VideoUrlAttachField from '../components/VideoUrlAttachField'
 import PublishProgressBusy from '../components/PublishProgressBusy'
 import { useAuth } from '../context/AuthContext'
@@ -25,6 +27,7 @@ function itemLocales(item) {
       yt_description: item.yt_description,
       yt_tags: item.yt_tags,
       yt_thumbnail_url: item.yt_thumbnail_url,
+      yt_thumbnail_error: item.yt_thumbnail_error,
     }
   }
   return locales
@@ -44,6 +47,8 @@ function mapPlanItem(i) {
     yt_description: i.yt_description,
     yt_tags: i.yt_tags,
     yt_thumbnail_url: i.yt_thumbnail_url,
+    yt_thumbnail_error: i.yt_thumbnail_error,
+    format: i.format,
     yt_locales: i.yt_locales || {},
     recommendation_score: i.recommendation_score || 0,
   }
@@ -83,6 +88,8 @@ export default function ClientPostVideo() {
   const [generateLanguages, setGenerateLanguages] = useState([])
   const [channelVideos, setChannelVideos] = useState([])
   const [selectedRefVideoIds, setSelectedRefVideoIds] = useState([])
+  const [localRefFiles, setLocalRefFiles] = useState([])
+  const [savingThumb, setSavingThumb] = useState(false)
   const [modalChannelId, setModalChannelId] = useState(activeChannelId || channels[0]?.id)
 
   const [metadataBusy, setMetadataBusy] = useState(false)
@@ -154,6 +161,8 @@ export default function ClientPostVideo() {
           yt_description: k.yt_description,
           yt_tags: k.yt_tags,
           yt_thumbnail_url: k.yt_thumbnail_url,
+          yt_thumbnail_error: k.yt_thumbnail_error,
+          format: k.format,
           yt_locales: k.yt_locales || {},
         })),
     [contentPlan],
@@ -232,9 +241,11 @@ export default function ClientPostVideo() {
     setMetadataBusy(true)
     toast(`Generating metadata (${languages.join(', ')})…`, 'info')
     try {
+      const localReferenceIds = await uploadLocalReferences(token, clientId, localRefFiles)
       const data = await api.generateYouTubeMetadata(token, clientId, {
         itemIds,
         referenceVideoIds: selectedRefVideoIds,
+        localReferenceIds,
         languages,
       })
       if (data?.thumbnail_reference_failed) {
@@ -268,10 +279,12 @@ export default function ClientPostVideo() {
     }
     setMetadataBusy(true)
     try {
+      const localReferenceIds = await uploadLocalReferences(token, clientId, localRefFiles)
       await api.refineYouTubeMetadata(token, clientId, {
         itemId: activeItemId,
         userPrompt: refinePrompt,
         referenceVideoIds: selectedRefVideoIds,
+        localReferenceIds,
         language: previewLang,
       })
       toast('Metadata refined successfully!', 'success')
@@ -512,7 +525,7 @@ export default function ClientPostVideo() {
                   onClick={() => setShowRefModal(true)}
                   style={{ marginBottom: '15px', padding: '14px', fontSize: '1.05em', fontWeight: '500', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
                 >
-                  <i className="fa-solid fa-images" /> Choose Reference Thumbnails ({selectedRefVideoIds.length})
+                  <i className="fa-solid fa-images" /> Choose Reference Thumbnails ({selectedRefVideoIds.length + localRefFiles.length})
                 </button>
                 <button
                   className="btn btn-primary btn-block"
@@ -557,16 +570,35 @@ export default function ClientPostVideo() {
 
                   {previewMeta.yt_title ? (
                     <div className="tracker-yt-preview metadata-preview">
-                      <div className="tracker-yt-preview-thumb">
-                        {previewMeta.yt_thumbnail_url ? (
-                          <img src={previewMeta.yt_thumbnail_url} alt="Thumbnail" />
-                        ) : (
-                          <div className="tracker-yt-thumb-empty">
-                            <i className="fa-regular fa-image" />
-                            <span>No thumbnail</span>
-                          </div>
-                        )}
-                      </div>
+                      <YtThumbnailFrame
+                        url={previewMeta.yt_thumbnail_url}
+                        error={previewMeta.yt_thumbnail_error}
+                        portrait={String(activeItem.format || '').toLowerCase() === 'short'}
+                        busy={metadataBusy || savingThumb}
+                        onReject={(message) => toast(message, 'error')}
+                        onSave={async (file) => {
+                          if (!activeItem?.topic_id) {
+                            toast('Generate metadata first.', 'error')
+                            throw new Error('Generate metadata first.')
+                          }
+                          setSavingThumb(true)
+                          try {
+                            await api.replaceYouTubeThumbnail(token, clientId, {
+                              topicId: activeItem.topic_id,
+                              language: previewLang,
+                              format: activeItem.format || 'Long',
+                              file,
+                            })
+                            await loadPlan()
+                            toast('Thumbnail replaced.', 'success')
+                          } catch (err) {
+                            toast(err.message, 'error')
+                            throw err
+                          } finally {
+                            setSavingThumb(false)
+                          }
+                        }}
+                      />
                       <div className="tracker-yt-preview-copy">
                         <h4>{previewMeta.yt_title}</h4>
                         <p>{previewMeta.yt_description}</p>
@@ -850,6 +882,7 @@ export default function ClientPostVideo() {
               </button>
             </div>
             <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+              <LocalReferenceAttach files={localRefFiles} onChange={setLocalRefFiles} disabled={metadataBusy} />
               <div className="form-group">
                 <label style={{ color: '#fff', display: 'block', marginBottom: '8px' }}>YouTube Channel</label>
                 <CustomSelect

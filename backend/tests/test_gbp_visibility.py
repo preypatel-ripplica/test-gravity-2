@@ -646,3 +646,218 @@ def test_public_optimize_keeps_point_competitors_and_hides_report_services(monke
     assert body["keywords"][0]["points"][0]["competitors"][0]["name"] == "Other Clinic"
     assert body["listing"]["services"]["suggested"] == []
     assert [item["action"] for item in body["service_recommendations"]] == ["ADD"]
+
+
+def test_refresh_skips_google_within_30_seconds(monkeypatch):
+    from datetime import datetime, timezone
+
+    saved = {
+        "listing": {"score": 9, "sections": [], "title": "Cached"},
+        "listing_checked_at": datetime.now(timezone.utc).isoformat(),
+        "gaps_status": "ready",
+    }
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_client_doc", lambda client_id, username=None: {"id": client_id})
+    monkeypatch.setattr(
+        "backend.tg.services.gbp_api.get_gbp_location",
+        lambda client_id, location_id: {"location_id": location_id, "selected": True, "account_id": "9"},
+    )
+    monkeypatch.setattr("backend.tg.routes.gbp.get_gbp_optimize", lambda client_id, location_id: saved)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("Google should not be called")
+
+    monkeypatch.setattr("backend.tg.routes.gbp.get_location", boom)
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_search_keywords", boom)
+    response = _client().post(
+        "/gbp.optimize.refresh",
+        json={"client_id": "c1", "location_id": "loc-1", "force": False, "include_search_keywords": False},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["listing"]["score"] == 9
+
+
+def _live_location():
+    return {
+        "title": "Live Clinic",
+        "serviceItems": [{"freeFormServiceItem": {"label": {"displayName": "Hip replacement"}}}],
+        "profile": {"description": "Live description for the clinic today and its patients."},
+        "categories": {"primaryCategory": {"displayName": "Orthopedist", "name": "categories/ortho"}},
+        "phoneNumbers": {"primaryPhone": "999"},
+        "websiteUri": "https://example.com",
+        "regularHours": {"periods": [{"openDay": "MONDAY"}]},
+        "metadata": {},
+    }
+
+
+def test_refresh_older_than_30s_skips_search_keywords(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    saved = {
+        "listing": {"score": 1, "sections": []},
+        "listing_checked_at": (datetime.now(timezone.utc) - timedelta(seconds=31)).isoformat(),
+    }
+    calls = {"location": 0, "keywords": 0}
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_client_doc", lambda client_id, username=None: {"id": client_id})
+    monkeypatch.setattr(
+        "backend.tg.services.gbp_api.get_gbp_location",
+        lambda client_id, location_id: {
+            "location_id": location_id,
+            "selected": True,
+            "account_id": "9",
+            "client_id": client_id,
+            "location_name": f"locations/{location_id}",
+        },
+    )
+    monkeypatch.setattr("backend.tg.routes.gbp.get_gbp_optimize", lambda client_id, location_id: saved)
+    monkeypatch.setattr("backend.tg.routes.gbp.merge_gbp_optimize", lambda client_id, location_id, patch: saved.update(patch) or saved)
+    monkeypatch.setattr("backend.tg.routes.gbp._creds", lambda client_id: object())
+    monkeypatch.setattr("backend.tg.routes.gbp._cache_profile", lambda *args, **kwargs: None)
+    monkeypatch.setattr("backend.tg.routes.gbp.list_media", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.tg.routes.gbp.list_place_action_links", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.tg.routes.gbp.appointment_link", lambda *args, **kwargs: {})
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_topics", lambda *args, **kwargs: [])
+
+    def get_location(creds, name):
+        calls["location"] += 1
+        return _live_location()
+
+    def fetch_search_keywords(*args, **kwargs):
+        calls["keywords"] += 1
+        return [{"keyword": "hip", "impressions": 4}]
+
+    monkeypatch.setattr("backend.tg.routes.gbp.get_location", get_location)
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_search_keywords", fetch_search_keywords)
+    response = _client().post(
+        "/gbp.optimize.refresh",
+        json={"client_id": "c1", "location_id": "loc-1", "force": False, "include_search_keywords": False},
+    )
+    assert response.status_code == 200, response.text
+    assert calls == {"location": 1, "keywords": 0}
+    body = response.json()["listing"]
+    assert body["title"] == "Live Clinic"
+    assert body["services"]["current"][0]["displayName"] == "Hip replacement"
+
+
+def test_refresh_force_collects_search_keywords(monkeypatch):
+    from datetime import datetime, timezone
+
+    saved = {
+        "listing": {"score": 1, "sections": []},
+        "listing_checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    calls = {"keywords": 0}
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_client_doc", lambda client_id, username=None: {"id": client_id})
+    monkeypatch.setattr(
+        "backend.tg.services.gbp_api.get_gbp_location",
+        lambda client_id, location_id: {
+            "location_id": location_id,
+            "selected": True,
+            "account_id": "9",
+            "client_id": client_id,
+            "location_name": f"locations/{location_id}",
+        },
+    )
+    monkeypatch.setattr("backend.tg.routes.gbp.get_gbp_optimize", lambda client_id, location_id: saved)
+    monkeypatch.setattr("backend.tg.routes.gbp.merge_gbp_optimize", lambda client_id, location_id, patch: saved.update(patch) or saved)
+    monkeypatch.setattr("backend.tg.routes.gbp._creds", lambda client_id: object())
+    monkeypatch.setattr("backend.tg.routes.gbp._cache_profile", lambda *args, **kwargs: None)
+    monkeypatch.setattr("backend.tg.routes.gbp.list_media", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.tg.routes.gbp.list_place_action_links", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.tg.routes.gbp.appointment_link", lambda *args, **kwargs: {})
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_topics", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.tg.routes.gbp.get_location", lambda *args, **kwargs: _live_location())
+
+    def fetch_search_keywords(*args, **kwargs):
+        calls["keywords"] += 1
+        return [{"keyword": "hip", "impressions": 4}]
+
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_search_keywords", fetch_search_keywords)
+    response = _client().post(
+        "/gbp.optimize.refresh",
+        json={"client_id": "c1", "location_id": "loc-1", "force": True, "include_search_keywords": True},
+    )
+    assert response.status_code == 200, response.text
+    assert calls["keywords"] == 1
+    assert response.json()["listing"]["title"] == "Live Clinic"
+
+
+def test_optimize_run_uses_live_profile_and_search_keywords(monkeypatch):
+    from backend.tg.routes.gbp import _execute_optimize_body
+
+    row = {
+        "location_id": "loc-1",
+        "location_name": "locations/loc-1",
+        "client_id": "c1",
+        "title": "Old Name",
+        "profile": {
+            "title": "Old Name",
+            "serviceItems": [{"freeFormServiceItem": {"label": {"displayName": "Old service"}}}],
+        },
+    }
+    seen = {}
+    monkeypatch.setattr("backend.tg.routes.gbp.get_gbp_location", lambda client_id, location_id: row)
+    monkeypatch.setattr("backend.tg.routes.gbp._creds", lambda client_id: object())
+    monkeypatch.setattr("backend.tg.routes.gbp._cache_profile", lambda *args, **kwargs: None)
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_topics", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        "backend.tg.routes.gbp.get_gbp_optimize",
+        lambda client_id, location_id: {"listing": {"keywords": [{"keyword": "stale", "impressions": 1}]}},
+    )
+    stored = {}
+    monkeypatch.setattr(
+        "backend.tg.routes.gbp.merge_gbp_optimize",
+        lambda client_id, location_id, patch: stored.update(patch) or patch,
+    )
+
+    def get_location(creds, name):
+        seen["location_name"] = name
+        return {
+            "title": "Live Name",
+            "serviceItems": [{"freeFormServiceItem": {"label": {"displayName": "Knee arthroscopy"}}}],
+            "profile": {"description": "Live description"},
+            "categories": {"primaryCategory": {"displayName": "Surgeon", "name": "categories/surgeon"}},
+            "phoneNumbers": {"primaryPhone": "1"},
+            "metadata": {"placeId": "pid"},
+            "latlng": {"latitude": 12.0, "longitude": 77.0},
+        }
+
+    def fetch_search_keywords(*args, **kwargs):
+        seen["fetched_keywords"] = True
+        return [{"keyword": "live search", "impressions": 8}]
+
+    monkeypatch.setattr("backend.tg.routes.gbp.get_location", get_location)
+    monkeypatch.setattr("backend.tg.routes.gbp.fetch_search_keywords", fetch_search_keywords)
+
+    def run_gap(*args, **kwargs):
+        seen["title"] = kwargs["location"].get("title")
+        seen["reported"] = kwargs["reported"]
+        from backend.tg.services.gbp_optimize import service_names
+
+        seen["services"] = service_names(kwargs["location"])
+
+    _execute_optimize_body("c1", "loc-1", "", None, None, run_gap)
+    assert seen["location_name"] == "locations/loc-1"
+    assert seen["fetched_keywords"] is True
+    assert seen["title"] == "Live Name"
+    assert seen["services"] == ["Knee arthroscopy"]
+    assert seen["reported"] == [{"keyword": "live search", "impressions": 8}]
+    assert stored["listing"]["keywords"] == [{"keyword": "live search", "impressions": 8}]
+
+
+def test_public_optimize_drops_add_already_on_listing():
+    from backend.tg.routes.gbp import _public_optimize
+
+    data = _public_optimize(
+        {
+            "listing": {"services": {"current": [{"displayName": "Root canal"}]}},
+            "service_recommendations": [
+                {"action": "ADD", "proposed_name": "root canal"},
+                {"action": "ADD", "proposed_name": "Shoulder arthroscopy"},
+                {"action": "REPLACE", "current_name": "Hip", "proposed_name": "Total hip replacement"},
+            ],
+        }
+    )
+    assert [item["proposed_name"] for item in data["service_recommendations"]] == [
+        "Shoulder arthroscopy",
+        "Total hip replacement",
+    ]

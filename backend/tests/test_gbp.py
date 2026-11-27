@@ -24,7 +24,9 @@ from backend.tg.services.gbp_optimize import (
     keyword_action,
     keyword_service_ideas,
     profile_update_from_approval,
+    rewrite_service_list_detail,
     sanitize_service_suggestions,
+    soften_audit_listing,
 )
 from backend.tg.services.gbp_posts import (
     GBP_SUMMARY_MAX,
@@ -337,9 +339,29 @@ def test_checklist_score_and_photo_gaps():
     assert by_id["categories"]["score"] == 0
     assert by_id["photos"]["score"] == 0
     assert {item["title"] for item in by_id["photos"]["checks"]} == {"Cover", "Interior", "Team", "At work"}
+    service_detail = by_id["services"]["checks"][0]["detail"]
+    assert "1 listed" in service_detail
+    assert "Add more services to this listing" in service_detail
+    assert "actually offers" not in service_detail
     audit = build_audit(location=_thin_location(), media=[], specialty="Pain management", client_description="Back pain and sciatica consults.")
     assert audit["score_label"] == "Gravity completeness"
     assert audit["score"] < 100
+
+
+def test_rewrite_stale_service_list_copy():
+    assert rewrite_service_list_detail("1 listed. Add the services this clinic actually offers.") == (
+        "1 listed. Add more services to this listing."
+    )
+    stale = {
+        "sections": [
+            {
+                "checks": [
+                    {"ok": False, "title": "Service list", "detail": "1 listed. Add the services this clinic actually offers."}
+                ]
+            }
+        ]
+    }
+    assert soften_audit_listing(stale)["sections"][0]["checks"][0]["detail"] == "1 listed. Add more services to this listing."
 
 
 def test_approval_patch_cannot_rename_or_move_the_clinic():
